@@ -38,11 +38,12 @@ justfile                      setup and build recipes
 
 ```sh
 just setup      # submodules, pinned ARM toolchain into ../.arm-none-eabi
-just build      # build/rp2/firmware.uf2
+just build      # build/rp2/<board>/firmware.uf2
 ```
 
-`METALCLAW_ARM_TOOLCHAIN_DIR` and `METALCLAW_BUILD_DIR` override the toolchain
-and build locations.
+`METALCLAW_BOARD_DIR` selects the board directory and may point anywhere; the
+default is the in-tree `rpi_pi_pico`. `METALCLAW_ARM_TOOLCHAIN_DIR` and
+`METALCLAW_BUILD_DIR` override the toolchain and build locations.
 
 ## License
 

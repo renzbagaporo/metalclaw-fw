@@ -5,7 +5,12 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 project_dir := justfile_directory()
 micropython_dir := project_dir / "core/third_party/micropython"
 build_dir := env_var_or_default("METALCLAW_BUILD_DIR", project_dir / "build")
-rp2_build_dir := build_dir / "rp2"
+
+# The board directory may live anywhere, e.g. a bench-specific board kept
+# outside the tree. Its basename is the MicroPython board name.
+board_dir := env_var_or_default("METALCLAW_BOARD_DIR", project_dir / "core/ports/rp2/boards/rpi_pi_pico")
+board := file_name(board_dir)
+rp2_build_dir := build_dir / "rp2" / board
 
 # Pinned submodule commits. A clean checkout plus `just setup` selects exactly
 # these; the recipes refuse to build against anything else.
@@ -56,9 +61,10 @@ build: build-mpy-cross
     set -euo pipefail
     export PATH="{{arm_toolchain_bin}}:${PATH}"
     make -C "{{micropython_dir}}/ports/rp2" -j"$(nproc)" \
-        BOARD_DIR="{{project_dir}}/core/ports/rp2/boards/rpi_pi_pico" \
+        BOARD_DIR="{{board_dir}}" \
         BUILD="{{rp2_build_dir}}" \
         USER_C_MODULES="{{project_dir}}/core/micropython/micropython.cmake"
+    test -f "{{board_dir}}/mpconfigboard.h"
     test -f "{{rp2_build_dir}}/firmware.uf2"
     ls -l "{{rp2_build_dir}}/firmware.uf2"
 
