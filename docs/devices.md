@@ -127,6 +127,8 @@ port exists.
   from inside it.
 - `usb.h`: a vendor bulk interface on the composite device, with a receive
   callback and a write; see [usb.md](usb.md).
+- `console.h`: the channel the harness's own REPL runs over; the port owns
+  the transport.
 
 ## From MicroPython
 

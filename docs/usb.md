@@ -48,8 +48,9 @@ and the volume as a raw FAT block device with no partition table.
 - `core/ports/rp2/usb/owner.c` initialises TinyUSB, pumps it from a scheduler
   node whenever the USB interrupt reports an event, and feeds CDC input into
   MicroPython's `stdin_ringbuf` with Ctrl-C handling.
-- `core/micropython/console.c` is the REPL: a builtin dupterm stream whose
-  read and write go straight to the CDC interface with no allocation.
+- `core/ports/rp2/console.c` is the REPL: a builtin dupterm stream over
+  `hal/console.h`, whose read and write go straight to the CDC interface
+  with no allocation.
 - MSC is served by upstream's `msc_disk.c`, exposing the same flash region
   MicroPython mounts as `/`. There is no coherency between the two sides yet:
   a host write is only seen by MicroPython after a soft reset, and the host

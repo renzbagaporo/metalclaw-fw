@@ -5,8 +5,7 @@
 #ifndef METALCLAW_PORT_RP2_H
 #define METALCLAW_PORT_RP2_H
 
-#include <stdbool.h>
-#include <stddef.h>
+#include "metalclaw/runtime.h"
 
 // MicroPython's own USB device is switched off so the port can own the
 // composite device. Its descriptor callbacks are non-weak, so there is no
@@ -45,13 +44,7 @@
 void metalclaw_usb_init(void);
 void metalclaw_usb_task(void);
 void metalclaw_port_event_hook(void);
-
-size_t metalclaw_console_write(const void *buf, size_t size);
-size_t metalclaw_console_read(void *buf, size_t size);
-bool metalclaw_console_readable(void);
-bool metalclaw_console_writable(void);
 void metalclaw_console_vm_init(void);
-void metalclaw_detach_all(void);
 
 #define MICROPY_BOARD_EARLY_INIT()              metalclaw_usb_init()
 #define MICROPY_PORT_INIT_FUNC                  metalclaw_console_vm_init()

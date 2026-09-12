@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-// The REPL as a builtin dupterm stream over the port's console channel.
+// The REPL as a builtin dupterm stream over the console HAL.
 
 #include "py/runtime.h"
 #include "py/stream.h"
 #include "extmod/misc.h"
+#include "metalclaw/hal/console.h"
 #include "metalclaw_port.h"
 
 typedef struct _console_obj_t {
@@ -13,12 +14,12 @@ typedef struct _console_obj_t {
 static mp_uint_t console_write(mp_obj_t self_in, const void *buf, mp_uint_t size, int *errcode) {
     (void)self_in;
     (void)errcode;
-    return metalclaw_console_write(buf, size);
+    return metalclaw_hal_console_write(buf, size);
 }
 
 static mp_uint_t console_read(mp_obj_t self_in, void *buf, mp_uint_t size, int *errcode) {
     (void)self_in;
-    size_t n = metalclaw_console_read(buf, size);
+    size_t n = metalclaw_hal_console_read(buf, size);
     if (n == 0) {
         *errcode = MP_EAGAIN;
         return MP_STREAM_ERROR;
@@ -33,10 +34,10 @@ static mp_uint_t console_ioctl(mp_obj_t self_in, mp_uint_t request, uintptr_t ar
         return MP_STREAM_ERROR;
     }
     mp_uint_t ret = 0;
-    if ((arg & MP_STREAM_POLL_RD) && metalclaw_console_readable()) {
+    if ((arg & MP_STREAM_POLL_RD) && metalclaw_hal_console_readable()) {
         ret |= MP_STREAM_POLL_RD;
     }
-    if ((arg & MP_STREAM_POLL_WR) && metalclaw_console_writable()) {
+    if ((arg & MP_STREAM_POLL_WR) && metalclaw_hal_console_writable()) {
         ret |= MP_STREAM_POLL_WR;
     }
     return ret;

@@ -12,7 +12,6 @@ add_library(usermod_metalclaw INTERFACE)
 set(METALCLAW_USERMOD_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/modmetalclaw.c
     ${CMAKE_CURRENT_LIST_DIR}/instance.c
-    ${CMAKE_CURRENT_LIST_DIR}/console.c
 )
 metalclaw_strict_sources(${METALCLAW_USERMOD_SOURCES})
 

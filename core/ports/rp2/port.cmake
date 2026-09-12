@@ -9,6 +9,7 @@
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/strict.cmake)
 
 set(METALCLAW_PORT_RP2_SOURCES
+    ${CMAKE_CURRENT_LIST_DIR}/console.c
     ${CMAKE_CURRENT_LIST_DIR}/usb/descriptors.c
     ${CMAKE_CURRENT_LIST_DIR}/usb/interfaces.c
     ${CMAKE_CURRENT_LIST_DIR}/usb/owner.c

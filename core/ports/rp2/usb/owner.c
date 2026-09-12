@@ -9,6 +9,7 @@
 #include "mphalport.h"
 #include "pico/time.h"
 #include "tusb.h"
+#include "metalclaw/hal/console.h"
 #include "metalclaw_port.h"
 #include "usb_internal.h"
 
@@ -122,7 +123,7 @@ void tud_cdc_rx_cb(uint8_t itf) {
     }
 }
 
-size_t metalclaw_console_write(const void *buf, size_t size) {
+size_t metalclaw_hal_console_write(const void *buf, size_t size) {
     const uint8_t *data = buf;
     size_t written = 0;
     mp_uint_t last_progress = mp_hal_ticks_ms();
@@ -152,14 +153,14 @@ size_t metalclaw_console_write(const void *buf, size_t size) {
     return written;
 }
 
-size_t metalclaw_console_read(void *buf, size_t size) {
+size_t metalclaw_hal_console_read(void *buf, size_t size) {
     return tud_cdc_n_read(CDC_ITF, buf, size);
 }
 
-bool metalclaw_console_readable(void) {
+bool metalclaw_hal_console_readable(void) {
     return tud_cdc_n_available(CDC_ITF) > 0;
 }
 
-bool metalclaw_console_writable(void) {
+bool metalclaw_hal_console_writable(void) {
     return tud_cdc_n_write_available(CDC_ITF) > 0;
 }
