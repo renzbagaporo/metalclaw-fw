@@ -137,15 +137,19 @@ void metalclaw_hal_i2c_target_close(struct metalclaw_i2c_target *t) {
     t->image = NULL;
 }
 
-void metalclaw_hal_i2c_target_arm(struct metalclaw_i2c_target *t, struct metalclaw_regmap *image) {
+int metalclaw_hal_i2c_target_arm(struct metalclaw_i2c_target *t, struct metalclaw_regmap *image) {
+    if (t == NULL || t->owner == NULL) {
+        return -EINVAL;
+    }
     uint32_t state = metalclaw_hal_critical_enter();
     t->image = image;
     t->pointer_pending = true;
     metalclaw_hal_critical_exit(state);
+    return 0;
 }
 
 void metalclaw_hal_i2c_target_disarm(struct metalclaw_i2c_target *t) {
-    metalclaw_hal_i2c_target_arm(t, NULL);
+    (void)metalclaw_hal_i2c_target_arm(t, NULL);
 }
 
 void metalclaw_hal_i2c_target_stats(const struct metalclaw_i2c_target *t, struct metalclaw_i2c_target_stats *out) {

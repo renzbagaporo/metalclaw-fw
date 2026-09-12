@@ -79,6 +79,16 @@ struct metalclaw_instance *metalclaw_instance_find(const char *name) {
     return NULL;
 }
 
+struct metalclaw_instance *metalclaw_instance_from_state(const void *state) {
+    const uint8_t *p = state;
+
+    if (p < arena || p >= arena + METALCLAW_ARENA_SIZE) {
+        return NULL;
+    }
+    uint8_t tag = arena_owner[(size_t)(p - arena) / ARENA_PAGE];
+    return tag == 0 ? NULL : &instances[tag - 1u];
+}
+
 size_t metalclaw_instance_count(void) {
     return attached_count;
 }
@@ -492,6 +502,31 @@ int metalclaw_reset(struct metalclaw_instance *inst, bool factory) {
     int err = inst->model->ops->reset(inst, factory);
     metalclaw_hal_unlock();
     return err;
+}
+
+int metalclaw_spi_mode_get(struct metalclaw_instance *inst, size_t binding, struct metalclaw_value *out) {
+    if (binding >= inst->model->binding_count || inst->model->bindings[binding].kind != METALCLAW_BINDING_SPI_TARGET) {
+        return -EINVAL;
+    }
+    if (!inst->bindings[binding].present) {
+        return -ENODEV;
+    }
+    out->v[0] = metalclaw_hal_spi_target_mode(inst->bindings[binding].spi);
+    return 0;
+}
+
+int metalclaw_spi_mode_set(struct metalclaw_instance *inst, size_t binding, const struct metalclaw_value *in) {
+    if (binding >= inst->model->binding_count || inst->model->bindings[binding].kind != METALCLAW_BINDING_SPI_TARGET) {
+        return -EINVAL;
+    }
+    uint8_t mode = (uint8_t)in->v[0];
+    if (mode > 3 || (inst->model->bindings[binding].spi.modes & METALCLAW_SPI_MODE_BIT(mode)) == 0) {
+        return -EINVAL;
+    }
+    if (!inst->bindings[binding].present) {
+        return -ENODEV;
+    }
+    return metalclaw_hal_spi_target_set_mode(inst->bindings[binding].spi, mode);
 }
 
 int metalclaw_binding_stats(struct metalclaw_instance *inst, size_t binding, struct metalclaw_stat *out, size_t max) {

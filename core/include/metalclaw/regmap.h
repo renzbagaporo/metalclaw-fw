@@ -45,6 +45,12 @@ struct metalclaw_regmap {
 void metalclaw_regmap_init(struct metalclaw_regmap *map, uint8_t bank_count, uint8_t bank_select_reg, uint8_t filler);
 void metalclaw_regmap_set(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint8_t value, uint8_t flags);
 uint8_t metalclaw_regmap_get(const struct metalclaw_regmap *map, uint8_t bank, uint8_t reg);
+
+// Multi-byte registers at consecutive addresses, read-only, in the byte
+// order the datasheet gives.
+void metalclaw_regmap_set_le16(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint16_t value);
+void metalclaw_regmap_set_le24(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint32_t value);
+void metalclaw_regmap_set_be16(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint16_t value);
 void metalclaw_regmap_set_on_write(struct metalclaw_regmap *map, metalclaw_regmap_on_write_t fn, void *ctx);
 
 // The engine side: what a bus read or write of `reg` in the active bank does.

@@ -27,7 +27,6 @@ struct ads7883_state {
     struct metalclaw_stream stream;
     struct metalclaw_spi_target *spi;
     uint16_t sample;
-    uint8_t spi_mode;
 };
 
 static const struct metalclaw_property_desc ads7883_properties[] = {
@@ -40,15 +39,7 @@ static const struct metalclaw_property_desc ads7883_properties[] = {
         .min = 0,
         .max = ADS7883_SAMPLE_MAX,
     },
-    {
-        .name = "spi_mode",
-        .type = METALCLAW_TYPE_U32,
-        .count = 1,
-        .access = METALCLAW_ACCESS_RW,
-        .unit = NULL,
-        .min = 0,
-        .max = 3,
-    },
+    METALCLAW_PROPERTY_SPI_MODE,
 };
 
 static const struct metalclaw_binding_desc ads7883_bindings[] = {
@@ -82,12 +73,8 @@ static void publish_sample(struct metalclaw_instance *inst) {
 static int ads7883_init(struct metalclaw_instance *inst, const struct metalclaw_binding *bindings) {
     struct ads7883_state *state = inst->state;
 
-    if (!bindings[BINDING_SPI].present) {
-        return -EINVAL;
-    }
     state->spi = bindings[BINDING_SPI].spi;
     state->sample = ADS7883_SAMPLE_DEFAULT;
-    state->spi_mode = ads7883_bindings[BINDING_SPI].spi.default_mode;
     metalclaw_stream_init(&state->stream, METALCLAW_STREAM_OUT, ADS7883_FRAME_BYTES, 0x00);
     publish_sample(inst);
     return metalclaw_hal_spi_target_arm_stream(state->spi, &state->stream);
@@ -117,8 +104,7 @@ static int ads7883_get(struct metalclaw_instance *inst, size_t property, struct 
             out->v[0] = state->sample;
             return 0;
         case PROP_SPI_MODE:
-            out->v[0] = state->spi_mode;
-            return 0;
+            return metalclaw_spi_mode_get(inst, BINDING_SPI, out);
         default:
             return -EINVAL;
     }
@@ -132,17 +118,8 @@ static int ads7883_set(struct metalclaw_instance *inst, size_t property, const s
             state->sample = (uint16_t)in->v[0];
             publish_sample(inst);
             return 0;
-        case PROP_SPI_MODE: {
-            uint8_t mode = (uint8_t)in->v[0];
-            if ((ads7883_bindings[BINDING_SPI].spi.modes & METALCLAW_SPI_MODE_BIT(mode)) == 0) {
-                return -EINVAL;
-            }
-            int err = metalclaw_hal_spi_target_set_mode(state->spi, mode);
-            if (err == 0) {
-                state->spi_mode = mode;
-            }
-            return err;
-        }
+        case PROP_SPI_MODE:
+            return metalclaw_spi_mode_set(inst, BINDING_SPI, in);
         default:
             return -EINVAL;
     }

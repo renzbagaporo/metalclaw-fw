@@ -26,8 +26,8 @@ struct metalclaw_i2c_target *metalclaw_hal_i2c_target_open(uint8_t sda, uint8_t 
 void metalclaw_hal_i2c_target_close(struct metalclaw_i2c_target *t);
 
 // `image` must outlive the arm; it is read and written from interrupt
-// context.
-void metalclaw_hal_i2c_target_arm(struct metalclaw_i2c_target *t, struct metalclaw_regmap *image);
+// context. Arming replaces whatever was armed.
+int metalclaw_hal_i2c_target_arm(struct metalclaw_i2c_target *t, struct metalclaw_regmap *image);
 void metalclaw_hal_i2c_target_disarm(struct metalclaw_i2c_target *t);
 
 void metalclaw_hal_i2c_target_stats(const struct metalclaw_i2c_target *t, struct metalclaw_i2c_target_stats *out);

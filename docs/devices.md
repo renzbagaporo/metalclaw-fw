@@ -50,7 +50,10 @@ an ops table:
 
 A model owns its response image in its state, arms the bound engine from
 `init`, and edits the image under `metalclaw_hal_critical_enter()` whenever
-a property changes. The engine serves the image with no model call.
+a property changes. The engine serves the image with no model call. A
+callback that only holds the state gets its instance back with
+`metalclaw_instance_from_state()`. The runtime has already refused a
+missing required binding before `init` runs.
 
 A model declares the ABI version it targets twice: in `device.cmake`, where
 the generator refuses a mismatch at configure time, and in the struct, where
@@ -114,8 +117,9 @@ queue and the poll table.
 The response images are what a model edits and an engine serves.
 
 `core/include/metalclaw/regmap.h` is a register file with up to four banks,
-per-register flags for writable and clear-on-read, and bus-side read/write
-helpers an engine calls without the model. A model may install an
+per-register flags for writable and clear-on-read, multi-byte setters in
+either byte order, and bus-side read/write helpers an engine calls without
+the model. A model may install an
 `on_write` hook: it runs in interrupt context after a write has been
 committed, bank select included, and may only edit the image. For SPI the
 model adds a `struct metalclaw_regmap_framing` (in `hal/spi_target.h`) from

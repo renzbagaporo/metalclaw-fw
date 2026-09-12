@@ -66,6 +66,9 @@ int metalclaw_attach(const struct metalclaw_model *model, const char *name,
 int metalclaw_detach(struct metalclaw_instance *inst);
 void metalclaw_detach_all(void);
 struct metalclaw_instance *metalclaw_instance_find(const char *name);
+// The instance whose arena state `state` points into, for a callback that
+// only holds its state. NULL for a pointer outside the arena.
+struct metalclaw_instance *metalclaw_instance_from_state(const void *state);
 size_t metalclaw_instance_count(void);
 struct metalclaw_instance *metalclaw_instance_at(size_t index);
 
@@ -81,6 +84,15 @@ int metalclaw_clear_faults(struct metalclaw_instance *inst);
 int metalclaw_read_region(struct metalclaw_instance *inst, size_t region, uint32_t offset, void *buf, size_t len);
 int metalclaw_write_region(struct metalclaw_instance *inst, size_t region, uint32_t offset, const void *buf, size_t len);
 int metalclaw_reset(struct metalclaw_instance *inst, bool factory);
+
+// The SPI mode an spi_target binding listens in, for a model that exposes
+// it as a property: the descriptor, and the get and set that validate
+// against the binding's declared modes. -ENODEV when the binding is unbound.
+#define METALCLAW_PROPERTY_SPI_MODE \
+    { .name = "spi_mode", .type = METALCLAW_TYPE_U32, .count = 1, .access = METALCLAW_ACCESS_RW, \
+      .unit = NULL, .min = 0, .max = 3 }
+int metalclaw_spi_mode_get(struct metalclaw_instance *inst, size_t binding, struct metalclaw_value *out);
+int metalclaw_spi_mode_set(struct metalclaw_instance *inst, size_t binding, const struct metalclaw_value *in);
 
 // The bound engine's counters for one binding, as named values, so a
 // binding or a host codec never switches on the kind. Returns how many were

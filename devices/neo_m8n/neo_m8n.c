@@ -51,7 +51,6 @@ enum parse_state {
 };
 
 struct neo_m8n_state {
-    struct metalclaw_instance *inst;
     struct metalclaw_uart *uart;
     int32_t latitude;
     int32_t longitude;
@@ -295,9 +294,9 @@ static void send_frame(struct neo_m8n_state *state, uint8_t cls, uint8_t id, con
     f[UBX_HEADER_BYTES + len] = ck_a;
     f[UBX_HEADER_BYTES + len + 1] = ck_b;
     if (metalclaw_hal_uart_send(state->uart, f, total) != total) {
-        metalclaw_trace(state->inst, METALCLAW_TRACE_ERROR, ((uint32_t)cls << 8) | id, (uint16_t)total, -ENOSPC);
+        metalclaw_trace(metalclaw_instance_from_state(state), METALCLAW_TRACE_ERROR, ((uint32_t)cls << 8) | id, (uint16_t)total, -ENOSPC);
     } else {
-        metalclaw_trace(state->inst, METALCLAW_TRACE_UART, ((uint32_t)cls << 8) | id, (uint16_t)total, 0);
+        metalclaw_trace(metalclaw_instance_from_state(state), METALCLAW_TRACE_UART, ((uint32_t)cls << 8) | id, (uint16_t)total, 0);
     }
 }
 
@@ -433,7 +432,7 @@ static void handle_cfg(struct neo_m8n_state *state) {
                     state->running = true;
                 }
                 state->resets++;
-                metalclaw_trace(state->inst, METALCLAW_TRACE_COMMAND, p[2], 0, 0);
+                metalclaw_trace(metalclaw_instance_from_state(state), METALCLAW_TRACE_COMMAND, p[2], 0, 0);
             }
             break;
         case UBX_CFG_RATE:
@@ -592,10 +591,6 @@ static void power_on(struct neo_m8n_state *state) {
 static int neo_m8n_init(struct metalclaw_instance *inst, const struct metalclaw_binding *bindings) {
     struct neo_m8n_state *state = inst->state;
 
-    if (!bindings[BINDING_UART].present) {
-        return -EINVAL;
-    }
-    state->inst = inst;
     state->uart = bindings[BINDING_UART].uart;
     power_on(state);
     state->baud = neo_m8n_bindings[BINDING_UART].uart.default_baud;

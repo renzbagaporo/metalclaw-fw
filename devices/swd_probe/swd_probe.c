@@ -101,9 +101,6 @@ static const struct metalclaw_binding_desc probe_bindings[] = {
 static int probe_init(struct metalclaw_instance *inst, const struct metalclaw_binding *bindings) {
     struct swd_probe_state *state = inst->state;
 
-    if (!bindings[BINDING_SWD].present || !bindings[BINDING_DAP].present) {
-        return -EINVAL;
-    }
     state->usb = bindings[BINDING_DAP].usb;
     metalclaw_dap_init(&state->dap, inst, bindings[BINDING_SWD].swd);
     return metalclaw_dap_enable(&state->dap, true);

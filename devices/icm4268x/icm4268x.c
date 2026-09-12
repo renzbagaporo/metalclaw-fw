@@ -39,9 +39,7 @@ struct icm4268x_config {
 struct icm4268x_state {
     struct metalclaw_regmap map;
     struct metalclaw_spi_target *spi;
-    struct metalclaw_instance *inst;
     uint8_t who_am_i;
-    uint8_t spi_mode;
     int16_t accel[3];
     int16_t gyro[3];
     int16_t temperature;
@@ -76,15 +74,7 @@ static const struct metalclaw_property_desc icm4268x_properties[] = {
         .min = INT16_MIN,
         .max = INT16_MAX,
     },
-    {
-        .name = "spi_mode",
-        .type = METALCLAW_TYPE_U32,
-        .count = 1,
-        .access = METALCLAW_ACCESS_RW,
-        .unit = NULL,
-        .min = 0,
-        .max = 3,
-    },
+    METALCLAW_PROPERTY_SPI_MODE,
     {
         .name = "power_mode",
         .type = METALCLAW_TYPE_U32,
@@ -154,16 +144,11 @@ static const struct metalclaw_regmap_framing icm4268x_framing = {
     .auto_increment = true,
 };
 
-static void set_be16(struct metalclaw_regmap *map, uint8_t reg, int16_t value) {
-    metalclaw_regmap_set(map, 0, reg, (uint8_t)((uint16_t)value >> 8), 0);
-    metalclaw_regmap_set(map, 0, (uint8_t)(reg + 1u), (uint8_t)value, 0);
-}
-
 static void load_sample(struct icm4268x_state *state) {
-    set_be16(&state->map, ICM4268X_REG_TEMP_DATA1, state->temperature);
+    metalclaw_regmap_set_be16(&state->map, 0, ICM4268X_REG_TEMP_DATA1, (uint16_t)state->temperature);
     for (uint8_t i = 0; i < 3; i++) {
-        set_be16(&state->map, (uint8_t)(ICM4268X_REG_ACCEL_DATA_X1 + 2 * i), state->accel[i]);
-        set_be16(&state->map, (uint8_t)(ICM4268X_REG_GYRO_DATA_X1 + 2 * i), state->gyro[i]);
+        metalclaw_regmap_set_be16(&state->map, 0, (uint8_t)(ICM4268X_REG_ACCEL_DATA_X1 + 2 * i), (uint16_t)state->accel[i]);
+        metalclaw_regmap_set_be16(&state->map, 0, (uint8_t)(ICM4268X_REG_GYRO_DATA_X1 + 2 * i), (uint16_t)state->gyro[i]);
     }
 }
 
@@ -209,7 +194,7 @@ static void on_write(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, ui
     if (reg == ICM4268X_REG_DEVICE_CONFIG && (value & ICM4268X_DEVICE_CONFIG_SOFT_RESET)) {
         build_map(state);
         state->resets++;
-        metalclaw_trace(state->inst, METALCLAW_TRACE_COMMAND, reg, 1, 0);
+        metalclaw_trace(metalclaw_instance_from_state(state), METALCLAW_TRACE_COMMAND, reg, 1, 0);
     } else if (reg == ICM4268X_REG_PWR_MGMT0) {
         raise_data_ready(state);
     }
@@ -228,13 +213,8 @@ static void publish_sample(struct metalclaw_instance *inst) {
 static int icm4268x_init(struct metalclaw_instance *inst, const struct metalclaw_binding *bindings) {
     struct icm4268x_state *state = inst->state;
 
-    if (!bindings[BINDING_SPI].present) {
-        return -EINVAL;
-    }
-    state->inst = inst;
     state->spi = bindings[BINDING_SPI].spi;
     state->who_am_i = ((const struct icm4268x_config *)inst->model->config)->who_am_i;
-    state->spi_mode = icm4268x_bindings[BINDING_SPI].spi.default_mode;
     metalclaw_regmap_init(&state->map, ICM4268X_BANKS, ICM4268X_REG_BANK_SEL, 0x00);
     metalclaw_regmap_set_on_write(&state->map, on_write, state);
     build_map(state);
@@ -278,8 +258,7 @@ static int icm4268x_get(struct metalclaw_instance *inst, size_t property, struct
             out->v[0] = state->temperature;
             return 0;
         case PROP_SPI_MODE:
-            out->v[0] = state->spi_mode;
-            return 0;
+            return metalclaw_spi_mode_get(inst, BINDING_SPI, out);
         case PROP_POWER_MODE:
             out->v[0] = metalclaw_regmap_get(&state->map, 0, ICM4268X_REG_PWR_MGMT0);
             return 0;
@@ -315,17 +294,8 @@ static int icm4268x_set(struct metalclaw_instance *inst, size_t property, const 
         case PROP_TEMPERATURE:
             state->temperature = (int16_t)in->v[0];
             break;
-        case PROP_SPI_MODE: {
-            uint8_t mode = (uint8_t)in->v[0];
-            if ((icm4268x_bindings[BINDING_SPI].spi.modes & METALCLAW_SPI_MODE_BIT(mode)) == 0) {
-                return -EINVAL;
-            }
-            int err = metalclaw_hal_spi_target_set_mode(state->spi, mode);
-            if (err == 0) {
-                state->spi_mode = mode;
-            }
-            return err;
-        }
+        case PROP_SPI_MODE:
+            return metalclaw_spi_mode_set(inst, BINDING_SPI, in);
         default:
             return -EINVAL;
     }

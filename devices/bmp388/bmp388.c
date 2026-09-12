@@ -36,7 +36,6 @@ struct bmp388_state {
     struct metalclaw_regmap map;
     struct metalclaw_i2c_target *i2c;
     struct metalclaw_spi_target *spi;
-    uint8_t spi_mode;
     int32_t pressure_pa;
     int32_t temperature_mc;
 };
@@ -96,15 +95,7 @@ static const struct metalclaw_property_desc bmp388_properties[] = {
         .min = 0,
         .max = BMP388_ODR_MASK,
     },
-    {
-        .name = "spi_mode",
-        .type = METALCLAW_TYPE_U32,
-        .count = 1,
-        .access = METALCLAW_ACCESS_RW,
-        .unit = NULL,
-        .min = 0,
-        .max = 3,
-    },
+    METALCLAW_PROPERTY_SPI_MODE,
 };
 
 // One of the two buses must be bound; the part has both interfaces and the
@@ -157,23 +148,12 @@ uint32_t metalclaw_bmp388_raw_temperature(int32_t temperature_mc) {
     return clamp_raw((int64_t)BMP388_NVM_PAR_T1 * 256 + offset);
 }
 
-static void set_le16(struct metalclaw_regmap *map, uint8_t reg, uint16_t value) {
-    metalclaw_regmap_set(map, 0, reg, (uint8_t)value, 0);
-    metalclaw_regmap_set(map, 0, (uint8_t)(reg + 1u), (uint8_t)(value >> 8), 0);
-}
-
-static void set_le24(struct metalclaw_regmap *map, uint8_t reg, uint32_t value) {
-    metalclaw_regmap_set(map, 0, reg, (uint8_t)value, 0);
-    metalclaw_regmap_set(map, 0, (uint8_t)(reg + 1u), (uint8_t)(value >> 8), 0);
-    metalclaw_regmap_set(map, 0, (uint8_t)(reg + 2u), (uint8_t)(value >> 16), 0);
-}
-
 static void build_calibration(struct metalclaw_regmap *map) {
-    set_le16(map, BMP388_REG_NVM_PAR_T1, BMP388_NVM_PAR_T1);
-    set_le16(map, BMP388_REG_NVM_PAR_T2, BMP388_NVM_PAR_T2);
+    metalclaw_regmap_set_le16(map, 0, BMP388_REG_NVM_PAR_T1, BMP388_NVM_PAR_T1);
+    metalclaw_regmap_set_le16(map, 0, BMP388_REG_NVM_PAR_T2, BMP388_NVM_PAR_T2);
     metalclaw_regmap_set(map, 0, BMP388_REG_NVM_PAR_T3, 0, 0);
-    set_le16(map, BMP388_REG_NVM_PAR_P1, (uint16_t)BMP388_NVM_PAR_P1);
-    set_le16(map, BMP388_REG_NVM_PAR_P2, (uint16_t)BMP388_NVM_PAR_P2);
+    metalclaw_regmap_set_le16(map, 0, BMP388_REG_NVM_PAR_P1, (uint16_t)BMP388_NVM_PAR_P1);
+    metalclaw_regmap_set_le16(map, 0, BMP388_REG_NVM_PAR_P2, (uint16_t)BMP388_NVM_PAR_P2);
     for (uint8_t reg = BMP388_REG_NVM_PAR_P3; reg <= BMP388_REG_NVM_PAR_P11; reg++) {
         metalclaw_regmap_set(map, 0, reg, 0, 0);
     }
@@ -214,8 +194,8 @@ static void publish_sample(struct metalclaw_instance *inst) {
     uint32_t temperature = metalclaw_bmp388_raw_temperature(state->temperature_mc);
     uint32_t critical = metalclaw_hal_critical_enter();
 
-    set_le24(&state->map, BMP388_REG_DATA_0, pressure);
-    set_le24(&state->map, BMP388_REG_DATA_0 + 3, temperature);
+    metalclaw_regmap_set_le24(&state->map, 0, BMP388_REG_DATA_0, pressure);
+    metalclaw_regmap_set_le24(&state->map, 0, BMP388_REG_DATA_0 + 3, temperature);
     metalclaw_regmap_set(&state->map, 0, BMP388_REG_STATUS,
         BMP388_STATUS_CMD_RDY | BMP388_STATUS_DRDY_PRESS | BMP388_STATUS_DRDY_TEMP, 0);
     metalclaw_regmap_set(&state->map, 0, BMP388_REG_INT_STATUS, BMP388_INT_STATUS_DRDY,
@@ -236,12 +216,9 @@ static void disarm(struct bmp388_state *state) {
 
 static int arm(struct bmp388_state *state) {
     if (state->i2c != NULL) {
-        metalclaw_hal_i2c_target_arm(state->i2c, &state->map);
+        return metalclaw_hal_i2c_target_arm(state->i2c, &state->map);
     }
-    if (state->spi != NULL) {
-        return metalclaw_hal_spi_target_arm_regmap(state->spi, &state->map, &bmp388_framing);
-    }
-    return 0;
+    return metalclaw_hal_spi_target_arm_regmap(state->spi, &state->map, &bmp388_framing);
 }
 
 static int publish_part(struct metalclaw_instance *inst) {
@@ -261,7 +238,6 @@ static int bmp388_init(struct metalclaw_instance *inst, const struct metalclaw_b
     }
     state->i2c = bindings[BINDING_I2C].present ? bindings[BINDING_I2C].i2c : NULL;
     state->spi = bindings[BINDING_SPI].present ? bindings[BINDING_SPI].spi : NULL;
-    state->spi_mode = bmp388_bindings[BINDING_SPI].spi.default_mode;
     state->pressure_pa = BMP388_PRESSURE_DEFAULT_PA;
     state->temperature_mc = BMP388_TEMPERATURE_DEFAULT_MC;
     return publish_part(inst);
@@ -306,8 +282,7 @@ static int bmp388_get(struct metalclaw_instance *inst, size_t property,
             out->v[0] = metalclaw_regmap_get(&state->map, 0, BMP388_REG_ODR) & BMP388_ODR_MASK;
             return 0;
         case PROP_SPI_MODE:
-            out->v[0] = state->spi_mode;
-            return 0;
+            return metalclaw_spi_mode_get(inst, BINDING_SPI, out);
         default:
             return -EINVAL;
     }
@@ -324,20 +299,8 @@ static int bmp388_set(struct metalclaw_instance *inst, size_t property,
         case PROP_TEMPERATURE:
             state->temperature_mc = (int32_t)in->v[0];
             break;
-        case PROP_SPI_MODE: {
-            uint8_t mode = (uint8_t)in->v[0];
-            if ((bmp388_bindings[BINDING_SPI].spi.modes & METALCLAW_SPI_MODE_BIT(mode)) == 0) {
-                return -EINVAL;
-            }
-            if (state->spi == NULL) {
-                return -ENODEV;
-            }
-            int err = metalclaw_hal_spi_target_set_mode(state->spi, mode);
-            if (err == 0) {
-                state->spi_mode = mode;
-            }
-            return err;
-        }
+        case PROP_SPI_MODE:
+            return metalclaw_spi_mode_set(inst, BINDING_SPI, in);
         default:
             return -EINVAL;
     }

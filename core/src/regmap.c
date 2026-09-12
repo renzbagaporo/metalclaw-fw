@@ -27,6 +27,22 @@ uint8_t metalclaw_regmap_get(const struct metalclaw_regmap *map, uint8_t bank, u
     return bank < map->bank_count ? map->value[bank][reg] : map->filler;
 }
 
+void metalclaw_regmap_set_le16(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint16_t value) {
+    metalclaw_regmap_set(map, bank, reg, (uint8_t)value, 0);
+    metalclaw_regmap_set(map, bank, (uint8_t)(reg + 1u), (uint8_t)(value >> 8), 0);
+}
+
+void metalclaw_regmap_set_le24(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint32_t value) {
+    metalclaw_regmap_set(map, bank, reg, (uint8_t)value, 0);
+    metalclaw_regmap_set(map, bank, (uint8_t)(reg + 1u), (uint8_t)(value >> 8), 0);
+    metalclaw_regmap_set(map, bank, (uint8_t)(reg + 2u), (uint8_t)(value >> 16), 0);
+}
+
+void metalclaw_regmap_set_be16(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint16_t value) {
+    metalclaw_regmap_set(map, bank, reg, (uint8_t)(value >> 8), 0);
+    metalclaw_regmap_set(map, bank, (uint8_t)(reg + 1u), (uint8_t)value, 0);
+}
+
 void metalclaw_regmap_set_on_write(struct metalclaw_regmap *map, metalclaw_regmap_on_write_t fn, void *ctx) {
     map->on_write = fn;
     map->on_write_ctx = ctx;
