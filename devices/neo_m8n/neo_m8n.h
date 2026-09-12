@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+// u-blox NEO-M8N: the UBX protocol subset the part answers on its UART,
+// from the u-blox 8 / M8 receiver description (protocol 18).
+
+#ifndef METALCLAW_DEVICES_NEO_M8N_H
+#define METALCLAW_DEVICES_NEO_M8N_H
+
+#include <stdint.h>
+
+#define UBX_SYNC_1 0xb5
+#define UBX_SYNC_2 0x62
+#define UBX_HEADER_BYTES 6
+#define UBX_TRAILER_BYTES 2
+#define UBX_PAYLOAD_MAX 64
+
+#define UBX_CLASS_NAV 0x01
+#define UBX_CLASS_ACK 0x05
+#define UBX_CLASS_CFG 0x06
+#define UBX_CLASS_MON 0x0a
+
+#define UBX_NAV_PVT 0x07
+#define UBX_NAV_SAT 0x35
+#define UBX_ACK_NAK 0x00
+#define UBX_ACK_ACK 0x01
+#define UBX_CFG_PRT 0x00
+#define UBX_CFG_MSG 0x01
+#define UBX_CFG_RST 0x04
+#define UBX_CFG_RATE 0x08
+#define UBX_CFG_NAV5 0x24
+#define UBX_MON_VER 0x04
+#define UBX_MON_GNSS 0x28
+
+#define UBX_CFG_PRT_LEN 20
+#define UBX_CFG_PRT_PORT_UART1 1
+#define UBX_CFG_MSG_LEN 3
+#define UBX_CFG_RST_LEN 4
+#define UBX_CFG_RST_STOP 0x08
+#define UBX_CFG_RST_START 0x09
+#define UBX_CFG_RATE_LEN 6
+#define UBX_CFG_NAV5_LEN 36
+#define UBX_CFG_NAV5_APPLY_DYN 0x0001
+#define UBX_MON_VER_LEN 40
+#define UBX_MON_GNSS_LEN 8
+#define UBX_NAV_PVT_LEN 92
+
+#define UBX_NAV_PVT_VALID_DATE 0x01
+#define UBX_NAV_PVT_VALID_TIME 0x02
+#define UBX_NAV_PVT_VALID_FULLY_RESOLVED 0x04
+#define UBX_NAV_PVT_FLAGS_GNSS_FIX_OK 0x01
+#define UBX_NAV_PVT_FIX_NONE 0
+#define UBX_NAV_PVT_FIX_3D 3
+
+#define UBX_GNSS_GPS 0x01
+#define UBX_GNSS_GLONASS 0x02
+#define UBX_GNSS_BEIDOU 0x04
+#define UBX_GNSS_GALILEO 0x08
+
+#define NEO_M8N_SW_VERSION "ROM CORE 3.01 (107888)"
+#define NEO_M8N_HW_VERSION "00080000"
+
+#define NEO_M8N_DEFAULT_BAUD 9600
+#define NEO_M8N_DEFAULT_RATE_MS 1000
+#define NEO_M8N_DEFAULT_NAV_RATE 1
+#define NEO_M8N_DEFAULT_TIME_REF 1
+#define NEO_M8N_DEFAULT_DYN_MODEL 0
+#define NEO_M8N_DEFAULT_PDOP 250
+
+#define NEO_M8N_RATE_MS_MIN 25
+#define NEO_M8N_RATE_MS_MAX 65535
+#define NEO_M8N_BAUD_MIN 4800
+#define NEO_M8N_BAUD_MAX 921600
+#define NEO_M8N_LATITUDE_MAX 900000000
+#define NEO_M8N_LONGITUDE_MAX 1800000000
+#define NEO_M8N_HEADING_MAX 35999999
+#define NEO_M8N_SATELLITES_MAX 32
+
+#endif
