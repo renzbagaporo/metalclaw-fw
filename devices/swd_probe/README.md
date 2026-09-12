@@ -1,0 +1,93 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIT -->
+
+# swd_probe
+
+A CMSIS-DAP v2 debug probe. It is a device in the MetalClaw sense: the DUT
+finds it on the other side of the SWD pins, and a user names it in `attach()`.
+Attaching it claims the SWD wire and adds a vendor bulk interface to the
+harness's USB device; a host debugger then drives the DUT through it.
+
+The package is two files. `dap.c` is the portable CMSIS-DAP command processor,
+ported from the old repository's `src/probe/`; it speaks only
+`metalclaw/hal/swd.h`. `swd_probe.c` is the model: descriptors, properties and
+the ops the runtime calls.
+
+## Bindings
+
+| index | name | kind | required | resolved into |
+| --- | --- | --- | --- | --- |
+| 0 | `swd` | `swd_wire` | yes | the wire, from a pin tuple `(swclk, swdio[, nreset])` |
+| 1 | `dap` | `usb_interface` | yes | a vendor interface, class `0xFF`, string `CMSIS-DAP v2` |
+
+`dap` takes no `attach()` keyword; the runtime allocates the interface from the
+descriptor the model carries. probe-rs recognises a v2 probe by that interface
+string, so it must not change.
+
+On fixture 1 that is SWCLK on GP2, SWDIO on GP3 and the DUT's RUN line on GP28:
+
+```python
+import metalclaw
+probe = metalclaw.attach("swd_probe", "probe", swd=(2, 3, 28))
+probe.clock_hz = 1000000
+probe.connected, probe.transfers, probe.errors
+probe.detach()
+```
+
+## Properties
+
+| name | type | access | unit | range | meaning |
+| --- | --- | --- | --- | --- | --- |
+| `enabled` | bool | rw | | | the wire is powered and DAP traffic is answered |
+| `clock_hz` | u32 | rw | Hz | 50 000 .. 10 000 000 | SWD clock; reads back from the HAL |
+| `connected` | bool | ro | | | true between `DAP_Connect` and `DAP_Disconnect` |
+| `transfers` | u32 | ro | | | words completed by `DAP_Transfer` / `DAP_TransferBlock` |
+| `errors` | u32 | ro | | | wire errors: failed transfers, non-OK ACKs, failed sequences |
+
+`enabled` defaults to true, so `attach()` turns the port on. Setting it false
+turns the port off, drops `connected`, and makes every wire-touching DAP
+command answer with an error; `DAP_Info` and `DAP_HostStatus` still answer, so
+the probe stays enumerable and identifiable while parked.
+
+`reset()` disconnects, clears the counters, and puts the transfer
+configuration back to its defaults (no idle cycles, no WAIT retries,
+turnaround 1, no data phase). `reset(factory=True)` also puts the clock back
+to 50 kHz.
+
+There are no regions and no faults.
+
+## What a host sees
+
+The harness enumerates as `2FE3:0204` with the RP2040's unique id as its USB
+serial, so the probe's identity is `2fe3:0204:<serial>` — on this bench
+`2fe3:0204:E6612483CB313225`.
+
+```sh
+probe-rs list
+probe-rs info --probe 2fe3:0204:<serial>
+```
+
+`DAP_Info` reports vendor `MetalClaw`, product `MetalClaw`, the USB serial,
+the firmware version string, SWD-only capabilities, a 64-byte packet size and
+one packet in flight. Target and board strings are reported empty: the probe
+does not know what is on the other end of the wire.
+
+Commands: `DAP_Info`, `DAP_HostStatus`, `DAP_Connect`, `DAP_Disconnect`,
+`DAP_TransferConfigure`, `DAP_Transfer`, `DAP_TransferBlock`,
+`DAP_TransferAbort`, `DAP_WriteABORT`, `DAP_Delay`, `DAP_ResetTarget`,
+`DAP_SWJ_Pins`, `DAP_SWJ_Clock`, `DAP_SWJ_Sequence`, `DAP_SWD_Configure`,
+`DAP_SWD_Sequence`. Anything else answers `0xFF`. There is no JTAG and no SWO.
+
+Transfer requests that ask for a value match, a match mask or a timestamp are
+answered with an error; the old core did the same, and no host on this bench
+has needed them.
+
+A packet is processed to completion inside the model's `usb_rx` op and the
+whole response is written before it returns, so requests are never reordered
+and no queue exists.
+
+## Tests
+
+None yet. The rig (`test/rig/`) does not exist, so this package has no `test/`
+directory. The bench check for it is `probe-rs info` reading the Pico 2 DUT
+through the harness; that needs the rp2 SWD backend and the USB interface
+binding in the runtime, neither of which has landed.
