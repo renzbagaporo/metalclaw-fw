@@ -1,0 +1,47 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
+
+/ {
+	aliases {
+		raw = &barometer;
+	};
+};
+
+&pinctrl {
+	spi0_fixture1: spi0_fixture1 {
+		group1 {
+			pinmux = <SPI0_SCK_P18>, <SPI0_TX_P19>;
+		};
+		group2 {
+			pinmux = <SPI0_RX_P16>;
+			input-enable;
+		};
+	};
+};
+
+/*
+ * The same part as test/dut/rp2.overlay on its SPI interface: a GPIO chip
+ * select on GP22, mode 3 as Zephyr's driver forces it, 8 MHz. The node is a
+ * vnd,spi-device rather than bosch,bmp388: Zephyr's bmp388 SPI backend
+ * (v4.4.0, still on main) rejects reads longer than six bytes while the
+ * driver's own init reads the 21-byte calibration block, so the driver can
+ * never come up over SPI. The rig's RAW command clocks the driver's
+ * sequence by hand instead and the cases apply its compensation.
+ */
+&spi0 {
+	status = "okay";
+	pinctrl-0 = <&spi0_fixture1>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio0 22 GPIO_ACTIVE_LOW>;
+
+	barometer: bmp388@0 {
+		compatible = "vnd,spi-device";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		spi-cpol;
+		spi-cpha;
+		status = "okay";
+	};
+};

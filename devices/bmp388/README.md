@@ -2,17 +2,20 @@
 
 # bmp388
 
-A Bosch BMP388 barometer on I2C. The harness answers at the part's own address
-with the part's own register map, so the board under test can bind Zephyr's
-in-tree `bosch,bmp388` driver to it and read pressure and temperature through
-the sensor API. The host sets a physical pressure in pascals and a temperature
-in millidegrees; the model turns those into the 24-bit raw words the driver's
-compensation maths expects, and the DUT reads back what was set.
+A Bosch BMP388 barometer on I2C or SPI. The harness answers at the part's own
+address, or behind its chip select, with the part's own register map, so the
+board under test can bind Zephyr's in-tree `bosch,bmp388` driver to it and
+read pressure and temperature through the sensor API. The host sets a
+physical pressure in pascals and a temperature in millidegrees; the model
+turns those into the 24-bit raw words the driver's compensation maths
+expects, and the DUT reads back what was set.
 
-The model is one file. It fills a `struct metalclaw_regmap` in `init` and arms
-the I2C target engine with it; from then on the engine serves every bus read
-and write from interrupt context without calling back into the model. The model
-touches the map again only when a property changes, under
+The model is one file with no bus code. It fills a `struct metalclaw_regmap`
+in `init` and arms whichever target engine was bound with it, the SPI one
+with the datasheet's framing (read bit `0x80`, seven address bits, one dummy
+byte before read data, auto-increment); from then on the engine serves every
+bus read and write from interrupt context without calling back into the
+model. The model touches the map again only when a property changes, under
 `metalclaw_hal_critical_enter()`, so a six-byte burst read never sees half of
 one sample and half of the next.
 
@@ -20,17 +23,23 @@ one sample and half of the next.
 
 | index | name | kind | required | resolved into |
 | --- | --- | --- | --- | --- |
-| 0 | `i2c` | `i2c_target` | yes | an I2C target, from the tuple `(sda, scl, address)` |
+| 0 | `i2c` | `i2c_target` | one of the two | an I2C target, from the tuple `(sda, scl, address)` |
+| 1 | `spi` | `spi_target` | one of the two | an SPI target, from the tuple `(sck, mosi, miso, cs)` |
 
-On fixture 1 that is SDA on GP4, SCL on GP5 and address `0x76`, the address the
-BMP388 uses with SDO low:
+`init` refuses an attach with both or neither. The SPI binding advertises
+modes 0 and 3, mode 3 by default (Zephyr's driver forces it), MSB first. On
+fixture 1 that is SDA on GP4, SCL on GP5 and address `0x76`, the address the
+BMP388 uses with SDO low, or SCK on GP18, MOSI on GP19, MISO on GP16 and chip
+select on GP22:
 
 ```python
 import metalclaw
 baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
+baro = metalclaw.attach("bmp388", "baro", spi=(18, 19, 16, 22))
 baro.pressure = 90000
 baro.temperature = -12500
 baro.transactions, baro.power_mode, baro.osr, baro.odr
+baro.stats("spi")
 baro.reset()
 baro.detach()
 ```
@@ -41,10 +50,11 @@ baro.detach()
 | --- | --- | --- | --- | --- | --- |
 | `pressure` | i32 | rw | Pa | 30 000 .. 125 000 | the pressure the part reports; writing it republishes `DATA_0..DATA_2` |
 | `temperature` | i32 | rw | mC | -40 000 .. 85 000 | the temperature the part reports; writing it republishes `DATA_3..DATA_5` |
-| `transactions` | u32 | ro | | | I2C transactions the engine has served, from the HAL |
+| `transactions` | u32 | ro | | | transactions the bound engine has served, from the HAL |
 | `power_mode` | u32 | ro | | 0 .. 3 | `PWR_CTRL[5:4]` as the DUT left it: 0 sleep, 1 forced, 3 normal |
 | `osr` | u32 | ro | | 0 .. 63 | the whole `OSR` register: `osr_p` in bits 2:0, `osr_t` in bits 5:3 |
 | `odr` | u32 | ro | | 0 .. 31 | `ODR[4:0]` as the DUT left it; 2 is 50 Hz |
+| `spi_mode` | u32 | rw | | 0 or 3 | the SPI mode the target listens in; `ENODEV` to set on an I2C instance |
 
 `pressure` and `temperature` default to 101 325 Pa and 25 000 mC. `power_mode`,
 `osr` and `odr` are read straight out of the register map, so they are the
@@ -107,6 +117,14 @@ Zephyr v4.4.0, `drivers/sensor/bosch/bmp388/`, on I2C, with
 `CONFIG_BMP388_TRIGGER_NONE=y`. Its bus layer is `i2c_burst_read_dt` and
 `i2c_reg_write_byte_dt`, which is exactly the register-pointer-then-burst
 protocol `core/ports/rp2/hal/i2c_target.c` implements.
+
+Its SPI backend, `bmp388_spi.c`, frames a read as the address with bit 7
+set, one dummy byte, then the data, in one chip-select window, and a write as
+address then value. It also refuses any read longer than six bytes while
+`bmp388_init()` reads the 21-byte calibration block through it, so the
+driver never comes up on SPI (v4.4.0, and still on `main`). The SPI image
+therefore drives that same sequence from the rig, byte for byte, instead of
+through the driver.
 
 `bmp388_init()`, in order:
 
@@ -220,17 +238,38 @@ METALCLAW_HARNESS_SERIAL=<serial> METALCLAW_ARM_TOOLCHAIN_DIR=<dir> \
 METALCLAW_DUT_DEVICE=bmp388 just test hardware
 ```
 
+`test/dut/spi/rp2.{overlay,conf}` is the SPI variant, image `bmp388/spi`:
+`spi0` on GP18/GP19/GP16 with a GPIO chip select on GP22 and a
+`vnd,spi-device` node aliased `raw` in mode 3 at 8 MHz. There is no
+`bosch,bmp388` node because the driver cannot initialise over SPI (above);
+the rig's `RAW` command clocks whatever bytes a case hands it in one window.
+
+```sh
+just build-dut bmp388/spi
+METALCLAW_DUT_DEVICE=bmp388/spi just test hardware
+```
+
 ## Tests
 
 `test/cases.py` runs on the rig's `harness` and `dut` fixtures. It attaches the
-model from the harness REPL at `(4, 5, 0x76)` and then resets the DUT, because
+model from the harness REPL on the bus the flashed image is built for, I2C at
+`(4, 5, 0x76)` or SPI at `(18, 19, 16, 22)`, and then resets the DUT, because
 Zephyr probes the driver once at `POST_KERNEL` and a part that was not armed
-then never becomes ready. The cases set pressure and temperature, ask the DUT
-`SENSOR`, and compare its `pressure_pa` and `temperature_mc` against what was
-injected within the ±1 above; they walk both corners of both ranges, check that
-a new sample reaches the DUT, that each fetch moves `transactions`, that
-`power_mode`, `osr` and `odr` carry what the driver wrote, and that a `reset()`
-clears that configuration and a DUT reset puts it back.
+then never becomes ready. The cases set pressure and temperature, read the
+part through the DUT, and compare `pressure_pa` and `temperature_mc` against
+what was injected within the ±1 above; they walk both corners of both ranges,
+check that a new sample reaches the DUT, that each fetch moves
+`transactions`, that `power_mode`, `osr` and `odr` carry what the driver
+wrote, and that a `reset()` clears that configuration and a DUT reset puts it
+back.
+
+The read goes through one of two readers. On the I2C image it is the DUT's
+`SENSOR` command, the driver's own fetch and compensation. On the SPI image
+the case clocks `bmp388_init()`'s sequence itself through `RAW` after every
+DUT reset (soft reset, chip id, calibration block, `ODR` read-modify-write,
+`OSR`, `CONFIG`, `PWR_CTRL`, `ERR_REG`), reads the six data bytes the same
+way, and runs a port of the driver's integer compensation over them. The
+eight cases are the same on both buses.
 
 ## Not modelled
 

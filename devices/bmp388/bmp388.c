@@ -4,7 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "metalclaw/bus.h"
 #include "metalclaw/hal/i2c_target.h"
+#include "metalclaw/hal/spi_target.h"
 #include "metalclaw/hal/platform.h"
 #include "metalclaw/model.h"
 #include "metalclaw/regmap.h"
@@ -21,10 +23,12 @@ enum {
     PROP_POWER_MODE,
     PROP_OSR,
     PROP_ODR,
+    PROP_SPI_MODE,
 };
 
 enum {
     BINDING_I2C,
+    BINDING_SPI,
 };
 
 #define BMP388_RAW_MAX 0xffffff
@@ -32,8 +36,19 @@ enum {
 struct bmp388_state {
     struct metalclaw_regmap map;
     struct metalclaw_i2c_target *i2c;
+    struct metalclaw_spi_target *spi;
+    uint8_t spi_mode;
     int32_t pressure_pa;
     int32_t temperature_mc;
+};
+
+// SPI framing from the datasheet: bit 7 of the command byte set for a read,
+// seven address bits, one dummy byte before read data, consecutive addresses.
+static const struct metalclaw_regmap_framing bmp388_framing = {
+    .read_bit_mask = 0x80,
+    .address_mask = 0x7f,
+    .read_dummy_bytes = 1,
+    .auto_increment = true,
 };
 
 static const struct metalclaw_property_desc bmp388_properties[] = {
@@ -91,14 +106,39 @@ static const struct metalclaw_property_desc bmp388_properties[] = {
         .min = 0,
         .max = BMP388_ODR_MASK,
     },
+    {
+        .name = "spi_mode",
+        .type = METALCLAW_TYPE_U32,
+        .count = 1,
+        .access = METALCLAW_ACCESS_RW,
+        .unit = NULL,
+        .min = 0,
+        .max = 3,
+    },
 };
 
+// One of the two buses must be bound; the part has both interfaces and the
+// same register map behind them.
 static const struct metalclaw_binding_desc bmp388_bindings[] = {
     {
         .name = "i2c",
         .kind = METALCLAW_BINDING_I2C_TARGET,
-        .required = true,
+        .required = false,
         .usb = NULL,
+        .spi = { 0 },
+        .uart = { 0 },
+    },
+    {
+        .name = "spi",
+        .kind = METALCLAW_BINDING_SPI_TARGET,
+        .required = false,
+        .usb = NULL,
+        .spi = {
+            .modes = METALCLAW_SPI_MODE_BIT(0) | METALCLAW_SPI_MODE_BIT(3),
+            .default_mode = 3,
+            .msb_first = true,
+        },
+        .uart = { 0 },
     },
 };
 
@@ -195,33 +235,54 @@ static void publish_sample(struct metalclaw_instance *inst) {
     metalclaw_trace(inst, METALCLAW_TRACE_STATE, BMP388_REG_DATA_0, BMP388_SAMPLE_BYTES, 0);
 }
 
-static void publish_part(struct metalclaw_instance *inst) {
+static void disarm(struct bmp388_state *state) {
+    if (state->i2c != NULL) {
+        metalclaw_hal_i2c_target_disarm(state->i2c);
+    }
+    if (state->spi != NULL) {
+        metalclaw_hal_spi_target_disarm(state->spi);
+    }
+}
+
+static int arm(struct bmp388_state *state) {
+    if (state->i2c != NULL) {
+        metalclaw_hal_i2c_target_arm(state->i2c, &state->map);
+    }
+    if (state->spi != NULL) {
+        return metalclaw_hal_spi_target_arm_regmap(state->spi, &state->map, &bmp388_framing);
+    }
+    return 0;
+}
+
+static int publish_part(struct metalclaw_instance *inst) {
     struct bmp388_state *state = inst->state;
 
-    metalclaw_hal_i2c_target_disarm(state->i2c);
+    disarm(state);
     build_map(state);
     publish_sample(inst);
-    metalclaw_hal_i2c_target_arm(state->i2c, &state->map);
+    return arm(state);
 }
 
 static int bmp388_init(struct metalclaw_instance *inst, const struct metalclaw_binding *bindings) {
     struct bmp388_state *state = inst->state;
 
-    if (!bindings[BINDING_I2C].present) {
+    if (bindings[BINDING_I2C].present == bindings[BINDING_SPI].present) {
         return -EINVAL;
     }
-    state->i2c = bindings[BINDING_I2C].i2c;
+    state->i2c = bindings[BINDING_I2C].present ? bindings[BINDING_I2C].i2c : NULL;
+    state->spi = bindings[BINDING_SPI].present ? bindings[BINDING_SPI].spi : NULL;
+    state->spi_mode = bmp388_bindings[BINDING_SPI].spi.default_mode;
     state->pressure_pa = BMP388_PRESSURE_DEFAULT_PA;
     state->temperature_mc = BMP388_TEMPERATURE_DEFAULT_MC;
-    publish_part(inst);
-    return 0;
+    return publish_part(inst);
 }
 
 static void bmp388_deinit(struct metalclaw_instance *inst) {
     struct bmp388_state *state = inst->state;
 
-    metalclaw_hal_i2c_target_disarm(state->i2c);
+    disarm(state);
     state->i2c = NULL;
+    state->spi = NULL;
 }
 
 static int bmp388_reset(struct metalclaw_instance *inst, bool factory) {
@@ -230,8 +291,7 @@ static int bmp388_reset(struct metalclaw_instance *inst, bool factory) {
     (void)factory;
     state->pressure_pa = BMP388_PRESSURE_DEFAULT_PA;
     state->temperature_mc = BMP388_TEMPERATURE_DEFAULT_MC;
-    publish_part(inst);
-    return 0;
+    return publish_part(inst);
 }
 
 static int bmp388_get(struct metalclaw_instance *inst, size_t property,
@@ -246,7 +306,8 @@ static int bmp388_get(struct metalclaw_instance *inst, size_t property,
             out->v[0] = state->temperature_mc;
             return 0;
         case PROP_TRANSACTIONS:
-            out->v[0] = metalclaw_hal_i2c_target_transactions(state->i2c);
+            out->v[0] = state->i2c != NULL ? metalclaw_hal_i2c_target_transactions(state->i2c)
+                : metalclaw_hal_spi_target_transactions(state->spi);
             return 0;
         case PROP_POWER_MODE:
             out->v[0] = (metalclaw_regmap_get(&state->map, 0, BMP388_REG_PWR_CTRL)
@@ -257,6 +318,9 @@ static int bmp388_get(struct metalclaw_instance *inst, size_t property,
             return 0;
         case PROP_ODR:
             out->v[0] = metalclaw_regmap_get(&state->map, 0, BMP388_REG_ODR) & BMP388_ODR_MASK;
+            return 0;
+        case PROP_SPI_MODE:
+            out->v[0] = state->spi_mode;
             return 0;
         default:
             return -EINVAL;
@@ -274,6 +338,20 @@ static int bmp388_set(struct metalclaw_instance *inst, size_t property,
         case PROP_TEMPERATURE:
             state->temperature_mc = (int32_t)in->v[0];
             break;
+        case PROP_SPI_MODE: {
+            uint8_t mode = (uint8_t)in->v[0];
+            if ((bmp388_bindings[BINDING_SPI].spi.modes & METALCLAW_SPI_MODE_BIT(mode)) == 0) {
+                return -EINVAL;
+            }
+            if (state->spi == NULL) {
+                return -ENODEV;
+            }
+            int err = metalclaw_hal_spi_target_set_mode(state->spi, mode);
+            if (err == 0) {
+                state->spi_mode = mode;
+            }
+            return err;
+        }
         default:
             return -EINVAL;
     }
