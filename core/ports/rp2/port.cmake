@@ -9,7 +9,6 @@
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/strict.cmake)
 
 set(METALCLAW_PORT_RP2_SOURCES
-    ${CMAKE_CURRENT_LIST_DIR}/console.c
     ${CMAKE_CURRENT_LIST_DIR}/usb/descriptors.c
     ${CMAKE_CURRENT_LIST_DIR}/usb/interfaces.c
     ${CMAKE_CURRENT_LIST_DIR}/usb/owner.c
@@ -29,6 +28,11 @@ cmake_language(DEFER CALL target_sources ${MICROPY_TARGET} PRIVATE ${METALCLAW_P
 cmake_language(DEFER CALL target_link_libraries ${MICROPY_TARGET} pico_i2c_slave)
 
 add_library(metalclaw_port_rp2 INTERFACE)
+
+# The REPL stream defines a MicroPython type, so it is a module source: the
+# qstr scan must see it, and it includes no SDK header.
+metalclaw_strict_sources(${CMAKE_CURRENT_LIST_DIR}/console.c)
+target_sources(metalclaw_port_rp2 INTERFACE ${CMAKE_CURRENT_LIST_DIR}/console.c)
 
 target_include_directories(metalclaw_port_rp2 INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}
