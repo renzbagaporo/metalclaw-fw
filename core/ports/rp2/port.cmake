@@ -16,10 +16,14 @@ set(METALCLAW_PORT_RP2_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/hal/pins.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/gpio.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/swd_pio.c
+    ${CMAKE_CURRENT_LIST_DIR}/hal/i2c_target.c
 )
 metalclaw_strict_sources(${METALCLAW_PORT_RP2_SOURCES})
 
 cmake_language(DEFER CALL target_sources ${MICROPY_TARGET} PRIVATE ${METALCLAW_PORT_RP2_SOURCES})
+# pico-sdk libraries the port needs beyond what MicroPython links; on the
+# firmware target directly so the qstr scan never sees their sources.
+cmake_language(DEFER CALL target_link_libraries ${MICROPY_TARGET} pico_i2c_slave)
 
 add_library(metalclaw_port_rp2 INTERFACE)
 
