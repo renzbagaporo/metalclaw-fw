@@ -101,9 +101,13 @@ def probe(harness: Harness):
 
 @pytest.fixture(scope="session")
 def dut(harness: Harness, probe) -> Dut:
-    image = Path(os.environ.get("METALCLAW_DUT_IMAGE", ROOT / "build/dut/zephyr/zephyr.elf"))
+    # The DUT image is built per device: `just build-dut bmp388` puts Zephyr's
+    # bmp388 driver in it. METALCLAW_DUT_DEVICE picks that image; the default
+    # is the smoke image with no device.
+    device = os.environ.get("METALCLAW_DUT_DEVICE", "smoke")
+    image = Path(os.environ.get("METALCLAW_DUT_IMAGE", ROOT / f"build/dut/{device}/zephyr/zephyr.elf"))
     if not image.is_file():
-        pytest.exit(f"no DUT image at {image}; run `just build-dut` or set METALCLAW_DUT_IMAGE", returncode=2)
+        pytest.exit(f"no DUT image at {image}; run `just build-dut {'' if device == 'smoke' else device}` or set METALCLAW_DUT_IMAGE", returncode=2)
     d = Dut(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
     d.flash()
     d.ping()

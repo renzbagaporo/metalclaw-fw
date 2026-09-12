@@ -38,7 +38,8 @@ def main() -> int:
     import pytest
 
     os.environ["METALCLAW_PLATFORM"] = args.platform
-    argv = ["-p", PLATFORMS[args.platform], "--rootdir", str(ROOT), "-o", "python_files=cases.py test_*.py"]
+    argv = ["-p", PLATFORMS[args.platform], "--rootdir", str(ROOT), "--import-mode=importlib",
+            "-o", "python_files=cases.py test_*.py"]
     argv += pytest_args
     argv += case_locations()
     return pytest.main(argv)

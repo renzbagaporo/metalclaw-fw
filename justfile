@@ -24,7 +24,6 @@ zephyr_workspace := env_var_or_default("METALCLAW_ZEPHYR_WORKSPACE", project_dir
 zephyr_base := zephyr_workspace / "zephyr"
 zephyr_sdk := env_var_or_default("ZEPHYR_SDK_INSTALL_DIR", env_var("HOME") / "zephyr-sdk-1.0.1")
 dut_board := "rpi_pico2/rp2350a/m33"
-dut_build_dir := build_dir / "dut"
 
 # Toolchain state lives outside the repository, next to it.
 arm_toolchain_dir := env_var_or_default("METALCLAW_ARM_TOOLCHAIN_DIR", project_dir / "../.arm-none-eabi")
@@ -114,18 +113,30 @@ setup-dut: setup-rig
     "{{venv}}/bin/west" -v list
     echo "Zephyr $(git -C "{{zephyr_base}}" describe --tags)"
 
-# Build the DUT fixture firmware for the Pico 2.
-build-dut: setup-rig
+# Build the DUT fixture firmware for the Pico 2. With a DEVICE, its
+# devices/<DEVICE>/test/dut/rp2.{overlay,conf} are applied so Zephyr's real
+# driver for that part is in the image. Output: build/dut/<DEVICE|smoke>/.
+build-dut DEVICE="": setup-rig
     #!/usr/bin/env bash
     set -euo pipefail
     test -f "{{zephyr_base}}/VERSION" || { echo "no Zephyr workspace at {{zephyr_workspace}}; run 'just setup-dut'" >&2; exit 2; }
     test -d "{{zephyr_sdk}}" || { echo "no Zephyr SDK at {{zephyr_sdk}}; set ZEPHYR_SDK_INSTALL_DIR" >&2; exit 2; }
     export ZEPHYR_BASE="{{zephyr_base}}" ZEPHYR_SDK_INSTALL_DIR="{{zephyr_sdk}}" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
     export PATH="{{venv}}/bin:$PATH"
-    cmake -S "{{project_dir}}/test/rig/dut" -B "{{dut_build_dir}}" -GNinja \
-        -DBOARD="{{dut_board}}" -DPython3_EXECUTABLE="{{rig_python}}"
-    cmake --build "{{dut_build_dir}}"
-    ls -l "{{dut_build_dir}}/zephyr/zephyr.elf"
+    name="{{DEVICE}}"; extra=()
+    if [[ -n "$name" ]]; then
+        dut="{{project_dir}}/devices/$name/test/dut"
+        test -f "$dut/rp2.overlay" || { echo "no $dut/rp2.overlay" >&2; exit 2; }
+        extra+=(-DDTC_OVERLAY_FILE="$dut/rp2.overlay")
+        test -f "$dut/rp2.conf" && extra+=(-DEXTRA_CONF_FILE="$dut/rp2.conf")
+    else
+        name=smoke
+    fi
+    build="{{build_dir}}/dut/$name"
+    cmake -S "{{project_dir}}/test/rig/dut" -B "$build" -GNinja \
+        -DBOARD="{{dut_board}}" -DPython3_EXECUTABLE="{{rig_python}}" "${extra[@]}"
+    cmake --build "$build"
+    ls -l "$build/zephyr/zephyr.elf"
 
 # Remove build output.
 clean:
