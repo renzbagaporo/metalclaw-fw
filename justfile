@@ -5,6 +5,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 project_dir := justfile_directory()
 micropython_dir := project_dir / "core/third_party/micropython"
 build_dir := env_var_or_default("METALCLAW_BUILD_DIR", project_dir / "build")
+jobs := env_var_or_default("METALCLAW_JOBS", num_cpus())
 
 # The board directory may live anywhere, e.g. a bench-specific board kept
 # outside the tree. Its basename is the MicroPython board name.
@@ -53,14 +54,14 @@ setup:
 
 # Build the host mpy-cross compiler the firmware build needs.
 build-mpy-cross:
-    make -C "{{micropython_dir}}/mpy-cross" -j"$(nproc)"
+    make -C "{{micropython_dir}}/mpy-cross" -j{{jobs}}
 
 # Build the RP2040 harness image.
 build: build-mpy-cross
     #!/usr/bin/env bash
     set -euo pipefail
     export PATH="{{arm_toolchain_bin}}:${PATH}"
-    make -C "{{micropython_dir}}/ports/rp2" -j"$(nproc)" \
+    make -C "{{micropython_dir}}/ports/rp2" -j{{jobs}} \
         BOARD_DIR="{{board_dir}}" \
         BUILD="{{rp2_build_dir}}" \
         USER_C_MODULES="{{project_dir}}/core/micropython/micropython.cmake"
