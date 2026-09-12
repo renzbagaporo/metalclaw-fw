@@ -29,6 +29,10 @@ static uint8_t arena[METALCLAW_ARENA_SIZE] __attribute__((aligned(8)));
 static uint8_t arena_owner[ARENA_PAGES];
 static size_t attached_count;
 static uint64_t clock_us;
+static bool clock_paused;
+static uint64_t clock_last_real_us;
+
+#define CLOCK_TICK_US 1000u
 
 const struct metalclaw_model *metalclaw_model_find(const char *id) {
     for (size_t i = 0; i < metalclaw_model_count; i++) {
@@ -144,9 +148,11 @@ struct usb_rx_context {
 static void usb_rx_trampoline(struct metalclaw_usb_interface *itf, const uint8_t *data, size_t len, void *ctx) {
     (void)itf;
     struct usb_rx_context *c = ctx;
+    metalclaw_hal_lock();
     if (c->inst->attached && c->inst->model->ops->usb_rx != NULL) {
         c->inst->model->ops->usb_rx(c->inst, c->binding, data, len);
     }
+    metalclaw_hal_unlock();
 }
 
 static struct usb_rx_context usb_contexts[METALCLAW_INSTANCES_MAX][METALCLAW_INSTANCE_BINDINGS_MAX];
@@ -248,7 +254,9 @@ int metalclaw_attach(const struct metalclaw_model *model, const char *name,
     if (model->abi_version != METALCLAW_ABI_VERSION || model->binding_count > METALCLAW_INSTANCE_BINDINGS_MAX) {
         return -ENOTSUP;
     }
+    metalclaw_hal_lock();
     if (metalclaw_instance_find(name) != NULL) {
+        metalclaw_hal_unlock();
         return -EEXIST;
     }
 
@@ -269,6 +277,7 @@ int metalclaw_attach(const struct metalclaw_model *model, const char *name,
         }
     }
     if (inst == NULL || (pages > 0 && first == ARENA_PAGES)) {
+        metalclaw_hal_unlock();
         return -ENOSPC;
     }
 
@@ -294,6 +303,7 @@ int metalclaw_attach(const struct metalclaw_model *model, const char *name,
         release_bindings(inst);
         release_arena(inst);
         inst->model = NULL;
+        metalclaw_hal_unlock();
         return err;
     }
 
@@ -301,12 +311,18 @@ int metalclaw_attach(const struct metalclaw_model *model, const char *name,
     inst->attached = true;
     attached_count++;
     metalclaw_hal_critical_exit(state);
+    metalclaw_hal_unlock();
     *out = inst;
     return 0;
 }
 
 int metalclaw_detach(struct metalclaw_instance *inst) {
-    if (inst == NULL || !inst->attached) {
+    if (inst == NULL) {
+        return -ENOENT;
+    }
+    metalclaw_hal_lock();
+    if (!inst->attached) {
+        metalclaw_hal_unlock();
         return -ENOENT;
     }
     uint32_t state = metalclaw_hal_critical_enter();
@@ -321,6 +337,7 @@ int metalclaw_detach(struct metalclaw_instance *inst) {
     release_arena(inst);
     inst->model = NULL;
     inst->state = NULL;
+    metalclaw_hal_unlock();
     return 0;
 }
 
@@ -372,7 +389,10 @@ int metalclaw_get(struct metalclaw_instance *inst, size_t property, struct metal
     }
     memset(out, 0, sizeof(*out));
     out->count = desc->count;
-    return inst->model->ops->get(inst, property, out);
+    metalclaw_hal_lock();
+    int err = inst->model->ops->get(inst, property, out);
+    metalclaw_hal_unlock();
+    return err;
 }
 
 int metalclaw_set(struct metalclaw_instance *inst, size_t property, const struct metalclaw_value *in) {
@@ -387,7 +407,9 @@ int metalclaw_set(struct metalclaw_instance *inst, size_t property, const struct
     if (err != 0) {
         return err;
     }
+    metalclaw_hal_lock();
     err = inst->model->ops->set(inst, property, in);
+    metalclaw_hal_unlock();
     return err;
 }
 
@@ -398,7 +420,10 @@ int metalclaw_inject_fault(struct metalclaw_instance *inst, size_t fault, uint32
     if (inst->model->ops->inject_fault == NULL) {
         return -ENOTSUP;
     }
-    return inst->model->ops->inject_fault(inst, fault, count);
+    metalclaw_hal_lock();
+    int err = inst->model->ops->inject_fault(inst, fault, count);
+    metalclaw_hal_unlock();
+    return err;
 }
 
 int metalclaw_clear_faults(struct metalclaw_instance *inst) {
@@ -408,7 +433,10 @@ int metalclaw_clear_faults(struct metalclaw_instance *inst) {
     if (inst->model->ops->clear_faults == NULL) {
         return -ENOTSUP;
     }
-    return inst->model->ops->clear_faults(inst);
+    metalclaw_hal_lock();
+    int err = inst->model->ops->clear_faults(inst);
+    metalclaw_hal_unlock();
+    return err;
 }
 
 static int check_region(const struct metalclaw_instance *inst, size_t region, uint32_t offset, size_t len, bool write) {
@@ -433,7 +461,10 @@ int metalclaw_read_region(struct metalclaw_instance *inst, size_t region, uint32
     if (inst->model->ops->read_region == NULL) {
         return -ENOTSUP;
     }
-    return inst->model->ops->read_region(inst, region, offset, buf, len);
+    metalclaw_hal_lock();
+    err = inst->model->ops->read_region(inst, region, offset, buf, len);
+    metalclaw_hal_unlock();
+    return err;
 }
 
 int metalclaw_write_region(struct metalclaw_instance *inst, size_t region, uint32_t offset, const void *buf, size_t len) {
@@ -444,7 +475,9 @@ int metalclaw_write_region(struct metalclaw_instance *inst, size_t region, uint3
     if (inst->model->ops->write_region == NULL) {
         return -ENOTSUP;
     }
+    metalclaw_hal_lock();
     err = inst->model->ops->write_region(inst, region, offset, buf, len);
+    metalclaw_hal_unlock();
     return err;
 }
 
@@ -455,7 +488,9 @@ int metalclaw_reset(struct metalclaw_instance *inst, bool factory) {
     if (inst->model->ops->reset == NULL) {
         return -ENOTSUP;
     }
+    metalclaw_hal_lock();
     int err = inst->model->ops->reset(inst, factory);
+    metalclaw_hal_unlock();
     return err;
 }
 
@@ -588,17 +623,70 @@ const char *metalclaw_trace_kind_name(enum metalclaw_trace_kind kind) {
 }
 
 uint64_t metalclaw_now_us(void) {
-    return clock_us;
+    uint32_t state = metalclaw_hal_critical_enter();
+    uint64_t now = clock_us;
+    metalclaw_hal_critical_exit(state);
+    return now;
 }
 
-void metalclaw_advance_us(uint64_t delta_us) {
+static void advance(uint64_t delta_us) {
+    uint32_t state = metalclaw_hal_critical_enter();
     clock_us += delta_us;
+    uint64_t now = clock_us;
+    metalclaw_hal_critical_exit(state);
     for (size_t i = 0; i < METALCLAW_INSTANCES_MAX; i++) {
         struct metalclaw_instance *inst = &instances[i];
         if (inst->attached && inst->model->ops->time_advanced != NULL) {
-            inst->model->ops->time_advanced(inst, clock_us);
+            inst->model->ops->time_advanced(inst, now);
         }
     }
+}
+
+static void clock_tick(void *ctx) {
+    (void)ctx;
+    uint64_t real = metalclaw_hal_time_us();
+
+    if (clock_paused || real - clock_last_real_us < CLOCK_TICK_US || !metalclaw_hal_try_lock()) {
+        return;
+    }
+    if (!clock_paused) {
+        advance(real - clock_last_real_us);
+        clock_last_real_us = real;
+    }
+    metalclaw_hal_unlock();
+}
+
+int metalclaw_advance_us(uint64_t delta_us) {
+    metalclaw_hal_lock();
+    if (!clock_paused) {
+        metalclaw_hal_unlock();
+        return -EBUSY;
+    }
+    advance(delta_us);
+    metalclaw_hal_unlock();
+    return 0;
+}
+
+void metalclaw_clock_pause(void) {
+    metalclaw_hal_lock();
+    clock_paused = true;
+    metalclaw_hal_unlock();
+}
+
+void metalclaw_clock_resume(void) {
+    metalclaw_hal_lock();
+    clock_last_real_us = metalclaw_hal_time_us();
+    clock_paused = false;
+    metalclaw_hal_unlock();
+}
+
+bool metalclaw_clock_running(void) {
+    return !clock_paused;
+}
+
+void metalclaw_runtime_init(void) {
+    clock_last_real_us = metalclaw_hal_time_us();
+    (void)metalclaw_hal_poll_register(clock_tick, NULL);
 }
 
 void metalclaw_trace(struct metalclaw_instance *inst, enum metalclaw_trace_kind kind,

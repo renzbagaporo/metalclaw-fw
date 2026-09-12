@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 // A UART the device speaks on. Sending queues bytes and returns; receiving
-// delivers whatever has accumulated to `on_rx` in thread context, never per
-// byte and never from an interrupt, so a model may parse, allocate nothing,
-// and answer with send() from inside the callback.
+// delivers whatever has accumulated to `on_rx` on the worker under the
+// runtime lock, never per byte and never from an interrupt, so a model may
+// parse, touch its state, and answer with send() from inside the callback.
 
 #ifndef METALCLAW_HAL_UART_H
 #define METALCLAW_HAL_UART_H

@@ -80,7 +80,8 @@ node is never touched by this code.
 
 - `machine.lightsleep()` and `machine.deepsleep()` stop the USB clock when
   upstream USB is off, and the device drops off the bus. Do not use them.
-- `_thread` is disabled. TinyUSB is only called from core 0's thread context.
+- `_thread` is disabled: core 1 is the engine worker. TinyUSB is only called
+  from core 0's thread context.
 - The MSC volume has no coherency with the device-side mount; see above.
 - No MS OS 2.0 descriptors yet, so Windows needs a driver for later vendor
   interfaces. Not relevant while only CDC and MSC exist.

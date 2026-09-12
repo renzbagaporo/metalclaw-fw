@@ -52,7 +52,9 @@ when another image is flashed; one rig run therefore exercises one device.
 
 The harness fixture detaches every instance except the probe when the
 session starts: instances outlive a run, and a leftover device would hold
-pins a case needs.
+pins a case needs. The simulation clock runs by default; a case that counts
+what a part sends per interval pauses it and steps it with `advance_us()`,
+as `neo_m8n`'s do.
 
 ## The DUT fixture
 

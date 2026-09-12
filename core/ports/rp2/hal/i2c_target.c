@@ -27,6 +27,20 @@ struct metalclaw_i2c_target {
 
 static struct metalclaw_i2c_target targets[2];
 
+static void handler(i2c_inst_t *i2c, i2c_slave_event_t event);
+
+static void slave_start(void *ctx) {
+    struct metalclaw_i2c_target *t = ctx;
+
+    i2c_slave_init(t->i2c, t->address, handler);
+}
+
+static void slave_stop(void *ctx) {
+    struct metalclaw_i2c_target *t = ctx;
+
+    i2c_slave_deinit(t->i2c);
+}
+
 static i2c_inst_t *instance_for(uint8_t sda, uint8_t scl) {
     // GPIO function I2C maps even pins to SDA and odd to SCL; the block is
     // (pin / 2) % 2, the same for both pins of one bus.
@@ -38,6 +52,7 @@ static i2c_inst_t *instance_for(uint8_t sda, uint8_t scl) {
 
 static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
     struct metalclaw_i2c_target *t = &targets[i2c_hw_index(i2c)];
+    uint32_t state = metalclaw_hal_critical_enter();
     struct metalclaw_regmap *image = t->image;
 
     switch (event) {
@@ -61,6 +76,7 @@ static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
             t->stats.transactions++;
             break;
     }
+    metalclaw_hal_critical_exit(state);
 }
 
 struct metalclaw_i2c_target *metalclaw_hal_i2c_target_open(uint8_t sda, uint8_t scl, uint8_t address,
@@ -103,7 +119,7 @@ struct metalclaw_i2c_target *metalclaw_hal_i2c_target_open(uint8_t sda, uint8_t 
     gpio_pull_up(sda);
     gpio_pull_up(scl);
     i2c_init(i2c, I2C_TARGET_CLOCK_HZ);
-    i2c_slave_init(i2c, address, handler);
+    metalclaw_hal_work_call(slave_start, t);
     return t;
 }
 
@@ -111,7 +127,7 @@ void metalclaw_hal_i2c_target_close(struct metalclaw_i2c_target *t) {
     if (t == NULL || t->owner == NULL) {
         return;
     }
-    i2c_slave_deinit(t->i2c);
+    metalclaw_hal_work_call(slave_stop, t);
     i2c_deinit(t->i2c);
     gpio_deinit(t->sda);
     gpio_deinit(t->scl);

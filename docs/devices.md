@@ -75,16 +75,39 @@ at build time (`METALCLAW_ARENA_SIZE`, default 8 KiB, up to
 through the HAL, allocates state, and calls the model's `init`. `detach()`
 reverses it. Every instance is detached on a MicroPython soft reset.
 
-The simulation clock starts at zero and moves only when `advance_us()` is
-called, which also notifies every model through `time_advanced`. Each
-instance carries a 16-entry trace ring that models append to with
-`metalclaw_trace()`; a kind is one of `spi`, `i2c`, `uart`, `command`,
-`state`, `error`. Every engine's counters reach a binding or a host through
-one runtime call, `metalclaw_binding_stats()`, as named values.
+The simulation clock starts at zero at boot and runs with real time: the
+worker advances it once a millisecond and calls every model's
+`time_advanced`, so a part that talks on its own keeps its cadence with no
+script involved (`neo_m8n` sends a fix every interval). `pause()` stops it;
+`advance_us()` then steps it by exactly the amount asked, which is how a
+case counts frames deterministically; `resume()` lets it run again from
+where it is. Each instance carries a 16-entry trace ring that models append
+to with `metalclaw_trace()`, stamped with simulation time; a kind is one of
+`spi`, `i2c`, `uart`, `command`, `state`, `error`. Every engine's counters
+reach a binding or a host through one runtime call,
+`metalclaw_binding_stats()`, as named values.
 
-The simulation clock is also how a part that talks on its own gets its
-cadence: `neo_m8n` sends a fix from `time_advanced` when the clock reaches
-the next interval.
+## Where a model runs
+
+Two cores. Core 0 runs MicroPython, bare metal, and TinyUSB. Core 1 is the
+**worker**: it drains work the engines post from their interrupts, runs
+every registered poll, and ticks the clock. Every engine interrupt is
+enabled on core 1, so MicroPython's atomic sections never delay one.
+
+| Model entry point | Runs on | Holds |
+| --- | --- | --- |
+| `get`, `set`, `reset`, regions, faults | core 0, the script's thread | the runtime lock |
+| `usb_rx` | core 0, the USB task | the runtime lock |
+| `time_advanced` | the worker | the runtime lock |
+| `uart` `on_rx` | the worker | the runtime lock |
+| `regmap` `on_write`, `stream` `on_frame` | an engine interrupt | the critical section |
+
+The runtime lock (`metalclaw_hal_lock`) is what lets a model touch its
+state from `set` and from `on_rx` without further care. Image edits from
+any context go under `metalclaw_hal_critical_enter()`, which is what the
+engines hold while they read the image. Both are in `hal/platform.h`, with
+real time (`metalclaw_hal_time_us`, `metalclaw_hal_delay_us`), the work
+queue and the poll table.
 
 ## Images
 
@@ -111,7 +134,8 @@ or receives (`IN`, delivered through `on_frame` after the window closes).
 `core/include/metalclaw/hal/`. Ports implement it; nothing above it knows a
 port exists.
 
-- `platform.h`: a critical-section pair.
+- `platform.h`: the execution model: the critical section, the runtime
+  lock, real time, the work queue and poll table of the worker.
 - `pins.h`: pin ownership. Claims are per owner; a board may name pins that
   no device may ever claim with `METALCLAW_RESERVED_PINS`.
 - `gpio.h`: one pin driven or sampled by a device.
@@ -133,13 +157,18 @@ port exists.
   re-arm costs about 10 µs, so drivers that read back-to-back rely on a
   chip-select setup delay in their overlay.
 - `uart.h`: a UART with `send()` that queues and returns, `set_baud`, and a
-  receive callback delivered in thread context with whatever accumulated,
-  never per byte and never from an interrupt, so a model parses and answers
-  from inside it.
+  receive callback delivered on the worker under the runtime lock with
+  whatever accumulated, never per byte and never from an interrupt, so a
+  model parses, touches its state and answers from inside it.
 - `usb.h`: a vendor bulk interface on the composite device, with a receive
   callback and a write; see [usb.md](usb.md).
 - `console.h`: the channel the harness's own REPL runs over; the port owns
   the transport.
+
+On rp2 the worker is core 1, launched before the first `mp_init` with its
+own stack and never reset; a soft reset leaves it running. It parks itself
+for MicroPython's flash writes through the SDK's lockout, so a flash write
+delays engine interrupts for its duration, as it always did on one core.
 
 ## From MicroPython
 
@@ -155,7 +184,8 @@ d.stats("spi"); g.stats("uart")          # the engine's counters, by binding nam
 d.schema(); d.reset(); d.detach()
 d.trace()                                # (t_us, kind, addr, len, result) tuples; kind is a name
 metalclaw.instances(); metalclaw.detach("baro")
-metalclaw.now_us(); metalclaw.advance_us(1000)
+metalclaw.now_us(); metalclaw.running()          # the clock runs from boot
+metalclaw.pause(); metalclaw.advance_us(1000); metalclaw.resume()
 
 d.faults(); d.inject(name, 3); d.clear_faults()   # a model that declares faults
 d.read_region(name, 0, 16); d.write_region(name, 0, b"\x00")   # ... or regions

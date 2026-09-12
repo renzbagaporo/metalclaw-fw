@@ -55,7 +55,7 @@ int metalclaw_hal_spi_target_arm_regmap(struct metalclaw_spi_target *t, struct m
 int metalclaw_hal_spi_target_arm_stream(struct metalclaw_spi_target *t, struct metalclaw_stream *stream);
 void metalclaw_hal_spi_target_disarm(struct metalclaw_spi_target *t);
 
-// Called from the port's idle hook; a lost chip-select edge is recovered here.
+// The engine's worker poll; a lost chip-select edge is recovered here.
 void metalclaw_hal_spi_target_poll(void);
 
 void metalclaw_hal_spi_target_stats(const struct metalclaw_spi_target *t, struct metalclaw_spi_target_stats *out);

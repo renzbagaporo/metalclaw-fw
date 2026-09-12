@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <string.h>
 
+#include "metalclaw/hal/platform.h"
 #include "metalclaw/hal/usb.h"
 #include "metalclaw/runtime.h"
 #include "metalclaw/version.h"
@@ -499,7 +500,7 @@ static int process_command(struct metalclaw_dap *dap, const uint8_t *request, si
             if (request_length < 3u) {
                 return response_status(response, capacity, command, DAP_STATUS_ERROR, length);
             }
-            metalclaw_hal_swd_delay_us((uint32_t)request[1] | ((uint32_t)request[2] << 8));
+            metalclaw_hal_delay_us((uint32_t)request[1] | ((uint32_t)request[2] << 8));
             return response_status(response, capacity, command, DAP_STATUS_OK, length);
 
         case DAP_ID_RESET_TARGET:
@@ -507,7 +508,7 @@ static int process_command(struct metalclaw_dap *dap, const uint8_t *request, si
                 return response_status(response, capacity, command, DAP_STATUS_ERROR, length);
             }
             ret = metalclaw_hal_swd_set_pins(dap->swd, METALCLAW_SWD_PIN_NRESET, 0u);
-            metalclaw_hal_swd_delay_us(DAP_RESET_TARGET_US);
+            metalclaw_hal_delay_us(DAP_RESET_TARGET_US);
             if (ret == 0) {
                 ret = metalclaw_hal_swd_set_pins(dap->swd, METALCLAW_SWD_PIN_NRESET,
                     METALCLAW_SWD_PIN_NRESET);
@@ -526,7 +527,7 @@ static int process_command(struct metalclaw_dap *dap, const uint8_t *request, si
             }
             uint32_t wait_us = load_word(&request[3]);
             ret = metalclaw_hal_swd_set_pins(dap->swd, request[2], request[1]);
-            metalclaw_hal_swd_delay_us(wait_us > DAP_SWJ_PINS_WAIT_MAX_US ?
+            metalclaw_hal_delay_us(wait_us > DAP_SWJ_PINS_WAIT_MAX_US ?
                 DAP_SWJ_PINS_WAIT_MAX_US : wait_us);
             if (ret != 0) {
                 return response_status(response, capacity, command, DAP_STATUS_ERROR, length);

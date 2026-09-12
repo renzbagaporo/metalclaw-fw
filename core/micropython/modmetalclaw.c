@@ -228,10 +228,29 @@ static mp_obj_t metalclaw_advance_us_fn(mp_obj_t delta_in) {
     if (delta < 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("delta must not be negative"));
     }
-    metalclaw_advance_us((uint64_t)delta);
+    if (metalclaw_advance_us((uint64_t)delta) == -EBUSY) {
+        mp_raise_ValueError(MP_ERROR_TEXT("clock is running; pause() first"));
+    }
     return mp_obj_new_int_from_ull(metalclaw_now_us());
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(metalclaw_advance_us_obj, metalclaw_advance_us_fn);
+
+static mp_obj_t metalclaw_pause_fn(void) {
+    metalclaw_clock_pause();
+    return mp_obj_new_int_from_ull(metalclaw_now_us());
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(metalclaw_pause_obj, metalclaw_pause_fn);
+
+static mp_obj_t metalclaw_resume_fn(void) {
+    metalclaw_clock_resume();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(metalclaw_resume_obj, metalclaw_resume_fn);
+
+static mp_obj_t metalclaw_running_fn(void) {
+    return mp_obj_new_bool(metalclaw_clock_running());
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(metalclaw_running_obj, metalclaw_running_fn);
 
 static const mp_rom_map_elem_t metalclaw_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_metalclaw) },
@@ -243,6 +262,9 @@ static const mp_rom_map_elem_t metalclaw_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_detach), MP_ROM_PTR(&metalclaw_detach_obj) },
     { MP_ROM_QSTR(MP_QSTR_now_us), MP_ROM_PTR(&metalclaw_now_us_obj) },
     { MP_ROM_QSTR(MP_QSTR_advance_us), MP_ROM_PTR(&metalclaw_advance_us_obj) },
+    { MP_ROM_QSTR(MP_QSTR_pause), MP_ROM_PTR(&metalclaw_pause_obj) },
+    { MP_ROM_QSTR(MP_QSTR_resume), MP_ROM_PTR(&metalclaw_resume_obj) },
+    { MP_ROM_QSTR(MP_QSTR_running), MP_ROM_PTR(&metalclaw_running_obj) },
     { MP_ROM_QSTR(MP_QSTR_Instance), MP_ROM_PTR(&metalclaw_instance_type) },
 };
 static MP_DEFINE_CONST_DICT(metalclaw_module_globals, metalclaw_module_globals_table);

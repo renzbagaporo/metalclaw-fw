@@ -54,6 +54,4 @@ int metalclaw_hal_swd_transfer(struct metalclaw_swd *swd, uint8_t request, uint3
 int metalclaw_hal_swd_set_pins(struct metalclaw_swd *swd, uint8_t mask, uint8_t values);
 int metalclaw_hal_swd_get_pins(struct metalclaw_swd *swd, uint8_t *values);
 
-void metalclaw_hal_swd_delay_us(uint32_t us);
-
 #endif

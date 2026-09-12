@@ -102,10 +102,12 @@ struct metalclaw_model_ops {
     int (*clear_faults)(struct metalclaw_instance *inst);
     int (*read_region)(struct metalclaw_instance *inst, size_t region, uint32_t offset, void *buf, size_t len);
     int (*write_region)(struct metalclaw_instance *inst, size_t region, uint32_t offset, const void *buf, size_t len);
+    // The clock moved. Runs on the worker under the runtime lock, as often
+    // as once a millisecond while the clock runs.
     void (*time_advanced)(struct metalclaw_instance *inst, uint64_t now_us);
     // A packet arrived on the usb_interface binding `binding`. Runs in the
-    // USB task context; answer through metalclaw_hal_usb_write before
-    // returning.
+    // USB task context under the runtime lock; answer through
+    // metalclaw_hal_usb_write before returning.
     void (*usb_rx)(struct metalclaw_instance *inst, size_t binding, const uint8_t *data, size_t len);
 };
 

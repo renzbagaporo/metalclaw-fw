@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#include "py/runtime.h"
-
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -45,7 +43,7 @@ struct metalclaw_uart {
 };
 
 static struct metalclaw_uart blocks[UART_BLOCK_COUNT];
-static mp_sched_node_t rx_nodes[UART_BLOCK_COUNT];
+static struct metalclaw_work rx_work[UART_BLOCK_COUNT];
 
 static uart_inst_t *instance_for(uint8_t tx, uint8_t rx) {
     bool uart0_tx = tx == 0u || tx == 12u || tx == 16u;
@@ -77,12 +75,8 @@ static bool parity_for(enum metalclaw_uart_parity parity, uart_parity_t *out) {
     return false;
 }
 
-static void rx_deliver(mp_sched_node_t *node) {
-    size_t index = (size_t)(node - rx_nodes);
-    if (index >= UART_BLOCK_COUNT) {
-        return;
-    }
-    struct metalclaw_uart *u = &blocks[index];
+static void rx_deliver(struct metalclaw_work *work) {
+    struct metalclaw_uart *u = work->ctx;
     uint16_t head = u->rx_head;
     uint16_t tail = u->rx_tail;
     uint16_t used = (uint16_t)((head - tail) & UART_RX_RING_MASK);
@@ -90,8 +84,13 @@ static void rx_deliver(mp_sched_node_t *node) {
     if (used == 0u) {
         return;
     }
+    if (!metalclaw_hal_try_lock()) {
+        metalclaw_hal_work_post(work);
+        return;
+    }
     if (u->owner == NULL || u->on_rx == NULL) {
         u->rx_tail = head;
+        metalclaw_hal_unlock();
         return;
     }
     for (uint16_t i = 0; i < used; i++) {
@@ -100,6 +99,7 @@ static void rx_deliver(mp_sched_node_t *node) {
     __compiler_memory_barrier();
     u->rx_tail = (uint16_t)((tail + used) & UART_RX_RING_MASK);
     u->on_rx(u, u->rx_linear, used, u->on_rx_ctx);
+    metalclaw_hal_unlock();
 }
 
 static void rx_service(struct metalclaw_uart *u) {
@@ -132,7 +132,7 @@ static void rx_service(struct metalclaw_uart *u) {
     if (pushed) {
         __compiler_memory_barrier();
         u->rx_head = head;
-        (void)mp_sched_schedule_node(&rx_nodes[uart_get_index(u->inst)], rx_deliver);
+        metalclaw_hal_work_post(&rx_work[uart_get_index(u->inst)]);
     }
 }
 
@@ -155,6 +155,7 @@ static void tx_pump(struct metalclaw_uart *u) {
 
 static void service(struct metalclaw_uart *u) {
     uart_hw_t *hw = uart_get_hw(u->inst);
+    uint32_t state = metalclaw_hal_critical_enter();
     uint32_t mis = hw->mis;
 
     if ((mis & (UART_UARTMIS_RXMIS_BITS | UART_UARTMIS_RTMIS_BITS)) != 0u) {
@@ -164,6 +165,7 @@ static void service(struct metalclaw_uart *u) {
         hw->icr = UART_UARTICR_TXIC_BITS;
         tx_pump(u);
     }
+    metalclaw_hal_critical_exit(state);
 }
 
 static void uart0_irq_handler(void) {
@@ -176,6 +178,18 @@ static void uart1_irq_handler(void) {
 
 static irq_handler_t handler_for(const uart_inst_t *inst) {
     return inst == uart0 ? uart0_irq_handler : uart1_irq_handler;
+}
+
+static void irq_enable_on_worker(void *ctx) {
+    const struct metalclaw_uart *u = ctx;
+
+    irq_set_enabled(u->irq, true);
+}
+
+static void irq_disable_on_worker(void *ctx) {
+    const struct metalclaw_uart *u = ctx;
+
+    irq_set_enabled(u->irq, false);
 }
 
 static void tx_flush(struct metalclaw_uart *u) {
@@ -244,6 +258,8 @@ struct metalclaw_uart *metalclaw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t 
     u->rx_tail = 0;
     u->tx_head = 0;
     u->tx_tail = 0;
+    rx_work[uart_get_index(inst)].fn = rx_deliver;
+    rx_work[uart_get_index(inst)].ctx = u;
 
     // The pins are connected before the block is enabled: the SDK's format
     // and FIFO writes each cycle the UART with character-time waits, and a
@@ -276,7 +292,7 @@ struct metalclaw_uart *metalclaw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t 
     u->owner = owner;
 
     irq_set_exclusive_handler(irq, handler);
-    irq_set_enabled(irq, true);
+    metalclaw_hal_work_call(irq_enable_on_worker, u);
     hw->imsc = UART_UARTIMSC_RXIM_BITS | UART_UARTIMSC_RTIM_BITS;
     *err = 0;
     return u;
@@ -289,7 +305,7 @@ void metalclaw_hal_uart_close(struct metalclaw_uart *u) {
     uart_hw_t *hw = uart_get_hw(u->inst);
     hw->imsc = 0u;
     hw->icr = UART_UARTICR_BITS;
-    irq_set_enabled(u->irq, false);
+    metalclaw_hal_work_call(irq_disable_on_worker, u);
     irq_remove_handler(u->irq, handler_for(u->inst));
     uart_deinit(u->inst);
     gpio_set_pulls(u->rx_pin, false, false);

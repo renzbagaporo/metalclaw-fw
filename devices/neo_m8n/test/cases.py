@@ -61,17 +61,28 @@ class Receiver:
         self.harness.run(f"import metalclaw\nmetalclaw.advance_us({ms * 1000})\n")
         time.sleep(0.2)
 
+    def pause(self):
+        self.harness.run("import metalclaw\nmetalclaw.pause()\n")
+
+    def resume(self):
+        self.harness.run("import metalclaw\nmetalclaw.resume()\n")
+
     def reset(self):
         self.harness.run(SELECT + "gnss.reset()\n")
 
 
+# The clock runs by default and the part sends a fix every interval on its
+# own. The cases that count fixes pause it and step it by hand.
 @pytest.fixture(scope="module")
 def receiver(harness, dut):
     dut.require_image('neo_m8n')
     harness.run(ATTACH)
+    r = Receiver(harness)
+    r.pause()
     dut.reset()
     dut.ping()
-    return Receiver(harness)
+    yield r
+    r.resume()
 
 
 def gnss(dut, sub=None):
@@ -132,6 +143,17 @@ def test_one_fix_per_interval(dut, receiver):
     receiver.advance(FIX_RATE_MS * 5)
     assert gnss(dut)["fixes"] == before + 2
     assert receiver.stats()["bytes_tx"] == bytes_before + 2 * 100
+
+
+def test_fixes_stream_on_their_own_while_the_clock_runs(dut, receiver):
+    receiver.set(fix=3)
+    before = gnss(dut)["fixes"]
+    receiver.resume()
+    try:
+        time.sleep(2.5)
+    finally:
+        receiver.pause()
+    assert gnss(dut)["fixes"] >= before + 2
 
 
 def test_the_pull_api_polls_the_part(dut, receiver):

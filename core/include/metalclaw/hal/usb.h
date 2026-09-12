@@ -18,8 +18,8 @@ struct metalclaw_usb_interface_desc {
     const char *name;
 };
 
-// Called from the USB task context on core 0 with each received packet.
-// The handler answers through metalclaw_hal_usb_write before returning.
+// Called from the USB task context with each received packet. The handler
+// answers through metalclaw_hal_usb_write before returning.
 typedef void (*metalclaw_usb_rx_t)(struct metalclaw_usb_interface *itf, const uint8_t *data,
     size_t len, void *ctx);
 

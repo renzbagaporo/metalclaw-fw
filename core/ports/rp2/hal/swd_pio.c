@@ -605,7 +605,3 @@ int metalclaw_hal_swd_get_pins(struct metalclaw_swd *swd, uint8_t *values) {
     *values = result;
     return 0;
 }
-
-void metalclaw_hal_swd_delay_us(uint32_t us) {
-    busy_wait_us(us);
-}

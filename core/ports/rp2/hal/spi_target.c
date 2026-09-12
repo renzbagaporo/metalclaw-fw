@@ -118,6 +118,7 @@ static uint16_t program_dummy;
 static uint8_t open_count;
 static bool release_installed;
 static bool dma_installed;
+static bool poll_registered;
 
 static const uint8_t wait_slots[] = { 6u, 7u, 18u, 19u };
 
@@ -684,6 +685,8 @@ static bool __not_in_flash_func(window_evidence)(const struct metalclaw_spi_targ
 }
 
 static void __not_in_flash_func(spi_target_dma_handler)(void) {
+    uint32_t state = metalclaw_hal_critical_enter();
+
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
         struct metalclaw_spi_target *t = &targets[i];
 
@@ -699,9 +702,11 @@ static void __not_in_flash_func(spi_target_dma_handler)(void) {
         }
         service_command(t);
     }
+    metalclaw_hal_critical_exit(state);
 }
 
 static void __not_in_flash_func(spi_target_release_handler)(void) {
+    uint32_t state = metalclaw_hal_critical_enter();
     uint32_t flags = SPI_PIO->irq;
 
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
@@ -727,6 +732,7 @@ static void __not_in_flash_func(spi_target_release_handler)(void) {
             finalize(t);
         }
     }
+    metalclaw_hal_critical_exit(state);
 }
 
 static void stream_notify(struct metalclaw_stream *s, void *ctx) {
@@ -746,10 +752,9 @@ static void stream_notify(struct metalclaw_stream *s, void *ctx) {
     metalclaw_hal_critical_exit(state);
 }
 
-static void release_irq_sync(bool want) {
-    if (want == release_installed) {
-        return;
-    }
+static void release_irq_install(void *ctx) {
+    bool want = *(const bool *)ctx;
+
     if (want) {
         irq_set_exclusive_handler(PIO1_IRQ_1, spi_target_release_handler);
         irq_set_priority(PIO1_IRQ_1, 0);
@@ -758,13 +763,19 @@ static void release_irq_sync(bool want) {
         irq_set_enabled(PIO1_IRQ_1, false);
         irq_remove_handler(PIO1_IRQ_1, spi_target_release_handler);
     }
+}
+
+static void release_irq_sync(bool want) {
+    if (want == release_installed) {
+        return;
+    }
+    metalclaw_hal_work_call(release_irq_install, &want);
     release_installed = want;
 }
 
-static void dma_handler_sync(bool want) {
-    if (want == dma_installed) {
-        return;
-    }
+static void dma_handler_install(void *ctx) {
+    bool want = *(const bool *)ctx;
+
     if (want) {
         irq_add_shared_handler(DMA_IRQ_1, spi_target_dma_handler,
             PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);
@@ -773,7 +784,19 @@ static void dma_handler_sync(bool want) {
     } else {
         irq_remove_handler(DMA_IRQ_1, spi_target_dma_handler);
     }
+}
+
+static void dma_handler_sync(bool want) {
+    if (want == dma_installed) {
+        return;
+    }
+    metalclaw_hal_work_call(dma_handler_install, &want);
     dma_installed = want;
+}
+
+static void poll_targets(void *ctx) {
+    (void)ctx;
+    metalclaw_hal_spi_target_poll();
 }
 
 static void release_tables(struct metalclaw_spi_target *t) {
@@ -987,7 +1010,9 @@ struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t 
     }
 
     t->owner = owner;
-    open_count++;
+    if (open_count++ == 0u && !poll_registered) {
+        poll_registered = metalclaw_hal_poll_register(poll_targets, NULL) == 0;
+    }
     release_irq_sync(true);
     dma_handler_sync(true);
     *err = 0;

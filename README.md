@@ -8,10 +8,11 @@ MetalClaw is a small board that sits between a host PC and a target board. It
 debugs the target, feeds it stimulus, simulates the peripherals the target
 expects to find on its buses, and observes what the target does back.
 
-The harness is a Raspberry Pi Pico 1 (RP2040) running MicroPython. Native C
-owns everything with a deadline: USB, the bus engines, the debug probe.
-MicroPython owns what changes between fixtures: which devices exist, which
-pins they use, what state they start in.
+The harness is a Raspberry Pi Pico 1 (RP2040) running MicroPython on one
+core. Native C owns everything with a deadline: USB, the bus engines, the
+debug probe; the engines' interrupts and their worker run on the other
+core. MicroPython owns what changes between fixtures: which devices exist,
+which pins they use, what state they start in.
 
 ## What exists today
 
@@ -20,8 +21,9 @@ enumerates as `2FE3:0204 MetalClaw` with a CDC REPL and an MSC volume, is
 brought up once at boot, and stays enumerated across MicroPython soft resets.
 
 The `metalclaw` module is the generic device API: a model registry, a runtime
-with instances, a simulation clock, faults and trace, and one `Instance` type
-whose attributes come from each model's own descriptors.
+with instances, a simulation clock that runs with real time unless paused,
+faults and trace, and one `Instance` type whose attributes come from each
+model's own descriptors.
 
 Five devices exist. The SWD debug probe: attaching it adds a CMSIS-DAP v2
 interface to the USB device, and `probe-rs` then drives the board under test
@@ -42,8 +44,8 @@ the byte path.
 >>> imu = metalclaw.attach("icm42688", "imu", spi=(18, 19, 16, 17))
 >>> imu.accel = (2048, 0, 0)
 >>> gnss = metalclaw.attach("neo_m8n", "gnss", uart=(0, 1))
->>> gnss.set(latitude=473977420, longitude=-1223321500, fix=3)
->>> metalclaw.advance_us(1000000)     # one fix interval: one NAV-PVT to the target
+>>> gnss.set(latitude=473977420, longitude=-1223321500, fix=3)   # a NAV-PVT every second from here on
+>>> metalclaw.pause(); metalclaw.advance_us(1000000)   # or step the clock by hand
 ```
 
 ```sh

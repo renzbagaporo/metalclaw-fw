@@ -37,6 +37,9 @@ struct metalclaw_instance {
     bool attached;
 };
 
+// Called once by the port before any script runs: starts the clock.
+void metalclaw_runtime_init(void);
+
 // Registry, generated at build time from devices/*/device.cmake.
 extern const struct metalclaw_model *const metalclaw_models[];
 extern const size_t metalclaw_model_count;
@@ -98,9 +101,14 @@ const char *metalclaw_binding_kind_name(enum metalclaw_binding_kind kind);
 const char *metalclaw_uart_parity_name(enum metalclaw_uart_parity parity);
 const char *metalclaw_trace_kind_name(enum metalclaw_trace_kind kind);
 
-// Simulation time. It starts at zero and moves only when advanced.
+// Simulation time. It starts at zero at boot and runs with real time on
+// the worker, which calls every model's time_advanced as it moves. Paused,
+// it moves only by advance_us(), which is -EBUSY while running.
 uint64_t metalclaw_now_us(void);
-void metalclaw_advance_us(uint64_t delta_us);
+int metalclaw_advance_us(uint64_t delta_us);
+void metalclaw_clock_pause(void);
+void metalclaw_clock_resume(void);
+bool metalclaw_clock_running(void);
 
 // For models: record what happened. Safe from interrupt context.
 void metalclaw_trace(struct metalclaw_instance *inst, enum metalclaw_trace_kind kind,

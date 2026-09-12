@@ -37,16 +37,19 @@
 #define METALCLAW_RESERVED_PINS
 #endif
 
-// TinyUSB class calls are only safe from core 0's thread context, where
-// tud_task also runs.
+// Core 1 is the engine worker (hal/worker.c), so MicroPython gets no
+// threads; TinyUSB is only ever called from core 0's thread context.
 #define MICROPY_PY_THREAD                       (0)
 
+void metalclaw_platform_init(void);
+void metalclaw_worker_start(void);
 void metalclaw_usb_init(void);
 void metalclaw_usb_task(void);
 void metalclaw_port_event_hook(void);
 void metalclaw_console_vm_init(void);
+void metalclaw_port_early_init(void);
 
-#define MICROPY_BOARD_EARLY_INIT()              metalclaw_usb_init()
+#define MICROPY_BOARD_EARLY_INIT()              metalclaw_port_early_init()
 #define MICROPY_PORT_INIT_FUNC                  metalclaw_console_vm_init()
 #define MICROPY_PORT_DEINIT_FUNC                metalclaw_detach_all()
 #define MICROPY_INTERNAL_EVENT_HOOK             metalclaw_port_event_hook()
