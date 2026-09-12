@@ -1,0 +1,34 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
+
+/ {
+	aliases {
+		barometer = &barometer;
+	};
+};
+
+&pinctrl {
+	i2c0_fixture1: i2c0_fixture1 {
+		group1 {
+			pinmux = <I2C0_SDA_P4>, <I2C0_SCL_P5>;
+			input-enable;
+			input-schmitt-enable;
+		};
+	};
+};
+
+&i2c0 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	pinctrl-0 = <&i2c0_fixture1>;
+	pinctrl-names = "default";
+
+	barometer: bmp388@76 {
+		compatible = "bosch,bmp388";
+		reg = <0x76>;
+		odr = "50";
+		status = "okay";
+	};
+};
