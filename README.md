@@ -21,19 +21,27 @@ brought up once at boot, and stays enumerated across MicroPython soft resets.
 
 The `metalclaw` module is the generic device API: a model registry, a runtime
 with instances, a simulation clock, faults and trace, and one `Instance` type
-whose attributes come from each model's own descriptors. There are no device
-models in the tree yet, so today it looks like this:
+whose attributes come from each model's own descriptors.
+
+One device exists, the SWD debug probe. Attaching it adds a CMSIS-DAP v2
+interface to the USB device, and `probe-rs` then drives the board under test
+through the harness:
 
 ```python
 >>> import metalclaw
 >>> metalclaw.models()
-()
->>> metalclaw.advance_us(1000), metalclaw.now_us()
-(1000, 1000)
+('swd_probe',)
+>>> probe = metalclaw.attach("swd_probe", "dut", swd=(2, 3, 28))
 ```
 
-See [docs/devices.md](docs/devices.md) for the model contract a device is
-written against.
+```sh
+$ probe-rs list
+[0]: MetalClaw Pico 1 -- 2fe3:0204:E6612483CB313225 (CMSIS-DAP)
+$ probe-rs info --probe 2fe3:0204:E6612483CB313225 --protocol swd
+```
+
+See [docs/devices.md](docs/devices.md) for the model contract and
+[devices/swd_probe](devices/swd_probe/README.md) for the probe.
 
 ## Layout
 
@@ -45,7 +53,7 @@ core/                         the harness firmware
   micropython/                the `metalclaw` module, Instance type, REPL stream
   ports/rp2/                  port config, USB device, HAL, board definitions
   third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
-devices/                      one directory per device model (none yet)
+devices/                      one directory per device model; swd_probe so far
 tools/                        flash_rp2.sh: J-Link flash and recovery
 docs/                         devices.md, usb.md, building.md
 justfile                      setup and build recipes

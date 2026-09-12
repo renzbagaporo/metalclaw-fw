@@ -5,9 +5,10 @@
 The harness owns its USB device. MicroPython's own USB device is switched off
 (`MICROPY_HW_ENABLE_USBDEV 0`) and the port supplies the TinyUSB device stack,
 its descriptors, and the REPL stream, on top of the unpatched upstream
-`ports/rp2` build. The device is brought up once at boot, before the first
-`mp_init`, and is never torn down: a MicroPython soft reset leaves it
-enumerated.
+`ports/rp2` build. The device comes up at boot, before the first `mp_init`,
+with the base interface set. Devices that declare a `usb_interface` binding
+add an interface when attached and remove it when detached; the port then
+re-enumerates, once, after the changes settle.
 
 ## Identity
 
@@ -24,10 +25,12 @@ enumerated.
 | --- | --- | --- | --- |
 | 0, 1 | CDC ACM | `0x85` notify, `0x01` out, `0x81` in | MicroPython REPL |
 | 2 | MSC, SCSI, bulk-only | `0x02` out, `0x82` in | the flash filesystem |
+| 3.. | vendor `FF/00/00`, bulk | `0x03`.. out, `0x83`.. in | one per attached device that declares one |
 
-Endpoints `0x83` and `0x84` are reserved for the simulation and CMSIS-DAP
-interfaces that come later. The CDC notification endpoint sits above them so
-adding those interfaces moves no address the host has already learned.
+Up to `CFG_TUD_VENDOR` (2) device interfaces. The CDC notification endpoint
+sits above them so their coming and going never moves it. The interface
+string is the device's to choose; `swd_probe` uses `CMSIS-DAP v2`, which is
+what probe-rs matches on.
 
 On Linux the REPL appears as `/dev/serial/by-id/usb-MetalClaw_<product>_<serial>-if00`
 and the volume as a raw FAT block device with no partition table.
@@ -39,7 +42,9 @@ and the volume as a raw FAT block device with no partition table.
   three hooks: `MICROPY_BOARD_EARLY_INIT` brings the device up once,
   `MICROPY_PORT_INIT_FUNC` registers the REPL stream on every `mp_init`, and
   `MICROPY_INTERNAL_EVENT_HOOK` pumps TinyUSB whenever the VM waits.
-- `core/ports/rp2/usb/descriptors.c` holds the descriptors.
+- `core/ports/rp2/usb/descriptors.c` rebuilds the descriptors from the open
+  device interfaces; `usb/interfaces.c` implements `hal/usb.h` on TinyUSB's
+  vendor class.
 - `core/ports/rp2/usb/owner.c` initialises TinyUSB, pumps it from a scheduler
   node whenever the USB interrupt reports an event, and feeds CDC input into
   MicroPython's `stdin_ringbuf` with Ctrl-C handling.
@@ -52,11 +57,23 @@ and the volume as a raw FAT block device with no partition table.
 - TinyUSB reads its configuration from `core/ports/rp2/usb/metalclaw_tusb_config.h`,
   selected with `CFG_TUSB_CONFIG_FILE`.
 
-## Soft reset
+## Re-enumeration
+
+Opening or closing a device interface marks the descriptor set dirty. 200 ms
+after the last change the port rebuilds it; if the result is byte-identical to
+what the host has, nothing happens. Otherwise it disconnects, waits 100 ms so
+the host notices, and re-initialises with the new set. Both phases are driven
+by an alarm, since a deinitialised device raises no interrupts to wake an idle
+VM. The host loses its REPL session and mounted volume for about a second and
+must reconnect by serial, not by device number.
+
+A soft reset detaches every instance and then runs `main.py` again. If
+`main.py` re-attaches the same devices, the rebuilt set is identical and there
+is no re-enumeration. Cold boot with a USB-facing device in `main.py` costs
+one, base set to full set.
 
 `mp_init` keeps pending scheduler nodes across a soft reset, so the USB task
-node is never touched by this code. The device stays enumerated; only the REPL
-stream is re-registered.
+node is never touched by this code.
 
 ## Known limits
 
