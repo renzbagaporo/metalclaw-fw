@@ -230,8 +230,8 @@ static void probe_release_pads(const struct metalclaw_swd *swd) {
 static int probe_acquire_sm(struct metalclaw_swd *swd) {
     int err = -ENOMEM;
 
-    for (uint32_t i = NUM_PIOS; i > 0u; i--) {
-        PIO pio = pio_get_instance(i - 1u);
+    for (uint32_t i = 0; i < NUM_PIOS; i++) {
+        PIO pio = pio_get_instance(i);
         int sm;
 
         if (!pio_can_add_program(pio, &probe_program)) {
