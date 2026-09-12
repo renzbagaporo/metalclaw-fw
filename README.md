@@ -15,8 +15,10 @@ pins they use, what state they start in.
 
 ## What exists today
 
-A MicroPython v1.28.0 image for the Pico 1 with a `metalclaw` C module that
-reports its version:
+A MicroPython v1.28.0 image for the Pico 1 that owns its USB device. It
+enumerates as `2FE3:0204 MetalClaw` with a CDC REPL and an MSC volume, is
+brought up once at boot, and stays enumerated across MicroPython soft resets.
+The `metalclaw` C module only reports its version so far:
 
 ```python
 >>> import metalclaw
@@ -28,22 +30,25 @@ reports its version:
 
 ```text
 core/                         the harness firmware
-  micropython/                the `metalclaw` user C module
-  ports/rp2/boards/rpi_pi_pico/ the Raspberry Pi Pico board definition
+  cmake/                      the strict warning set for MetalClaw sources
+  micropython/                the `metalclaw` user C module and the REPL stream
+  ports/rp2/                  port config, USB device, board definitions
   third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
+tools/                        flash_rp2.sh: J-Link flash and recovery
+docs/                         usb.md, building.md
 justfile                      setup and build recipes
 ```
 
-## Building
+## Building and flashing
 
 ```sh
-just setup      # submodules, pinned ARM toolchain into ../.arm-none-eabi
-just build      # build/rp2/<board>/firmware.uf2
+just setup
+just build                                        # build/rp2/<board>/firmware.uf2
+tools/flash_rp2.sh build/rp2/<board>/firmware.elf # over J-Link
 ```
 
-`METALCLAW_BOARD_DIR` selects the board directory and may point anywhere; the
-default is the in-tree `rpi_pi_pico`. `METALCLAW_ARM_TOOLCHAIN_DIR` and
-`METALCLAW_BUILD_DIR` override the toolchain and build locations.
+See [docs/building.md](docs/building.md) for boards, flags, and the
+bootloader route without a J-Link.
 
 ## License
 
