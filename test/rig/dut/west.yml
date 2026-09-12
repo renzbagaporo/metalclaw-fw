@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# The DUT fixture's Zephyr workspace. `just setup-dut` initialises it outside
+# the repository at METALCLAW_ZEPHYR_WORKSPACE (default ../.zephyr-workspace).
+manifest:
+  remotes:
+    - name: zephyrproject
+      url-base: https://github.com/zephyrproject-rtos
+  projects:
+    - name: zephyr
+      remote: zephyrproject
+      revision: v4.4.0
+      import:
+        name-allowlist:
+          - cmsis
+          - cmsis_6
+          - hal_rpi_pico
+          - picolibc
+          - littlefs
