@@ -65,11 +65,30 @@ struct spi_descriptor {
     uint32_t source;
 };
 
-struct metalclaw_spi_target {
-    const void *owner;
+struct spi_bus {
     uint8_t sck;
     uint8_t mosi;
     uint8_t miso;
+    uint8_t open_count;
+
+    uint16_t program_words[SPI_PROGRAM_LENGTH];
+    pio_program_t program;
+    bool program_loaded;
+    uint8_t program_offset;
+    uint8_t program_sck;
+    uint8_t program_class;
+    uint16_t program_dummy;
+
+    bool release_installed;
+    bool dma_installed;
+    bool poll_registered;
+
+    uint8_t table_owner[SPI_TABLE_SLOTS];
+};
+
+struct metalclaw_spi_target {
+    struct spi_bus *bus;
+    const void *owner;
     uint8_t cs;
     uint8_t mode;
     bool msb_first;
@@ -102,23 +121,11 @@ struct metalclaw_spi_target {
     struct metalclaw_spi_target_stats stats;
 };
 
+static struct spi_bus spi_bus;
 static struct metalclaw_spi_target targets[SPI_TARGET_COUNT];
 
 static struct spi_descriptor table_pool[SPI_TABLE_SLOTS][METALCLAW_REGMAP_BANK_SIZE]
     __attribute__((aligned(SPI_TABLE_ALIGN)));
-static uint8_t table_owner[SPI_TABLE_SLOTS];
-
-static uint16_t program_words[SPI_PROGRAM_LENGTH];
-static pio_program_t spi_program;
-static bool program_loaded;
-static uint8_t program_offset;
-static uint8_t program_sck;
-static uint8_t program_class;
-static uint16_t program_dummy;
-static uint8_t open_count;
-static bool release_installed;
-static bool dma_installed;
-static bool poll_registered;
 
 static const uint8_t wait_slots[] = { 6u, 7u, 18u, 19u };
 
@@ -139,8 +146,8 @@ static uint8_t __not_in_flash_func(wire_byte)(const struct metalclaw_spi_target 
     return t->msb_first ? reverse_byte(value) : value;
 }
 
-static void encode_program(uint8_t sck, uint8_t cls) {
-    uint16_t *p = program_words;
+static void encode_program(struct spi_bus *bus, uint8_t sck, uint8_t cls) {
+    uint16_t *p = bus->program_words;
     bool lead = cls != 0u;
 
     p[0] = (uint16_t)pio_encode_out(pio_pins, 1u);
@@ -168,7 +175,7 @@ static void encode_program(uint8_t sck, uint8_t cls) {
     p[22] = (uint16_t)pio_encode_jmp_not_osre(18u);
     p[23] = (uint16_t)pio_encode_in(pio_null, 3u);
     p[24] = (uint16_t)pio_encode_push(false, true);
-    p[25] = program_dummy;
+    p[25] = bus->program_dummy;
     p[26] = (uint16_t)pio_encode_out(pio_pins, 1u);
     p[27] = (uint16_t)pio_encode_jmp(5u);
     p[28] = (uint16_t)pio_encode_nop();
@@ -176,10 +183,10 @@ static void encode_program(uint8_t sck, uint8_t cls) {
     p[30] = (uint16_t)pio_encode_wait_pin(true, 0u);
     p[31] = (uint16_t)pio_encode_irq_set(true, 0u);
 
-    spi_program.instructions = program_words;
-    spi_program.length = (uint8_t)SPI_PROGRAM_LENGTH;
-    spi_program.origin = -1;
-    spi_program.pio_version = 0;
+    bus->program.instructions = bus->program_words;
+    bus->program.length = (uint8_t)SPI_PROGRAM_LENGTH;
+    bus->program.origin = -1;
+    bus->program.pio_version = 0;
 }
 
 static uint16_t dummy_instruction(const struct metalclaw_regmap_framing *framing, uint8_t filler) {
@@ -190,28 +197,52 @@ static uint16_t dummy_instruction(const struct metalclaw_regmap_framing *framing
         : (uint16_t)pio_encode_mov_not(pio_osr, pio_null);
 }
 
-static void program_patch_dummy(uint16_t instruction) {
-    program_dummy = instruction;
-    program_words[SPI_DUMMY_SLOT] = instruction;
-    SPI_PIO->instr_mem[program_offset + SPI_DUMMY_SLOT] = instruction;
+static void program_patch_dummy(struct spi_bus *bus, uint16_t instruction) {
+    bus->program_dummy = instruction;
+    bus->program_words[SPI_DUMMY_SLOT] = instruction;
+    SPI_PIO->instr_mem[bus->program_offset + SPI_DUMMY_SLOT] = instruction;
 }
 
-static void program_patch(uint8_t sck, uint8_t cls) {
-    encode_program(sck, cls);
+static void program_patch(struct spi_bus *bus, uint8_t sck, uint8_t cls) {
+    encode_program(bus, sck, cls);
     for (size_t i = 0; i < sizeof(wait_slots); i++) {
         uint8_t slot = wait_slots[i];
 
-        SPI_PIO->instr_mem[program_offset + slot] = program_words[slot];
+        SPI_PIO->instr_mem[bus->program_offset + slot] = bus->program_words[slot];
     }
-    program_sck = sck;
-    program_class = cls;
+    bus->program_sck = sck;
+    bus->program_class = cls;
 }
 
-static bool __not_in_flash_func(miso_held_elsewhere)(const struct metalclaw_spi_target *t) {
+static int bus_load_program(struct spi_bus *bus, uint8_t sck, uint8_t cls) {
+    if (bus->program_loaded) {
+        return 0;
+    }
+    bus->program_dummy = (uint16_t)pio_encode_nop();
+    encode_program(bus, sck, cls);
+    if (!pio_can_add_program(SPI_PIO, &bus->program)) {
+        return -ENOSPC;
+    }
+    bus->program_offset = (uint8_t)pio_add_program(SPI_PIO, &bus->program);
+    bus->program_sck = sck;
+    bus->program_class = cls;
+    bus->program_loaded = true;
+    return 0;
+}
+
+static void bus_unload_program(struct spi_bus *bus) {
+    if (!bus->program_loaded) {
+        return;
+    }
+    pio_remove_program(SPI_PIO, &bus->program, bus->program_offset);
+    bus->program_loaded = false;
+}
+
+static bool __not_in_flash_func(bus_miso_held)(const struct metalclaw_spi_target *t) {
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
         const struct metalclaw_spi_target *o = &targets[i];
 
-        if (o != t && o->owner != NULL && o->miso == t->miso && o->window_open) {
+        if (o != t && o->bus == t->bus && o->window_open) {
             return true;
         }
     }
@@ -219,7 +250,7 @@ static bool __not_in_flash_func(miso_held_elsewhere)(const struct metalclaw_spi_
 }
 
 static void __not_in_flash_func(miso_release)(const struct metalclaw_spi_target *t) {
-    if (miso_held_elsewhere(t)) {
+    if (bus_miso_held(t)) {
         return;
     }
     pio_sm_exec(SPI_PIO, t->sm, pio_encode_set(pio_pindirs, 0u));
@@ -281,10 +312,10 @@ static void __not_in_flash_func(quiesce)(const struct metalclaw_spi_target *t) {
     busy_wait_at_least_cycles(32);
     {
         uint8_t pc = pio_sm_get_pc(SPI_PIO, t->sm);
-        bool rest = pc == (uint8_t)(program_offset + SPI_REST_LEAD) ||
-            pc == (uint8_t)(program_offset + SPI_REST_SAMPLE) ||
-            pc == (uint8_t)(program_offset + SPI_REST_SHIFT) ||
-            pc == (uint8_t)(program_offset + SPI_REST_FIRST);
+        bool rest = pc == (uint8_t)(t->bus->program_offset + SPI_REST_LEAD) ||
+            pc == (uint8_t)(t->bus->program_offset + SPI_REST_SAMPLE) ||
+            pc == (uint8_t)(t->bus->program_offset + SPI_REST_SHIFT) ||
+            pc == (uint8_t)(t->bus->program_offset + SPI_REST_FIRST);
 
         if (rest && pio_sm_is_rx_fifo_empty(SPI_PIO, t->sm) &&
             dma_channel_hw_addr((uint)t->rx_dma)->transfer_count == previous) {
@@ -299,10 +330,10 @@ static void __not_in_flash_func(quiesce)(const struct metalclaw_spi_target *t) {
         busy_wait_us_32(1u);
         remaining = dma_channel_hw_addr((uint)t->rx_dma)->transfer_count;
         pc = pio_sm_get_pc(SPI_PIO, t->sm);
-        rest = pc == (uint8_t)(program_offset + SPI_REST_LEAD) ||
-            pc == (uint8_t)(program_offset + SPI_REST_SAMPLE) ||
-            pc == (uint8_t)(program_offset + SPI_REST_SHIFT) ||
-            pc == (uint8_t)(program_offset + SPI_REST_FIRST);
+        rest = pc == (uint8_t)(t->bus->program_offset + SPI_REST_LEAD) ||
+            pc == (uint8_t)(t->bus->program_offset + SPI_REST_SAMPLE) ||
+            pc == (uint8_t)(t->bus->program_offset + SPI_REST_SHIFT) ||
+            pc == (uint8_t)(t->bus->program_offset + SPI_REST_FIRST);
         if (rest && remaining == previous && pio_sm_is_rx_fifo_empty(SPI_PIO, t->sm)) {
             stable++;
             if (stable >= SPI_RELEASE_STABLE_US) {
@@ -316,26 +347,27 @@ static void __not_in_flash_func(quiesce)(const struct metalclaw_spi_target *t) {
 }
 
 static void configure_sm(struct metalclaw_spi_target *t, bool regmap) {
+    const struct spi_bus *bus = t->bus;
     pio_sm_config c = pio_get_default_sm_config();
 
-    sm_config_set_out_pins(&c, t->miso, 1u);
-    sm_config_set_set_pins(&c, t->miso, 1u);
-    sm_config_set_in_pins(&c, t->mosi);
+    sm_config_set_out_pins(&c, bus->miso, 1u);
+    sm_config_set_set_pins(&c, bus->miso, 1u);
+    sm_config_set_in_pins(&c, bus->mosi);
     sm_config_set_jmp_pin(&c, t->cs);
     if (regmap) {
         sm_config_set_out_shift(&c, false, false, 8u);
         sm_config_set_in_shift(&c, false, false, 32u);
-        sm_config_set_wrap(&c, program_offset + SPI_REGMAP_WRAP_TARGET,
-            program_offset + SPI_REGMAP_WRAP_TOP);
-        pio_sm_init(SPI_PIO, t->sm, program_offset + SPI_REGMAP_ENTRY, &c);
+        sm_config_set_wrap(&c, bus->program_offset + SPI_REGMAP_WRAP_TARGET,
+            bus->program_offset + SPI_REGMAP_WRAP_TOP);
+        pio_sm_init(SPI_PIO, t->sm, bus->program_offset + SPI_REGMAP_ENTRY, &c);
     } else {
         sm_config_set_out_shift(&c, true, false, 8u);
         sm_config_set_in_shift(&c, false, true, 8u);
-        sm_config_set_wrap(&c, program_offset + SPI_STREAM_WRAP_TARGET,
-            program_offset + SPI_STREAM_WRAP_TOP);
-        pio_sm_init(SPI_PIO, t->sm, program_offset + SPI_STREAM_ENTRY, &c);
+        sm_config_set_wrap(&c, bus->program_offset + SPI_STREAM_WRAP_TARGET,
+            bus->program_offset + SPI_STREAM_WRAP_TOP);
+        pio_sm_init(SPI_PIO, t->sm, bus->program_offset + SPI_STREAM_ENTRY, &c);
     }
-    pio_sm_set_consecutive_pindirs(SPI_PIO, t->sm, t->miso, 1u, false);
+    pio_sm_set_consecutive_pindirs(SPI_PIO, t->sm, bus->miso, 1u, false);
 }
 
 static void __not_in_flash_func(set_autoshift)(const struct metalclaw_spi_target *t, bool pull, bool push,
@@ -440,7 +472,7 @@ static void __not_in_flash_func(regmap_prepare)(struct metalclaw_spi_target *t, 
         active = join && low;
     }
     set_autoshift(t, true, false, 32u, 8u);
-    pio_sm_exec(SPI_PIO, t->sm, pio_encode_jmp(program_offset + SPI_REGMAP_ENTRY));
+    pio_sm_exec(SPI_PIO, t->sm, pio_encode_jmp(t->bus->program_offset + SPI_REGMAP_ENTRY));
     t->wait_idle = idle_wait;
     t->window_open = active;
     t->command_taken = false;
@@ -486,7 +518,8 @@ static void __not_in_flash_func(stream_prepare)(struct metalclaw_spi_target *t, 
             pio_sm_exec_wait_blocking(SPI_PIO, t->sm, pio_encode_out(pio_pins, 1u));
         }
         pio_sm_exec(SPI_PIO, t->sm,
-            pio_encode_jmp(program_offset + (active ? SPI_STREAM_ACTIVE_ENTRY : SPI_STREAM_ENTRY)));
+            pio_encode_jmp(t->bus->program_offset +
+                (active ? SPI_STREAM_ACTIVE_ENTRY : SPI_STREAM_ENTRY)));
         t->window_open = active;
     }
     t->frame_pending = false;
@@ -721,7 +754,7 @@ static void __not_in_flash_func(spi_target_release_handler)(void) {
         }
         if (t->wait_idle) {
             t->wait_idle = false;
-            pio_sm_exec(SPI_PIO, t->sm, pio_encode_jmp(program_offset + SPI_REGMAP_ENTRY));
+            pio_sm_exec(SPI_PIO, t->sm, pio_encode_jmp(t->bus->program_offset + SPI_REGMAP_ENTRY));
             pio_sm_set_enabled(SPI_PIO, t->sm, true);
             continue;
         }
@@ -765,12 +798,12 @@ static void release_irq_install(void *ctx) {
     }
 }
 
-static void release_irq_sync(bool want) {
-    if (want == release_installed) {
+static void release_irq_sync(struct spi_bus *bus, bool want) {
+    if (want == bus->release_installed) {
         return;
     }
     metalclaw_hal_work_call(release_irq_install, &want);
-    release_installed = want;
+    bus->release_installed = want;
 }
 
 static void dma_handler_install(void *ctx) {
@@ -786,12 +819,12 @@ static void dma_handler_install(void *ctx) {
     }
 }
 
-static void dma_handler_sync(bool want) {
-    if (want == dma_installed) {
+static void dma_handler_sync(struct spi_bus *bus, bool want) {
+    if (want == bus->dma_installed) {
         return;
     }
     metalclaw_hal_work_call(dma_handler_install, &want);
-    dma_installed = want;
+    bus->dma_installed = want;
 }
 
 static void poll_targets(void *ctx) {
@@ -800,6 +833,7 @@ static void poll_targets(void *ctx) {
 }
 
 static void release_tables(struct metalclaw_spi_target *t) {
+    uint8_t *table_owner = t->bus->table_owner;
     uint8_t tag = (uint8_t)((t - targets) + 1);
 
     for (size_t i = 0; i < SPI_TABLE_SLOTS; i++) {
@@ -811,6 +845,7 @@ static void release_tables(struct metalclaw_spi_target *t) {
 }
 
 static bool claim_tables(struct metalclaw_spi_target *t, uint8_t banks) {
+    uint8_t *table_owner = t->bus->table_owner;
     uint8_t tag = (uint8_t)((t - targets) + 1);
     uint8_t taken = 0;
 
@@ -852,46 +887,96 @@ static void build_tables(struct metalclaw_spi_target *t) {
 
 // SCK, MOSI and MISO are the bus, shared by every target on it, so the
 // engine owns them; only the chip select belongs to the instance.
-static const uint8_t spi_bus_token;
-#define SPI_BUS_OWNER ((const void *)&spi_bus_token)
+static int bus_claim_pins(struct spi_bus *bus, uint8_t sck, uint8_t mosi, uint8_t miso) {
+    const uint8_t pins[3] = { sck, mosi, miso };
+    size_t claimed;
 
-static bool pin_used_elsewhere(const struct metalclaw_spi_target *t, uint8_t pin) {
-    for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-        const struct metalclaw_spi_target *o = &targets[i];
+    for (claimed = 0; claimed < 3u; claimed++) {
+        int err = metalclaw_hal_pin_claim(pins[claimed], bus);
 
-        if (o != t && o->owner != NULL && (o->sck == pin || o->mosi == pin || o->miso == pin)) {
-            return true;
+        if (err != 0) {
+            while (claimed > 0u) {
+                claimed--;
+                metalclaw_hal_pin_release(pins[claimed], bus);
+            }
+            return err;
         }
     }
-    return false;
+    bus->sck = sck;
+    bus->mosi = mosi;
+    bus->miso = miso;
+    return 0;
 }
 
-static void release_bus_pin(const struct metalclaw_spi_target *t, uint8_t pin) {
-    if (pin_used_elsewhere(t, pin)) {
-        return;
+static void bus_release_pins(struct spi_bus *bus) {
+    const uint8_t pins[3] = { bus->sck, bus->mosi, bus->miso };
+
+    hw_clear_bits(&SPI_PIO->input_sync_bypass, 1u << bus->sck);
+    for (size_t i = 0; i < 3u; i++) {
+        gpio_set_function(pins[i], GPIO_FUNC_SIO);
+        gpio_set_dir(pins[i], GPIO_IN);
+        gpio_disable_pulls(pins[i]);
+        metalclaw_hal_pin_release(pins[i], bus);
     }
-    gpio_set_function(pin, GPIO_FUNC_SIO);
-    gpio_set_dir(pin, GPIO_IN);
-    gpio_disable_pulls(pin);
-    metalclaw_hal_pin_release(pin, SPI_BUS_OWNER);
 }
 
-static void release_pads(const struct metalclaw_spi_target *t) {
-    hw_clear_bits(&SPI_PIO->input_sync_bypass, 1u << t->sck);
-    release_bus_pin(t, t->sck);
-    release_bus_pin(t, t->mosi);
-    release_bus_pin(t, t->miso);
+static void release_cs(const struct metalclaw_spi_target *t) {
     gpio_set_function(t->cs, GPIO_FUNC_SIO);
     gpio_set_dir(t->cs, GPIO_IN);
     gpio_disable_pulls(t->cs);
     metalclaw_hal_pin_release(t->cs, t->owner);
 }
 
+static bool bus_class_conflict(const struct spi_bus *bus, const struct metalclaw_spi_target *t,
+    uint8_t cls) {
+    for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
+        const struct metalclaw_spi_target *o = &targets[i];
+
+        if (o != t && o->bus == bus && mode_class(o->mode) != cls) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void bus_set_class(struct spi_bus *bus, uint8_t cls) {
+    for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
+        struct metalclaw_spi_target *o = &targets[i];
+
+        if (o->bus == bus) {
+            pio_sm_set_enabled(SPI_PIO, o->sm, false);
+            stop_dma(o);
+            o->window_open = false;
+        }
+    }
+    program_patch(bus, bus->program_sck, cls);
+    for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
+        struct metalclaw_spi_target *o = &targets[i];
+
+        if (o->bus == bus && o->image != SPI_IMAGE_NONE) {
+            prepare(o, false);
+        }
+    }
+}
+
+static bool bus_dummy_conflict(const struct spi_bus *bus, const struct metalclaw_spi_target *t,
+    uint16_t dummy) {
+    for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
+        const struct metalclaw_spi_target *o = &targets[i];
+
+        if (o != t && o->bus == bus && o->image == SPI_IMAGE_REGMAP &&
+            dummy_instruction(&o->framing, o->map->filler) != dummy) {
+            return true;
+        }
+    }
+    return false;
+}
+
 struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t mosi, uint8_t miso,
     uint8_t cs, uint8_t mode, bool msb_first, const void *owner, int *err) {
+    struct spi_bus *bus = &spi_bus;
     struct metalclaw_spi_target *t = NULL;
-    uint8_t claimed[4];
-    uint8_t claims = 0;
+    bool claimed_bus = false;
     uint8_t cls;
     int sm;
 
@@ -914,28 +999,25 @@ struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t 
         return NULL;
     }
     cls = mode_class(mode);
-    if (open_count != 0 && (sck != program_sck || cls != program_class)) {
+    if (bus->open_count != 0u && (sck != bus->sck || mosi != bus->mosi || miso != bus->miso ||
+        cls != bus->program_class)) {
         *err = -ENOSPC;
         return NULL;
     }
 
-    claimed[0] = sck;
-    claimed[1] = mosi;
-    claimed[2] = miso;
-    claimed[3] = cs;
-    for (claims = 0; claims < 4; claims++) {
-        *err = metalclaw_hal_pin_claim(claimed[claims], claims < 3u ? SPI_BUS_OWNER : owner);
+    if (bus->open_count == 0u) {
+        *err = bus_claim_pins(bus, sck, mosi, miso);
         if (*err != 0) {
-            while (claims > 0u) {
-                claims--;
-                if (claims == 3u) {
-                    metalclaw_hal_pin_release(claimed[claims], owner);
-                } else if (!pin_used_elsewhere(t, claimed[claims])) {
-                    metalclaw_hal_pin_release(claimed[claims], SPI_BUS_OWNER);
-                }
-            }
             return NULL;
         }
+        claimed_bus = true;
+    }
+    *err = metalclaw_hal_pin_claim(cs, owner);
+    if (*err != 0) {
+        if (claimed_bus) {
+            bus_release_pins(bus);
+        }
+        return NULL;
     }
 
     sm = pio_claim_unused_sm(SPI_PIO, false);
@@ -958,22 +1040,12 @@ struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t 
         *err = -ENOMEM;
         goto fail_dma;
     }
-    if (!program_loaded) {
-        program_dummy = (uint16_t)pio_encode_nop();
-        encode_program(sck, cls);
-        if (!pio_can_add_program(SPI_PIO, &spi_program)) {
-            *err = -ENOSPC;
-            goto fail_dma;
-        }
-        program_offset = (uint8_t)pio_add_program(SPI_PIO, &spi_program);
-        program_sck = sck;
-        program_class = cls;
-        program_loaded = true;
+    *err = bus_load_program(bus, sck, cls);
+    if (*err != 0) {
+        goto fail_dma;
     }
 
-    t->sck = sck;
-    t->mosi = mosi;
-    t->miso = miso;
+    t->bus = bus;
     t->cs = cs;
     t->mode = mode;
     t->msb_first = msb_first;
@@ -1002,19 +1074,20 @@ struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t 
         pio_sm_config c = pio_get_default_sm_config();
 
         sm_config_set_in_pins(&c, cs);
-        sm_config_set_wrap(&c, program_offset + SPI_MONITOR_ENTRY, program_offset + SPI_MONITOR_WRAP_TOP);
-        pio_sm_init(SPI_PIO, t->monitor_sm, program_offset + SPI_MONITOR_ENTRY, &c);
+        sm_config_set_wrap(&c, bus->program_offset + SPI_MONITOR_ENTRY,
+            bus->program_offset + SPI_MONITOR_WRAP_TOP);
+        pio_sm_init(SPI_PIO, t->monitor_sm, bus->program_offset + SPI_MONITOR_ENTRY, &c);
         pio_interrupt_clear(SPI_PIO, t->monitor_sm);
         pio_set_irq1_source_enabled(SPI_PIO, (enum pio_interrupt_source)(pis_interrupt0 + t->monitor_sm), true);
         pio_sm_set_enabled(SPI_PIO, t->monitor_sm, true);
     }
 
     t->owner = owner;
-    if (open_count++ == 0u && !poll_registered) {
-        poll_registered = metalclaw_hal_poll_register(poll_targets, NULL) == 0;
+    if (bus->open_count++ == 0u && !bus->poll_registered) {
+        bus->poll_registered = metalclaw_hal_poll_register(poll_targets, NULL) == 0;
     }
-    release_irq_sync(true);
-    dma_handler_sync(true);
+    release_irq_sync(bus, true);
+    dma_handler_sync(bus, true);
     *err = 0;
     return t;
 
@@ -1034,10 +1107,8 @@ fail_dma:
     pio_sm_unclaim(SPI_PIO, t->sm);
     pio_sm_unclaim(SPI_PIO, t->monitor_sm);
 fail_pins:
-    for (size_t i = 0; i < 3u; i++) {
-        if (!pin_used_elsewhere(t, claimed[i])) {
-            metalclaw_hal_pin_release(claimed[i], SPI_BUS_OWNER);
-        }
+    if (claimed_bus) {
+        bus_release_pins(bus);
     }
     metalclaw_hal_pin_release(cs, owner);
     return NULL;
@@ -1071,9 +1142,12 @@ void metalclaw_hal_spi_target_disarm(struct metalclaw_spi_target *t) {
 }
 
 void metalclaw_hal_spi_target_close(struct metalclaw_spi_target *t) {
+    struct spi_bus *bus;
+
     if (t == NULL || t->owner == NULL) {
         return;
     }
+    bus = t->bus;
     metalclaw_hal_spi_target_disarm(t);
 
     pio_sm_set_enabled(SPI_PIO, t->sm, false);
@@ -1094,56 +1168,37 @@ void metalclaw_hal_spi_target_close(struct metalclaw_spi_target *t) {
         dma_channel_unclaim((uint)t->loader_dma);
         t->loader_dma = -1;
     }
-    release_pads(t);
+    if (bus->open_count == 1u) {
+        bus_release_pins(bus);
+    }
+    release_cs(t);
     t->owner = NULL;
-    open_count--;
-    if (open_count == 0u) {
-        release_irq_sync(false);
-        dma_handler_sync(false);
-        if (program_loaded) {
-            pio_remove_program(SPI_PIO, &spi_program, program_offset);
-            program_loaded = false;
-        }
+    t->bus = NULL;
+    bus->open_count--;
+    if (bus->open_count == 0u) {
+        release_irq_sync(bus, false);
+        dma_handler_sync(bus, false);
+        bus_unload_program(bus);
     }
 }
 
 int metalclaw_hal_spi_target_set_mode(struct metalclaw_spi_target *t, uint8_t mode) {
+    struct spi_bus *bus;
     uint8_t cls;
     uint32_t state;
 
     if (t == NULL || t->owner == NULL || mode > 3) {
         return -EINVAL;
     }
+    bus = t->bus;
     cls = mode_class(mode);
-    if (cls != program_class) {
-        for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-            const struct metalclaw_spi_target *o = &targets[i];
-
-            if (o != t && o->owner != NULL && mode_class(o->mode) != cls) {
-                return -ENOSPC;
-            }
-        }
+    if (cls != bus->program_class && bus_class_conflict(bus, t, cls)) {
+        return -ENOSPC;
     }
     state = metalclaw_hal_critical_enter();
     t->mode = mode;
-    if (cls != program_class) {
-        for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-            struct metalclaw_spi_target *o = &targets[i];
-
-            if (o->owner != NULL) {
-                pio_sm_set_enabled(SPI_PIO, o->sm, false);
-                stop_dma(o);
-                o->window_open = false;
-            }
-        }
-        program_patch(program_sck, cls);
-        for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-            struct metalclaw_spi_target *o = &targets[i];
-
-            if (o->owner != NULL && o->image != SPI_IMAGE_NONE) {
-                prepare(o, false);
-            }
-        }
+    if (cls != bus->program_class) {
+        bus_set_class(bus, cls);
     } else if (t->image != SPI_IMAGE_NONE) {
         pio_sm_set_enabled(SPI_PIO, t->sm, false);
         stop_dma(t);
@@ -1176,13 +1231,8 @@ int metalclaw_hal_spi_target_arm_regmap(struct metalclaw_spi_target *t, struct m
         return -ENOTSUP;
     }
     dummy = dummy_instruction(framing, map->filler);
-    for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-        const struct metalclaw_spi_target *o = &targets[i];
-
-        if (o != t && o->owner != NULL && o->image == SPI_IMAGE_REGMAP &&
-            dummy_instruction(&o->framing, o->map->filler) != dummy) {
-            return -ENOSPC;
-        }
+    if (bus_dummy_conflict(t->bus, t, dummy)) {
+        return -ENOSPC;
     }
     metalclaw_hal_spi_target_disarm(t);
     banks = map->bank_count == 0 ? 1 : map->bank_count;
@@ -1200,8 +1250,8 @@ int metalclaw_hal_spi_target_arm_regmap(struct metalclaw_spi_target *t, struct m
     memset(t->tx_buf, map->filler, sizeof(t->tx_buf));
     build_tables(t);
     memset(&t->stats, 0, sizeof(t->stats));
-    if (dummy != program_dummy) {
-        program_patch_dummy(dummy);
+    if (dummy != t->bus->program_dummy) {
+        program_patch_dummy(t->bus, dummy);
     }
     configure_sm(t, true);
     pio_interrupt_clear(SPI_PIO, t->monitor_sm);
@@ -1261,7 +1311,7 @@ void metalclaw_hal_spi_target_poll(void) {
                 if (t->wait_idle && gpio_get(t->cs)) {
                     t->wait_idle = false;
                     pio_sm_exec(SPI_PIO, t->sm,
-                        pio_encode_jmp(program_offset + SPI_REGMAP_ENTRY));
+                        pio_encode_jmp(t->bus->program_offset + SPI_REGMAP_ENTRY));
                     pio_sm_set_enabled(SPI_PIO, t->sm, true);
                 }
                 metalclaw_hal_critical_exit(state);
@@ -1300,6 +1350,13 @@ void metalclaw_hal_spi_target_stats(const struct metalclaw_spi_target *t,
     state = metalclaw_hal_critical_enter();
     *out = t->stats;
     metalclaw_hal_critical_exit(state);
+}
+
+uint8_t metalclaw_hal_spi_target_mode(const struct metalclaw_spi_target *t) {
+    if (t == NULL) {
+        return 0u;
+    }
+    return t->mode;
 }
 
 uint32_t metalclaw_hal_spi_target_max_clock_hz(const struct metalclaw_spi_target *t) {

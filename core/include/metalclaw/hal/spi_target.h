@@ -45,6 +45,7 @@ struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t 
     uint8_t mode, bool msb_first, const void *owner, int *err);
 void metalclaw_hal_spi_target_close(struct metalclaw_spi_target *t);
 int metalclaw_hal_spi_target_set_mode(struct metalclaw_spi_target *t, uint8_t mode);
+uint8_t metalclaw_hal_spi_target_mode(const struct metalclaw_spi_target *t);
 
 // The image must outlive the arm. Arming replaces whatever was armed. A
 // read dummy byte (at most one) is clocked out by the state machine itself
