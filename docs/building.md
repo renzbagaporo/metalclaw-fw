@@ -9,8 +9,20 @@ just build      # build/rp2/<board>/firmware.uf2 and firmware.elf
 
 The firmware is upstream MicroPython v1.28.0's `ports/rp2`, built unpatched
 with `BOARD_DIR` pointing at a MetalClaw board and `USER_C_MODULES` pointing at
-`core/micropython/micropython.cmake`. That cmake file also pulls in the rp2
-port's own sources through `core/ports/rp2/port.cmake`.
+`core/micropython/micropython.cmake`. That file adds `core/` as a
+subdirectory, which builds the harness core (runtime, image helpers, the
+generated registry, every device) as one static library, `metalclaw_core`,
+whose only include directory is `core/include`. A device or core source that
+includes an SDK, port or MicroPython header fails to compile. The same
+library builds on the host with nothing else:
+
+```sh
+cmake -S core -B build/core_host -G Ninja && cmake --build build/core_host
+```
+
+The usermod file then includes the port selected by `METALCLAW_PORT`
+(default `rp2`), `core/ports/<port>/port.cmake`, which adds the HAL
+implementation and the MicroPython glue for that chip to the firmware target.
 
 ## Boards
 

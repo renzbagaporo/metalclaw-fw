@@ -73,8 +73,9 @@ core/                         the harness firmware
   include/metalclaw/          the ABI devices are written against, and the HAL
   src/                        runtime, regmap, stream
   cmake/                      warning sets, device registry generation
-  micropython/                the `metalclaw` module, Instance type, REPL stream
-  ports/rp2/                  port config, USB device, HAL, board definitions
+  CMakeLists.txt              the core as one static library, `metalclaw_core`
+  micropython/                the `metalclaw` module and Instance type
+  ports/rp2/                  port config, USB device, REPL stream, HAL, board definitions
   third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
 devices/                      one directory per device model: swd_probe, bmp388, ads7883, icm4268x, neo_m8n
 test/

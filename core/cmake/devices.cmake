@@ -12,7 +12,8 @@ file(STRINGS "${METALCLAW_ROOT}/core/include/metalclaw/version.h" _abi_line REGE
 string(REGEX REPLACE ".*METALCLAW_ABI_VERSION[ \t]+([0-9]+).*" "\\1" METALCLAW_ABI_VERSION "${_abi_line}")
 
 set(METALCLAW_DEVICE_SYMBOLS "")
-add_library(metalclaw_devices INTERFACE)
+set(METALCLAW_DEVICE_SOURCES "")
+set(METALCLAW_DEVICE_INCLUDE_DIRS "")
 
 function(metalclaw_device id)
     cmake_parse_arguments(DEV "" "SYMBOL;ABI" "SOURCES;INCLUDE" ${ARGN})
@@ -26,7 +27,8 @@ function(metalclaw_device id)
     set(METALCLAW_DEVICE_SYMBOLS ${METALCLAW_DEVICE_SYMBOLS} PARENT_SCOPE)
     list(APPEND METALCLAW_DEVICE_SOURCES ${DEV_SOURCES})
     set(METALCLAW_DEVICE_SOURCES ${METALCLAW_DEVICE_SOURCES} PARENT_SCOPE)
-    target_include_directories(metalclaw_devices INTERFACE ${DEV_INCLUDE})
+    list(APPEND METALCLAW_DEVICE_INCLUDE_DIRS ${DEV_INCLUDE})
+    set(METALCLAW_DEVICE_INCLUDE_DIRS ${METALCLAW_DEVICE_INCLUDE_DIRS} PARENT_SCOPE)
 endfunction()
 
 file(GLOB _device_cmakes LIST_DIRECTORIES false CONFIGURE_DEPENDS "${METALCLAW_ROOT}/devices/*/device.cmake")
