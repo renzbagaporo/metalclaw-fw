@@ -146,6 +146,25 @@ static mp_obj_t metalclaw_schema(mp_obj_t id_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(metalclaw_schema_obj, metalclaw_schema);
 
+static void pins_from_obj(mp_obj_t obj, struct metalclaw_binding_request *req) {
+    size_t len = 1;
+    mp_obj_t *items = &obj;
+    if (!mp_obj_is_int(obj)) {
+        mp_obj_get_array(obj, &len, &items);
+    }
+    if (len == 0 || len > METALCLAW_BINDING_PINS_MAX) {
+        mp_raise_ValueError(MP_ERROR_TEXT("bad pin count"));
+    }
+    for (size_t i = 0; i < len; i++) {
+        mp_int_t pin = mp_obj_get_int(items[i]);
+        if (pin < 0 || pin > 0xff) {
+            mp_raise_ValueError(MP_ERROR_TEXT("bad pin"));
+        }
+        req->pins[i] = (uint8_t)pin;
+    }
+    req->pin_count = (uint8_t)len;
+}
+
 static mp_obj_t metalclaw_attach_fn(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     if (n_args != 2) {
         mp_raise_TypeError(MP_ERROR_TEXT("attach(model, name, **bindings)"));
@@ -174,8 +193,11 @@ static mp_obj_t metalclaw_attach_fn(size_t n_args, const mp_obj_t *pos_args, mp_
         switch (desc->kind) {
             case METALCLAW_BINDING_GPIO_IN:
             case METALCLAW_BINDING_GPIO_OUT:
-                req->pin = mp_obj_get_int(kw_args->table[i].value);
+            case METALCLAW_BINDING_SWD_WIRE:
+                pins_from_obj(kw_args->table[i].value, req);
                 break;
+            case METALCLAW_BINDING_USB_INTERFACE:
+                mp_raise_msg_varg(&mp_type_TypeError, MP_ERROR_TEXT("'%s' is allocated by the harness"), key);
             default:
                 mp_raise_NotImplementedError(MP_ERROR_TEXT("binding kind not available on this port"));
         }

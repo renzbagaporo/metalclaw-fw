@@ -7,6 +7,8 @@
 #include "metalclaw/hal/gpio.h"
 #include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/platform.h"
+#include "metalclaw/hal/swd.h"
+#include "metalclaw/hal/usb.h"
 
 #ifndef METALCLAW_INSTANCES_MAX
 #define METALCLAW_INSTANCES_MAX 8
@@ -95,6 +97,12 @@ static void release_bindings(struct metalclaw_instance *inst) {
             case METALCLAW_BINDING_GPIO_OUT:
                 metalclaw_hal_gpio_close(b->gpio);
                 break;
+            case METALCLAW_BINDING_SWD_WIRE:
+                metalclaw_hal_swd_close(b->swd);
+                break;
+            case METALCLAW_BINDING_USB_INTERFACE:
+                metalclaw_hal_usb_close(b->usb);
+                break;
             default:
                 break;
         }
@@ -104,7 +112,22 @@ static void release_bindings(struct metalclaw_instance *inst) {
     metalclaw_hal_pin_release_all(inst);
 }
 
-static int resolve_binding(struct metalclaw_instance *inst, const struct metalclaw_binding_desc *desc,
+struct usb_rx_context {
+    struct metalclaw_instance *inst;
+    size_t binding;
+};
+
+static void usb_rx_trampoline(struct metalclaw_usb_interface *itf, const uint8_t *data, size_t len, void *ctx) {
+    (void)itf;
+    struct usb_rx_context *c = ctx;
+    if (c->inst->attached && c->inst->model->ops->usb_rx != NULL) {
+        c->inst->model->ops->usb_rx(c->inst, c->binding, data, len);
+    }
+}
+
+static struct usb_rx_context usb_contexts[METALCLAW_INSTANCES_MAX][METALCLAW_INSTANCE_BINDINGS_MAX];
+
+static int resolve_binding(struct metalclaw_instance *inst, size_t index, const struct metalclaw_binding_desc *desc,
     const struct metalclaw_binding_request *req, struct metalclaw_binding *out) {
     int err = 0;
     out->kind = desc->kind;
@@ -112,7 +135,18 @@ static int resolve_binding(struct metalclaw_instance *inst, const struct metalcl
     out->handle = NULL;
 
     if (desc->kind == METALCLAW_BINDING_USB_INTERFACE) {
-        return -ENOTSUP;
+        if (desc->usb == NULL) {
+            return -EINVAL;
+        }
+        struct usb_rx_context *ctx = &usb_contexts[inst - instances][index];
+        ctx->inst = inst;
+        ctx->binding = index;
+        out->usb = metalclaw_hal_usb_open(desc->usb, usb_rx_trampoline, ctx, inst, &err);
+        if (out->usb == NULL) {
+            return err;
+        }
+        out->present = true;
+        return 0;
     }
     if (!req->present) {
         return desc->required ? -EINVAL : 0;
@@ -120,12 +154,23 @@ static int resolve_binding(struct metalclaw_instance *inst, const struct metalcl
     switch (desc->kind) {
         case METALCLAW_BINDING_GPIO_IN:
         case METALCLAW_BINDING_GPIO_OUT:
-            if (req->pin > 0xffu) {
+            if (req->pin_count != 1) {
                 return -EINVAL;
             }
-            out->gpio = metalclaw_hal_gpio_open((uint8_t)req->pin, desc->kind == METALCLAW_BINDING_GPIO_OUT,
+            out->gpio = metalclaw_hal_gpio_open(req->pins[0], desc->kind == METALCLAW_BINDING_GPIO_OUT,
                 METALCLAW_GPIO_PULL_NONE, false, inst, &err);
             if (out->gpio == NULL) {
+                return err;
+            }
+            out->present = true;
+            return 0;
+        case METALCLAW_BINDING_SWD_WIRE:
+            if (req->pin_count != 2 && req->pin_count != 3) {
+                return -EINVAL;
+            }
+            out->swd = metalclaw_hal_swd_open(req->pins[0], req->pins[1],
+                req->pin_count == 3 ? req->pins[2] : METALCLAW_PIN_NONE, inst, &err);
+            if (out->swd == NULL) {
                 return err;
             }
             out->present = true;
@@ -144,7 +189,7 @@ int metalclaw_attach(const struct metalclaw_model *model, const char *name,
     if (name_len == 0 || name_len > METALCLAW_INSTANCE_NAME_MAX) {
         return -EINVAL;
     }
-    if (model->binding_count > METALCLAW_INSTANCE_BINDINGS_MAX) {
+    if (model->abi_version != METALCLAW_ABI_VERSION || model->binding_count > METALCLAW_INSTANCE_BINDINGS_MAX) {
         return -ENOTSUP;
     }
     if (metalclaw_instance_find(name) != NULL) {
@@ -173,7 +218,7 @@ int metalclaw_attach(const struct metalclaw_model *model, const char *name,
 
     int err = 0;
     for (size_t i = 0; i < model->binding_count && err == 0; i++) {
-        err = resolve_binding(inst, &model->bindings[i], &requests[i], &inst->bindings[i]);
+        err = resolve_binding(inst, i, &model->bindings[i], &requests[i], &inst->bindings[i]);
     }
     if (err == 0) {
         err = model->ops->init(inst, inst->bindings);

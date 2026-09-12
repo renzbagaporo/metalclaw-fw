@@ -48,10 +48,14 @@ enum metalclaw_binding_kind {
     METALCLAW_BINDING_USB_INTERFACE,
 };
 
+struct metalclaw_usb_interface_desc;
+
 struct metalclaw_binding_desc {
     const char *name;
     enum metalclaw_binding_kind kind;
     bool required;
+    // Only for usb_interface: what the interface looks like to the host.
+    const struct metalclaw_usb_interface_desc *usb;
 };
 
 // Resolved binding handed to the model at init. Handles are opaque HAL
@@ -61,6 +65,8 @@ struct metalclaw_binding {
     bool present;
     union {
         struct metalclaw_gpio *gpio;
+        struct metalclaw_swd *swd;
+        struct metalclaw_usb_interface *usb;
         void *handle;
     };
 };
@@ -97,6 +103,10 @@ struct metalclaw_model_ops {
     // Render current state into the image the bound engine serves.
     int (*prepare)(struct metalclaw_instance *inst, struct metalclaw_regmap *image);
     void (*time_advanced)(struct metalclaw_instance *inst, uint64_t now_us);
+    // A packet arrived on the usb_interface binding `binding`. Runs in the
+    // USB task context; answer through metalclaw_hal_usb_write before
+    // returning.
+    void (*usb_rx)(struct metalclaw_instance *inst, size_t binding, const uint8_t *data, size_t len);
 };
 
 struct metalclaw_model {
@@ -114,9 +124,5 @@ struct metalclaw_model {
     size_t state_size;
     const struct metalclaw_model_ops *ops;
 };
-
-#define METALCLAW_MODEL_CHECK(model_symbol) \
-    _Static_assert((model_symbol).abi_version == METALCLAW_ABI_VERSION, \
-    #model_symbol " targets a different MetalClaw ABI version")
 
 #endif

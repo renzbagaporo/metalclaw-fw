@@ -43,14 +43,16 @@ extern const struct metalclaw_model *const metalclaw_models[];
 extern const size_t metalclaw_model_count;
 const struct metalclaw_model *metalclaw_model_find(const char *id);
 
-// A binding request as the user supplied it: a pin number for gpio kinds,
+#define METALCLAW_BINDING_PINS_MAX 4
+
+// A binding request as the user supplied it: one pin for gpio kinds, a pin
+// tuple for swd_wire (swclk, swdio[, nreset]), nothing for usb_interface,
 // an engine handle for bus kinds. `present` is false for an omitted optional.
 struct metalclaw_binding_request {
     bool present;
-    union {
-        uint32_t pin;
-        void *handle;
-    };
+    uint8_t pin_count;
+    uint8_t pins[METALCLAW_BINDING_PINS_MAX];
+    void *handle;
 };
 
 // Errors are negative errno values: -EINVAL bad name/index/value, -ENOENT no
