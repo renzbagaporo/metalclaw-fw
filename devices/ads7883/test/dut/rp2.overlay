@@ -1,0 +1,42 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
+
+/ {
+	aliases {
+		adc = &converter;
+	};
+};
+
+&pinctrl {
+	spi0_fixture1: spi0_fixture1 {
+		group1 {
+			pinmux = <SPI0_SCK_P18>, <SPI0_TX_P19>;
+		};
+		group2 {
+			pinmux = <SPI0_RX_P16>;
+			input-enable;
+		};
+	};
+};
+
+/*
+ * A GPIO chip select: the PL022's own CS drops whenever its transmit FIFO
+ * drains, and the converter's frame is one chip-select window by definition.
+ * No in-tree driver exists for the part; vnd,spi-device carries the mode
+ * and the clock, and the DUT application clocks the frame itself.
+ */
+&spi0 {
+	status = "okay";
+	pinctrl-0 = <&spi0_fixture1>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio0 21 GPIO_ACTIVE_LOW>;
+
+	converter: adc@0 {
+		compatible = "vnd,spi-device";
+		reg = <0>;
+		spi-max-frequency = <15000000>;
+		status = "okay";
+	};
+};
