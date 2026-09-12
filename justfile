@@ -18,6 +18,14 @@ rp2_build_dir := build_dir / "rp2" / board
 micropython_commit := "e0e9fbb17ed6fd06bb76e266ae554784c9c80804"   # v1.28.0
 pico_sdk_commit := "a1438dff1d38bd9c65dbd693f0e5db4b9ae91779"      # 2.2.0, as pinned by MicroPython
 
+# The DUT fixture firmware is a Zephyr app. Zephyr, its modules and the SDK
+# live outside the repository as well.
+zephyr_workspace := env_var_or_default("METALCLAW_ZEPHYR_WORKSPACE", project_dir / "../.zephyr-workspace")
+zephyr_base := zephyr_workspace / "zephyr"
+zephyr_sdk := env_var_or_default("ZEPHYR_SDK_INSTALL_DIR", env_var("HOME") / "zephyr-sdk-1.0.1")
+dut_board := "rpi_pico2/rp2350a/m33"
+dut_build_dir := build_dir / "dut"
+
 # Toolchain state lives outside the repository, next to it.
 arm_toolchain_dir := env_var_or_default("METALCLAW_ARM_TOOLCHAIN_DIR", project_dir / "../.arm-none-eabi")
 arm_toolchain_name := "arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi"
@@ -68,6 +76,56 @@ build: build-mpy-cross
     test -f "{{board_dir}}/mpconfigboard.h"
     test -f "{{rp2_build_dir}}/firmware.uf2"
     ls -l "{{rp2_build_dir}}/firmware.uf2"
+
+# Python environment for the rig, tools and client.
+venv := project_dir / ".venv"
+rig_python := venv / "bin/python"
+
+setup-rig:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -x "{{rig_python}}" || /usr/bin/python3 -m venv "{{venv}}"
+    "{{rig_python}}" -m pip install --quiet --upgrade pip
+    "{{rig_python}}" -m pip install --quiet -r "{{project_dir}}/test/rig/requirements.txt"
+    "{{rig_python}}" -c "import pytest, serial; print('rig python ok:', pytest.__version__, serial.__version__)"
+
+# Run the cases on a platform. Extra arguments go to pytest.
+test PLATFORM="hardware" *ARGS: setup-rig
+    cd "{{project_dir}}" && "{{rig_python}}" test/rig/run.py --platform {{PLATFORM}} {{ARGS}}
+
+# Create the Zephyr workspace for the DUT fixture from test/rig/dut/west.yml.
+# METALCLAW_ZEPHYR_REFERENCE may name a directory holding local clones
+# (zephyr/, modules/...) to borrow objects from instead of downloading.
+setup-dut: setup-rig
+    #!/usr/bin/env bash
+    set -euo pipefail
+    "{{rig_python}}" -m pip install --quiet west
+    mkdir -p "{{zephyr_workspace}}/manifest"
+    cp "{{project_dir}}/test/rig/dut/west.yml" "{{zephyr_workspace}}/manifest/west.yml"
+    if [[ ! -f "{{zephyr_workspace}}/.west/config" ]]; then
+        "{{venv}}/bin/west" init -l "{{zephyr_workspace}}/manifest"
+    fi
+    ref="${METALCLAW_ZEPHYR_REFERENCE:-}"
+    if [[ -n "$ref" && ! -d "{{zephyr_base}}/.git" ]]; then
+        git clone --quiet --reference-if-able "$ref/zephyr" https://github.com/zephyrproject-rtos/zephyr.git "{{zephyr_base}}"
+    fi
+    cd "{{zephyr_workspace}}" && "{{venv}}/bin/west" update --narrow --fetch-opt=--filter=blob:none
+    "{{rig_python}}" -m pip install --quiet -r "{{zephyr_base}}/scripts/requirements-base.txt"
+    "{{venv}}/bin/west" -v list
+    echo "Zephyr $(git -C "{{zephyr_base}}" describe --tags)"
+
+# Build the DUT fixture firmware for the Pico 2.
+build-dut: setup-rig
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -f "{{zephyr_base}}/VERSION" || { echo "no Zephyr workspace at {{zephyr_workspace}}; run 'just setup-dut'" >&2; exit 2; }
+    test -d "{{zephyr_sdk}}" || { echo "no Zephyr SDK at {{zephyr_sdk}}; set ZEPHYR_SDK_INSTALL_DIR" >&2; exit 2; }
+    export ZEPHYR_BASE="{{zephyr_base}}" ZEPHYR_SDK_INSTALL_DIR="{{zephyr_sdk}}" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
+    export PATH="{{venv}}/bin:$PATH"
+    cmake -S "{{project_dir}}/test/rig/dut" -B "{{dut_build_dir}}" -GNinja \
+        -DBOARD="{{dut_board}}" -DPython3_EXECUTABLE="{{rig_python}}"
+    cmake --build "{{dut_build_dir}}"
+    ls -l "{{dut_build_dir}}/zephyr/zephyr.elf"
 
 # Remove build output.
 clean:
