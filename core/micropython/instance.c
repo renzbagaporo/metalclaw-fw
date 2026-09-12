@@ -9,6 +9,9 @@
 #include "py/objstr.h"
 #include "py/runtime.h"
 #include "metalclaw/runtime.h"
+#include "metalclaw/hal/i2c_target.h"
+#include "metalclaw/hal/spi_target.h"
+#include "metalclaw/hal/uart.h"
 #include "metalclaw_module.h"
 
 typedef struct _instance_obj_t {
@@ -188,6 +191,53 @@ static mp_obj_t instance_trace(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(instance_trace_obj, instance_trace);
 
+static void dict_store_uint(mp_obj_t dict, const char *key, uint32_t value) {
+    mp_obj_dict_store(dict, mp_obj_new_str_from_cstr(key), mp_obj_new_int_from_uint(value));
+}
+
+// Engine counters for one bus binding, by the binding's name. What the
+// bus saw, from the HAL; the model never has to count.
+static mp_obj_t instance_stats(mp_obj_t self_in, mp_obj_t name_in) {
+    struct metalclaw_instance *inst = metalclaw_instance_unwrap(self_in);
+    int index = require_index(metalclaw_binding_index(inst->model, mp_obj_str_get_str(name_in)), "binding");
+    const struct metalclaw_binding *b = &inst->bindings[index];
+    if (!b->present) {
+        mp_raise_ValueError(MP_ERROR_TEXT("binding not bound"));
+    }
+    mp_obj_t d = mp_obj_new_dict(6);
+    switch (b->kind) {
+        case METALCLAW_BINDING_I2C_TARGET:
+            dict_store_uint(d, "transactions", metalclaw_hal_i2c_target_transactions(b->i2c));
+            break;
+        case METALCLAW_BINDING_SPI_TARGET: {
+            struct metalclaw_spi_target_stats st;
+            metalclaw_hal_spi_target_stats(b->spi, &st);
+            dict_store_uint(d, "transactions", st.transactions);
+            dict_store_uint(d, "bytes", st.bytes);
+            dict_store_uint(d, "short_windows", st.short_windows);
+            dict_store_uint(d, "long_windows", st.long_windows);
+            dict_store_uint(d, "dma_faults", st.dma_faults);
+            dict_store_uint(d, "stale_windows", st.stale_windows);
+            dict_store_uint(d, "max_clock_hz", metalclaw_hal_spi_target_max_clock_hz(b->spi));
+            break;
+        }
+        case METALCLAW_BINDING_UART: {
+            struct metalclaw_uart_stats st;
+            metalclaw_hal_uart_stats(b->uart, &st);
+            dict_store_uint(d, "bytes_rx", st.bytes_rx);
+            dict_store_uint(d, "bytes_tx", st.bytes_tx);
+            dict_store_uint(d, "overruns", st.overruns);
+            dict_store_uint(d, "frame_errors", st.frame_errors);
+            dict_store_uint(d, "baud", metalclaw_hal_uart_baud(b->uart));
+            break;
+        }
+        default:
+            mp_raise_ValueError(MP_ERROR_TEXT("binding has no stats"));
+    }
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(instance_stats_obj, instance_stats);
+
 static mp_obj_t instance_reset(size_t n_args, const mp_obj_t *args) {
     struct metalclaw_instance *inst = metalclaw_instance_unwrap(args[0]);
     bool factory = n_args > 1 && mp_obj_is_true(args[1]);
@@ -212,6 +262,7 @@ static const mp_rom_map_elem_t instance_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_read_region), MP_ROM_PTR(&instance_read_region_obj) },
     { MP_ROM_QSTR(MP_QSTR_write_region), MP_ROM_PTR(&instance_write_region_obj) },
     { MP_ROM_QSTR(MP_QSTR_trace), MP_ROM_PTR(&instance_trace_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stats), MP_ROM_PTR(&instance_stats_obj) },
     { MP_ROM_QSTR(MP_QSTR_reset), MP_ROM_PTR(&instance_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_detach), MP_ROM_PTR(&instance_detach_obj) },
 };

@@ -68,6 +68,38 @@ static void dict_store(mp_obj_t dict, const char *key, mp_obj_t value) {
     mp_obj_dict_store(dict, mp_obj_new_str_from_cstr(key), value);
 }
 
+static const char *parity_name(enum metalclaw_uart_parity parity) {
+    switch (parity) {
+        case METALCLAW_UART_PARITY_NONE:
+            return "none";
+        case METALCLAW_UART_PARITY_EVEN:
+            return "even";
+        case METALCLAW_UART_PARITY_ODD:
+            return "odd";
+    }
+    return "?";
+}
+
+static void binding_facts(mp_obj_t d, const struct metalclaw_binding_desc *b) {
+    if (b->kind == METALCLAW_BINDING_SPI_TARGET) {
+        mp_obj_t modes[4];
+        size_t n = 0;
+        for (uint8_t m = 0; m < 4; m++) {
+            if (b->spi.modes & METALCLAW_SPI_MODE_BIT(m)) {
+                modes[n++] = MP_OBJ_NEW_SMALL_INT(m);
+            }
+        }
+        dict_store(d, "modes", mp_obj_new_tuple(n, modes));
+        dict_store(d, "default_mode", MP_OBJ_NEW_SMALL_INT(b->spi.default_mode));
+        dict_store(d, "msb_first", mp_obj_new_bool(b->spi.msb_first));
+    } else if (b->kind == METALCLAW_BINDING_UART) {
+        dict_store(d, "default_baud", mp_obj_new_int_from_uint(b->uart.default_baud));
+        dict_store(d, "data_bits", MP_OBJ_NEW_SMALL_INT(b->uart.format.data_bits));
+        dict_store(d, "stop_bits", MP_OBJ_NEW_SMALL_INT(b->uart.format.stop_bits));
+        dict_store(d, "parity", mp_obj_new_str_from_cstr(parity_name(b->uart.format.parity)));
+    }
+}
+
 mp_obj_t metalclaw_model_schema(const struct metalclaw_model *model) {
     mp_obj_t schema = mp_obj_new_dict(5);
     dict_store(schema, "id", mp_obj_new_str_from_cstr(model->id));
@@ -110,9 +142,10 @@ mp_obj_t metalclaw_model_schema(const struct metalclaw_model *model) {
     mp_obj_t bindings = mp_obj_new_dict(model->binding_count);
     for (size_t i = 0; i < model->binding_count; i++) {
         const struct metalclaw_binding_desc *b = &model->bindings[i];
-        mp_obj_t d = mp_obj_new_dict(2);
+        mp_obj_t d = mp_obj_new_dict(6);
         dict_store(d, "kind", mp_obj_new_str_from_cstr(binding_kind_name(b->kind)));
         dict_store(d, "required", mp_obj_new_bool(b->required));
+        binding_facts(d, b);
         dict_store(bindings, b->name, d);
     }
     dict_store(schema, "bindings", bindings);
@@ -195,6 +228,8 @@ static mp_obj_t metalclaw_attach_fn(size_t n_args, const mp_obj_t *pos_args, mp_
             case METALCLAW_BINDING_GPIO_OUT:
             case METALCLAW_BINDING_SWD_WIRE:
             case METALCLAW_BINDING_I2C_TARGET:
+            case METALCLAW_BINDING_SPI_TARGET:
+            case METALCLAW_BINDING_UART:
                 pins_from_obj(kw_args->table[i].value, req);
                 break;
             case METALCLAW_BINDING_USB_INTERFACE:

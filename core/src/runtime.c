@@ -8,7 +8,9 @@
 #include "metalclaw/hal/i2c_target.h"
 #include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/platform.h"
+#include "metalclaw/hal/spi_target.h"
 #include "metalclaw/hal/swd.h"
+#include "metalclaw/hal/uart.h"
 #include "metalclaw/hal/usb.h"
 
 #ifndef METALCLAW_INSTANCES_MAX
@@ -20,9 +22,11 @@
 
 static struct metalclaw_instance instances[METALCLAW_INSTANCES_MAX];
 static uint8_t arena[METALCLAW_ARENA_SIZE] __attribute__((aligned(8)));
-// Bump allocation; space comes back only when the last instance detaches,
-// which every soft reset guarantees.
-static size_t arena_used;
+// The arena is handed out in 64-byte pages, first fit, so a detached
+// instance's state is reusable at once.
+#define ARENA_PAGE 64u
+#define ARENA_PAGES (METALCLAW_ARENA_SIZE / ARENA_PAGE)
+static uint8_t arena_owner[ARENA_PAGES];
 static size_t attached_count;
 static uint64_t clock_us;
 
@@ -104,6 +108,12 @@ static void release_bindings(struct metalclaw_instance *inst) {
             case METALCLAW_BINDING_I2C_TARGET:
                 metalclaw_hal_i2c_target_close(b->i2c);
                 break;
+            case METALCLAW_BINDING_SPI_TARGET:
+                metalclaw_hal_spi_target_close(b->spi);
+                break;
+            case METALCLAW_BINDING_UART:
+                metalclaw_hal_uart_close(b->uart);
+                break;
             case METALCLAW_BINDING_USB_INTERFACE:
                 metalclaw_hal_usb_close(b->usb);
                 break;
@@ -114,6 +124,16 @@ static void release_bindings(struct metalclaw_instance *inst) {
         b->handle = NULL;
     }
     metalclaw_hal_pin_release_all(inst);
+}
+
+static void release_arena(const struct metalclaw_instance *inst) {
+    uint8_t tag = (uint8_t)(inst - instances) + 1u;
+
+    for (size_t i = 0; i < ARENA_PAGES; i++) {
+        if (arena_owner[i] == tag) {
+            arena_owner[i] = 0;
+        }
+    }
 }
 
 struct usb_rx_context {
@@ -178,6 +198,28 @@ static int resolve_binding(struct metalclaw_instance *inst, size_t index, const 
             }
             out->present = true;
             return 0;
+        case METALCLAW_BINDING_SPI_TARGET:
+            if (req->pin_count != 4) {
+                return -EINVAL;
+            }
+            out->spi = metalclaw_hal_spi_target_open(req->pins[0], req->pins[1], req->pins[2], req->pins[3],
+                desc->spi.default_mode, desc->spi.msb_first, inst, &err);
+            if (out->spi == NULL) {
+                return err;
+            }
+            out->present = true;
+            return 0;
+        case METALCLAW_BINDING_UART:
+            if (req->pin_count != 2) {
+                return -EINVAL;
+            }
+            out->uart = metalclaw_hal_uart_open(req->pins[0], req->pins[1], desc->uart.default_baud,
+                &desc->uart.format, inst, &err);
+            if (out->uart == NULL) {
+                return err;
+            }
+            out->present = true;
+            return 0;
         case METALCLAW_BINDING_SWD_WIRE:
             if (req->pin_count != 2 && req->pin_count != 3) {
                 return -EINVAL;
@@ -217,8 +259,16 @@ int metalclaw_attach(const struct metalclaw_model *model, const char *name,
             break;
         }
     }
-    size_t state_size = (model->state_size + 7u) & ~(size_t)7u;
-    if (inst == NULL || arena_used + state_size > METALCLAW_ARENA_SIZE) {
+    size_t pages = (model->state_size + ARENA_PAGE - 1u) / ARENA_PAGE;
+    size_t first = ARENA_PAGES;
+    for (size_t i = 0, run = 0; inst != NULL && i < ARENA_PAGES; i++) {
+        run = arena_owner[i] == 0 ? run + 1 : 0;
+        if (run == pages) {
+            first = i + 1 - pages;
+            break;
+        }
+    }
+    if (inst == NULL || (pages > 0 && first == ARENA_PAGES)) {
         return -ENOSPC;
     }
 
@@ -227,8 +277,11 @@ int metalclaw_attach(const struct metalclaw_model *model, const char *name,
     inst->generation = generation;
     inst->model = model;
     memcpy(inst->name, name, name_len + 1);
-    inst->state = &arena[arena_used];
-    memset(inst->state, 0, state_size);
+    inst->state = pages > 0 ? &arena[first * ARENA_PAGE] : NULL;
+    for (size_t i = 0; i < pages; i++) {
+        arena_owner[first + i] = (uint8_t)(inst - instances) + 1u;
+    }
+    memset(inst->state, 0, pages * ARENA_PAGE);
 
     int err = 0;
     for (size_t i = 0; i < model->binding_count && err == 0; i++) {
@@ -239,11 +292,11 @@ int metalclaw_attach(const struct metalclaw_model *model, const char *name,
     }
     if (err != 0) {
         release_bindings(inst);
+        release_arena(inst);
         inst->model = NULL;
         return err;
     }
 
-    arena_used += state_size;
     uint32_t state = metalclaw_hal_critical_enter();
     inst->attached = true;
     attached_count++;
@@ -265,11 +318,9 @@ int metalclaw_detach(struct metalclaw_instance *inst) {
         inst->model->ops->deinit(inst);
     }
     release_bindings(inst);
+    release_arena(inst);
     inst->model = NULL;
     inst->state = NULL;
-    if (attached_count == 0) {
-        arena_used = 0;
-    }
     return 0;
 }
 

@@ -21,6 +21,7 @@ void metalclaw_regmap_set(struct metalclaw_regmap *map, uint8_t bank, uint8_t re
     }
     map->value[bank][reg] = value;
     map->flags[bank][reg] = flags;
+    map->revision++;
 }
 
 uint8_t metalclaw_regmap_get(const struct metalclaw_regmap *map, uint8_t bank, uint8_t reg) {
@@ -31,6 +32,12 @@ void metalclaw_regmap_set_stream(struct metalclaw_regmap *map, const uint8_t *da
     map->stream = data;
     map->stream_len = len;
     map->stream_pos = 0;
+    map->revision++;
+}
+
+void metalclaw_regmap_set_on_write(struct metalclaw_regmap *map, metalclaw_regmap_on_write_t fn, void *ctx) {
+    map->on_write = fn;
+    map->on_write_ctx = ctx;
 }
 
 uint8_t metalclaw_regmap_bus_read(struct metalclaw_regmap *map, uint8_t reg) {
@@ -53,9 +60,12 @@ void metalclaw_regmap_bus_write(struct metalclaw_regmap *map, uint8_t reg, uint8
     uint8_t bank = map->active_bank;
     if (map->bank_count > 1 && reg == map->bank_select_reg) {
         map->active_bank = value < map->bank_count ? value : 0;
+    } else if (map->flags[bank][reg] & METALCLAW_REG_WRITABLE) {
+        map->value[bank][reg] = value;
+    } else {
         return;
     }
-    if (map->flags[bank][reg] & METALCLAW_REG_WRITABLE) {
-        map->value[bank][reg] = value;
+    if (map->on_write != NULL) {
+        map->on_write(map, bank, reg, value, map->on_write_ctx);
     }
 }

@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "metalclaw/bus.h"
 #include "metalclaw/value.h"
 #include "metalclaw/version.h"
 
@@ -37,6 +38,8 @@ struct metalclaw_region_desc {
 // What a device needs from the platform. The name is the attach() keyword
 // the user passes; the kind says what the runtime resolves it into.
 // usb_interface entries have no keyword: the runtime allocates them.
+// spi_target and uart carry the part's datasheet facts; the runtime opens
+// the engine with them and the schema shows them to the fixture side.
 enum metalclaw_binding_kind {
     METALCLAW_BINDING_GPIO_IN,
     METALCLAW_BINDING_GPIO_OUT,
@@ -56,6 +59,8 @@ struct metalclaw_binding_desc {
     bool required;
     // Only for usb_interface: what the interface looks like to the host.
     const struct metalclaw_usb_interface_desc *usb;
+    struct metalclaw_spi_facts spi;
+    struct metalclaw_uart_facts uart;
 };
 
 // Resolved binding handed to the model at init. Handles are opaque HAL
@@ -67,6 +72,8 @@ struct metalclaw_binding {
         struct metalclaw_gpio *gpio;
         struct metalclaw_swd *swd;
         struct metalclaw_i2c_target *i2c;
+        struct metalclaw_spi_target *spi;
+        struct metalclaw_uart *uart;
         struct metalclaw_usb_interface *usb;
         void *handle;
     };
@@ -74,8 +81,8 @@ struct metalclaw_binding {
 
 struct metalclaw_instance;
 
-// The only response image defined so far: a register file the SPI and I2C
-// target engines can serve without calling back into the model.
+// A register file the SPI and I2C target engines serve without calling
+// back into the model. Streams (metalclaw/stream.h) are the other image.
 struct metalclaw_regmap;
 
 enum metalclaw_trace_kind {

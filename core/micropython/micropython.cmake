@@ -31,6 +31,7 @@ metalclaw_strict_third_party(usermod)
 set(METALCLAW_CORE_SOURCES
     ${METALCLAW_ROOT}/core/src/runtime.c
     ${METALCLAW_ROOT}/core/src/regmap.c
+    ${METALCLAW_ROOT}/core/src/stream.c
     ${METALCLAW_REGISTRY_SOURCE}
     ${METALCLAW_DEVICE_SOURCES}
 )
