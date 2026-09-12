@@ -66,6 +66,7 @@ struct metalclaw_binding {
     union {
         struct metalclaw_gpio *gpio;
         struct metalclaw_swd *swd;
+        struct metalclaw_i2c_target *i2c;
         struct metalclaw_usb_interface *usb;
         void *handle;
     };

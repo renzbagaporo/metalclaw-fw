@@ -194,6 +194,7 @@ static mp_obj_t metalclaw_attach_fn(size_t n_args, const mp_obj_t *pos_args, mp_
             case METALCLAW_BINDING_GPIO_IN:
             case METALCLAW_BINDING_GPIO_OUT:
             case METALCLAW_BINDING_SWD_WIRE:
+            case METALCLAW_BINDING_I2C_TARGET:
                 pins_from_obj(kw_args->table[i].value, req);
                 break;
             case METALCLAW_BINDING_USB_INTERFACE:

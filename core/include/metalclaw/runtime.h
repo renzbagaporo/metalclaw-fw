@@ -46,8 +46,8 @@ const struct metalclaw_model *metalclaw_model_find(const char *id);
 #define METALCLAW_BINDING_PINS_MAX 4
 
 // A binding request as the user supplied it: one pin for gpio kinds, a pin
-// tuple for swd_wire (swclk, swdio[, nreset]), nothing for usb_interface,
-// an engine handle for bus kinds. `present` is false for an omitted optional.
+// tuple for swd_wire (swclk, swdio[, nreset]) and i2c_target (sda, scl,
+// address), nothing for usb_interface. `present` is false for an omitted optional.
 struct metalclaw_binding_request {
     bool present;
     uint8_t pin_count;

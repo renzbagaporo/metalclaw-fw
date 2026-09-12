@@ -5,6 +5,7 @@
 
 #include "metalclaw/runtime.h"
 #include "metalclaw/hal/gpio.h"
+#include "metalclaw/hal/i2c_target.h"
 #include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/platform.h"
 #include "metalclaw/hal/swd.h"
@@ -100,6 +101,9 @@ static void release_bindings(struct metalclaw_instance *inst) {
             case METALCLAW_BINDING_SWD_WIRE:
                 metalclaw_hal_swd_close(b->swd);
                 break;
+            case METALCLAW_BINDING_I2C_TARGET:
+                metalclaw_hal_i2c_target_close(b->i2c);
+                break;
             case METALCLAW_BINDING_USB_INTERFACE:
                 metalclaw_hal_usb_close(b->usb);
                 break;
@@ -160,6 +164,16 @@ static int resolve_binding(struct metalclaw_instance *inst, size_t index, const 
             out->gpio = metalclaw_hal_gpio_open(req->pins[0], desc->kind == METALCLAW_BINDING_GPIO_OUT,
                 METALCLAW_GPIO_PULL_NONE, false, inst, &err);
             if (out->gpio == NULL) {
+                return err;
+            }
+            out->present = true;
+            return 0;
+        case METALCLAW_BINDING_I2C_TARGET:
+            if (req->pin_count != 3) {
+                return -EINVAL;
+            }
+            out->i2c = metalclaw_hal_i2c_target_open(req->pins[0], req->pins[1], req->pins[2], inst, &err);
+            if (out->i2c == NULL) {
                 return err;
             }
             out->present = true;

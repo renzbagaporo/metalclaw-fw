@@ -29,7 +29,7 @@ function(metalclaw_device id)
     target_include_directories(metalclaw_devices INTERFACE ${DEV_INCLUDE})
 endfunction()
 
-file(GLOB _device_cmakes LIST_DIRECTORIES false "${METALCLAW_ROOT}/devices/*/device.cmake")
+file(GLOB _device_cmakes LIST_DIRECTORIES false CONFIGURE_DEPENDS "${METALCLAW_ROOT}/devices/*/device.cmake")
 list(SORT _device_cmakes)
 foreach(_cmake ${_device_cmakes})
     include(${_cmake})
