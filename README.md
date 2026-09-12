@@ -43,6 +43,15 @@ $ probe-rs info --probe 2fe3:0204:E6612483CB313225 --protocol swd
 See [docs/devices.md](docs/devices.md) for the model contract and
 [devices/swd_probe](devices/swd_probe/README.md) for the probe.
 
+The rig in `test/rig/` flashes a Zephyr fixture image onto the board under
+test through that probe, talks to it over a RAM mailbox, and runs every case
+in the tree on real hardware:
+
+```sh
+just build-dut
+METALCLAW_HARNESS_SERIAL=<serial> just test hardware
+```
+
 ## Layout
 
 ```text
@@ -54,8 +63,11 @@ core/                         the harness firmware
   ports/rp2/                  port config, USB device, HAL, board definitions
   third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
 devices/                      one directory per device model; swd_probe so far
+test/
+  rig/                        run.py, the hardware platform, the Zephyr DUT fixture
+  cases/                      cases for the harness as a whole
 tools/                        flash_rp2.sh: J-Link flash and recovery
-docs/                         devices.md, usb.md, building.md
+docs/                         devices.md, testing.md, usb.md, building.md
 justfile                      setup and build recipes
 ```
 
