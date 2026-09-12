@@ -18,24 +18,36 @@ pins they use, what state they start in.
 A MicroPython v1.28.0 image for the Pico 1 that owns its USB device. It
 enumerates as `2FE3:0204 MetalClaw` with a CDC REPL and an MSC volume, is
 brought up once at boot, and stays enumerated across MicroPython soft resets.
-The `metalclaw` C module only reports its version so far:
+
+The `metalclaw` module is the generic device API: a model registry, a runtime
+with instances, a simulation clock, faults and trace, and one `Instance` type
+whose attributes come from each model's own descriptors. There are no device
+models in the tree yet, so today it looks like this:
 
 ```python
 >>> import metalclaw
->>> metalclaw.version()
-'0.0.0'
+>>> metalclaw.models()
+()
+>>> metalclaw.advance_us(1000), metalclaw.now_us()
+(1000, 1000)
 ```
+
+See [docs/devices.md](docs/devices.md) for the model contract a device is
+written against.
 
 ## Layout
 
 ```text
 core/                         the harness firmware
-  cmake/                      the strict warning set for MetalClaw sources
-  micropython/                the `metalclaw` user C module and the REPL stream
-  ports/rp2/                  port config, USB device, board definitions
+  include/metalclaw/          the ABI devices are written against, and the HAL
+  src/                        runtime, regmap
+  cmake/                      warning sets, device registry generation
+  micropython/                the `metalclaw` module, Instance type, REPL stream
+  ports/rp2/                  port config, USB device, HAL, board definitions
   third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
+devices/                      one directory per device model (none yet)
 tools/                        flash_rp2.sh: J-Link flash and recovery
-docs/                         usb.md, building.md
+docs/                         devices.md, usb.md, building.md
 justfile                      setup and build recipes
 ```
 
