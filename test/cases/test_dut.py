@@ -10,7 +10,7 @@ def test_dut_answers_ping(dut):
 def test_dut_reports_identity(dut):
     result = dut.command("ID")
     assert result["status"] == "ok"
-    assert result["image"] == "smoke"
+    assert result["image"]
 
 
 def test_dut_survives_reset(dut):

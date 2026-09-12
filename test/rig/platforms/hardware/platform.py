@@ -79,12 +79,23 @@ class Dut:
     def command(self, line: str, timeout: float = 10.0) -> dict:
         return self.mailbox.command(line, timeout)
 
+    # The device the flashed image was built for, "smoke" for none.
+    def image_name(self) -> str:
+        return self.command("ID")["image"]
+
+    def require_image(self, name: str) -> None:
+        if self.image_name() != name:
+            pytest.skip(f"the DUT image is not built for {name}")
+
 
 @pytest.fixture(scope="session")
 def harness() -> Harness:
     serial = _required("METALCLAW_HARNESS_SERIAL")
     h = Harness(serial)
     h.wait_enumerated()
+    # Instances outlive a rig run; a leftover device would hold pins a case
+    # needs. The probe stays, detaching it would re-enumerate the harness.
+    h.run("import metalclaw\nfor i in metalclaw.instances():\n    if i.model != 'swd_probe':\n        i.detach()\n")
     return h
 
 

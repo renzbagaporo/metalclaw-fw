@@ -115,7 +115,8 @@ setup-dut: setup-rig
 
 # Build the DUT fixture firmware for the Pico 2. With a DEVICE, its
 # devices/<DEVICE>/test/dut/rp2.{overlay,conf} are applied so Zephyr's real
-# driver for that part is in the image. Output: build/dut/<DEVICE|smoke>/.
+# driver for that part is in the image; DEVICE/VARIANT uses the files under
+# test/dut/VARIANT/ instead. Output: build/dut/<DEVICE|smoke>/.
 build-dut DEVICE="": setup-rig
     #!/usr/bin/env bash
     set -euo pipefail
@@ -125,7 +126,8 @@ build-dut DEVICE="": setup-rig
     export PATH="{{venv}}/bin:$PATH"
     name="{{DEVICE}}"; extra=()
     if [[ -n "$name" ]]; then
-        dut="{{project_dir}}/devices/$name/test/dut"
+        dut="{{project_dir}}/devices/${name%%/*}/test/dut"
+        [[ "$name" == */* ]] && dut="$dut/${name#*/}"
         test -f "$dut/rp2.overlay" || { echo "no $dut/rp2.overlay" >&2; exit 2; }
         extra+=(-DDTC_OVERLAY_FILE="$dut/rp2.overlay")
         test -f "$dut/rp2.conf" && extra+=(-DEXTRA_CONF_FILE="$dut/rp2.conf")
@@ -134,7 +136,8 @@ build-dut DEVICE="": setup-rig
     fi
     build="{{build_dir}}/dut/$name"
     cmake -S "{{project_dir}}/test/rig/dut" -B "$build" -GNinja \
-        -DBOARD="{{dut_board}}" -DPython3_EXECUTABLE="{{rig_python}}" "${extra[@]}"
+        -DBOARD="{{dut_board}}" -DPython3_EXECUTABLE="{{rig_python}}" \
+        -DMETALCLAW_DUT_IMAGE_NAME="$name" "${extra[@]}"
     cmake --build "$build"
     ls -l "$build/zephyr/zephyr.elf"
 
