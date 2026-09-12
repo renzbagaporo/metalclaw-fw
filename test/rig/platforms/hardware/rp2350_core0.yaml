@@ -1,0 +1,119 @@
+# SPDX-FileCopyrightText: 2026 Renz Bagaporo
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Minimal RP2350 chip description exposing ONLY core 0.
+#
+# Derived from probe-rs's own `probe-rs/targets/RP235x.yaml`, which probe-rs
+# publishes under Apache-2.0 OR MIT - the same dual licence this project uses.
+# Everything below is upstream's content with core 1 and the RISC-V variant
+# removed; the flash algorithm blob is copied verbatim.
+#
+# Re-checked against probe-rs v0.32.0 (git 48f5e4d), the version on the bench:
+# the `algo` block is byte-identical - same base64 `instructions`, and the
+# `pc_*` entries below are upstream's own hexadecimal spelling of the same
+# offsets - so a future `diff` against upstream stays clean.
+#
+# TWO INVARIANTS THIS FILE MUST KEEP.  Both are enforced offline by
+# `devices/metalclaw_device_tools/rp2040_hil.py:validate_chip_description()`.
+#
+# 1. Every variant name must start with "RP235".
+#    probe-rs picks the chip-specific debug sequence purely by string prefix on
+#    the *variant* name, not by family name, manufacturer id or part number:
+#      probe-rs/src/config/target.rs:114   Target::new(family, chip) ->
+#                                          vendor::try_create_debug_sequence(chip)
+#      probe-rs/src/vendor/raspberrypi/mod.rs:17
+#                                          chip.name.starts_with("RP235")
+#                                              -> DebugSequence::Arm(Rp235x)
+#    Lose that prefix and probe-rs silently falls back to the generic Arm
+#    sequence, whose `reset_system` is a plain AIRCR SYSRESETREQ - which does
+#    not cold-boot an RP2350.  `RP2350_Core0` satisfies it; the family name is
+#    also spelled with the prefix so no future reader has to wonder which name
+#    is the load-bearing one.
+#
+# 2. No core may set `targetsel`.
+#    `ArmCoreAccessOptions` (probe-rs-target/src/chip.rs) accepts an optional
+#    `targetsel`, and setting it makes the whole session use a multidrop DP
+#    address.  The RP2350 rescue reset is issued to the RP-AP at a *hardcoded*
+#    `DpAddress::Default` (probe-rs/src/vendor/raspberrypi/sequences/rp235x.rs:13),
+#    so a multidrop session DP would leave the rescue write addressing a
+#    different debug port.  Upstream's RP235x.yaml leaves it unset; so do we.
+#
+# Why this file exists (fixture 1, bench-verified):
+#   The Pico 2 on fixture 1 has its RP2350 per-core architecture select set to
+#   core 0 = Arm, core 1 = RISC-V.  Its root ROM table therefore publishes
+#   core 0's Arm access port at 0x2000 and the RISC-V debug module at 0xa000,
+#   and does NOT publish an Arm AP at 0x4000.  probe-rs's stock all-Arm
+#   `RP235x` description declares core 1 at AP v2 0x4000, so every operation
+#   that opens a full session (`read`, `reset`, `download`) faults with
+#   "Failed to read register DRW at address 0xd0c" / ApV2Address(Some(16384)).
+#   `--core 0` does not help: the session is built from the description, not
+#   from the requested core.  `probe-rs info` is unaffected because it only
+#   walks the ROM table.  `--chip RP235x_riscv` is not an answer either -
+#   neither board on this bench runs RISC-V, so the DMI transactions time out.
+#
+# Select it with:
+#   probe-rs <cmd> --chip-description-path devices/metalclaw_device_tools/rp2350_core0.yaml \
+#            --chip RP2350_Core0 --protocol swd
+#
+# `--target-sel` is NOT part of that invocation.  In probe-rs 0.32 it exists
+# only on `probe-rs info`, and its own help says it is "required in --verbose
+# mode for targets using SWD multidrop"; no session command (`read`, `write`,
+# `reset`, `download`) accepts it.  Fixture 1's Pico 2 answers on the default
+# DP, exactly like upstream's RP235x description and like OpenOCD's
+# `tcl/target/rp2350.cfg` when SWD_MULTIDROP is unset.
+#
+# Never add --connect-under-reset on fixture 1: it has never been tested there.
+# A post-flash debugger-port mailbox PING, not a reset mechanism, establishes
+# that the selected image is running.
+name: RP235x_MetalClaw_Core0
+manufacturer:
+  id: 0x3b
+  cc: 0x4
+variants:
+- name: RP2350_Core0
+  part: 0x4c9
+  cores:
+    - name: core0
+      type: armv8m
+      core_access_options: !Arm
+        ap: !v2 0x2000
+  memory_map:
+  - !Nvm
+    range:
+      start: 0x10000000
+      end: 0x14000000
+    cores:
+    - core0
+    access:
+      boot: true
+  - !Ram
+    range:
+      start: 0x20000000
+      end: 0x20082000
+    cores:
+    - core0
+  flash_algorithms:
+  - algo
+flash_algorithms:
+- name: algo
+  description: algo
+  default: true
+  instructions: 8LUDr4ewFEZaTX1EKHgAKAfQXkh4RABogEddSHhEAGiARwEmLnBgHgMoANON4EhIAPAO+QxGAChf0UZIgBwA8Af5ACgB0AxGV+AGlBAiEHhBTE0oUdERIxh4dShN0RIgApAAeAIoCtABKEbRA5MEkgWRFCAAiBghCog4SQjgA5MEkgWRAPDU+BYgAogzSAQhkEczTAAoIkYA0AJGACgFmQSYA5sp0AB4LkxNKCXRGHh1KCLRApgAeAIoBZEBkgfQASga0RQgAIgYIQqIJkkF4ADwrvgWIAKII0gEIZBHI0wAKCJGANACRgAoBtAEkiBIAPCu+AxGACgC0CBGB7DwvRRIAPCl+AAondEDkQaYACgZ0AaYgEcFmIBHF0h4RAGZAWAWSHhEBpkBYBVIeEQEmQFgFEh4RARgE0h4RAOZAWAucAAk2ecFnNfnAPCr+MBGSUYAAENYAABSRQAQUkUAAFJFACBSUAAQUlAAAFJQACBGQwAAngIAAJQBAACIAQAAiAEAAIQBAACCAQAApAIAAKACAADQtQKvCEx8RCB4ASgK0QdIeEQAaIBHBkh4RABogEcAICBw0L0BINC9DgEAABQBAAAQAQAA0LUCrwlJeUQJeAEpDNEPIQkHQBgGSXlEDGgBIhEDEgTYI6BHACDQvQEg0L3aAAAA0gAAANC1Aq8LRglJeUQJeAEpCtEPIQkHQBgGSXlEDGgRRhpGoEcAINC9ASDQvcBGpAAAAKAAAAAGSF/0QEEBYDDuEPcE1EDsgAdA7IEHQL9wRwAAiO0A4NC1Aq+EshAgAHhNKA/RESAAeHUoC9ESIAB4AigL0AEoBdEUIACIGCEKiCFGCeABIAEHYRjQvf/30/8WIAKIBCEgRpBHAUZAQkhBACny0QEhSQfu54C1AK8A3v7eANTU1AAAAAAAAAAAAAAAAAAAAAAAAAAA
+  pc_init: 0x1
+  pc_uninit: 0x195
+  pc_program_page: 0x1fd
+  pc_erase_sector: 0x1c9
+  data_section_offset: 0x0
+  flash_properties:
+    address_range:
+      start: 0x10000000
+      end: 0x18000000
+    page_size: 0x1000
+    erased_byte_value: 0xff
+    program_page_timeout: 1000
+    erase_sector_timeout: 3000
+    sectors:
+    - size: 0x1000
+      address: 0x0
+  cores:
+  - core0
