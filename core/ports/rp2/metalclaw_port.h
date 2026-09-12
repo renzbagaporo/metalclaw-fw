@@ -33,6 +33,11 @@
 // The REPL is a builtin dupterm stream over the owned CDC interface.
 #define MICROPY_PY_OS_DUPTERM_BUILTIN_STREAM    (1)
 
+// Pins no device may ever claim, as a comma-terminated list, e.g. `2, 3,`.
+#ifndef METALCLAW_RESERVED_PINS
+#define METALCLAW_RESERVED_PINS
+#endif
+
 // TinyUSB class calls are only safe from core 0's thread context, where
 // tud_task also runs.
 #define MICROPY_PY_THREAD                       (0)

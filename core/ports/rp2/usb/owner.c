@@ -7,22 +7,86 @@
 #include "py/mphal.h"
 #include "shared/runtime/interrupt_char.h"
 #include "mphalport.h"
+#include "pico/time.h"
 #include "tusb.h"
 #include "metalclaw_port.h"
+#include "usb_internal.h"
 
 #define CDC_ITF 0
+
+// Changes to the interface set are collected for this long, then applied
+// with one disconnect, and only if the descriptor set really changed: a
+// soft reset that re-attaches the same devices never re-enumerates. The
+// host must see the pull-up gone for a while or it keeps the old
+// configuration, hence the gap before re-init.
+#define REENUMERATE_DEBOUNCE_US 200000
+#define REENUMERATE_GAP_US      100000
 
 // Owned by the scheduler once linked; mp_init keeps pending static nodes
 // across a soft reset, so this file must never touch its fields.
 static mp_sched_node_t usb_task_node;
 
+static enum { REENUM_IDLE, REENUM_PENDING, REENUM_DISCONNECTED } reenum_state;
+static uint64_t reenum_due_us;
+static alarm_id_t reenum_alarm;
+
+static void usb_task_callback(mp_sched_node_t *node);
+
+// With the device deinitialised there are no USB interrupts to wake an idle
+// VM, so each phase is driven by an alarm that schedules the USB task.
+static int64_t reenum_alarm_cb(alarm_id_t id, void *user) {
+    (void)id;
+    (void)user;
+    reenum_alarm = 0;
+    mp_sched_schedule_node(&usb_task_node, usb_task_callback);
+    return 0;
+}
+
+static void reenum_schedule(uint64_t delay_us) {
+    reenum_due_us = time_us_64() + delay_us;
+    if (reenum_alarm > 0) {
+        cancel_alarm(reenum_alarm);
+    }
+    reenum_alarm = add_alarm_in_us(delay_us + 1000, reenum_alarm_cb, NULL, true);
+}
+
 void metalclaw_usb_init(void) {
     if (!tud_inited()) {
+        metalclaw_usb_descriptors_rebuild();
         tud_init(0);
     }
 }
 
+void metalclaw_usb_request_reenumeration(void) {
+    if (reenum_state != REENUM_DISCONNECTED) {
+        reenum_state = REENUM_PENDING;
+        reenum_schedule(REENUMERATE_DEBOUNCE_US);
+    }
+}
+
+static void reenumerate_step(void) {
+    if (reenum_state == REENUM_IDLE || time_us_64() < reenum_due_us) {
+        return;
+    }
+    if (reenum_state == REENUM_PENDING) {
+        if (!metalclaw_usb_descriptors_rebuild()) {
+            reenum_state = REENUM_IDLE;
+            return;
+        }
+        if (tud_inited()) {
+            tud_disconnect();
+            tud_deinit(0);
+        }
+        reenum_state = REENUM_DISCONNECTED;
+        reenum_schedule(REENUMERATE_GAP_US);
+        return;
+    }
+    tud_init(0);
+    reenum_state = REENUM_IDLE;
+}
+
 void metalclaw_usb_task(void) {
+    reenumerate_step();
     if (tud_inited()) {
         tud_task_ext(0, false);
     }

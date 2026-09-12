@@ -6,13 +6,9 @@
 #include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/platform.h"
 
-#ifndef METALCLAW_RESERVED_PINS
-#define METALCLAW_RESERVED_PINS
-#endif
-
 #define PIN_COUNT 30
 
-static const uint8_t reserved[] = { METALCLAW_RESERVED_PINS };
+static const uint8_t reserved[] = { METALCLAW_RESERVED_PINS METALCLAW_PIN_NONE };
 static const void *owners[PIN_COUNT];
 
 uint8_t metalclaw_hal_pin_count(void) {
@@ -20,7 +16,7 @@ uint8_t metalclaw_hal_pin_count(void) {
 }
 
 bool metalclaw_hal_pin_reserved(uint8_t pin) {
-    for (size_t i = 0; i < sizeof(reserved); i++) {
+    for (size_t i = 0; reserved[i] != METALCLAW_PIN_NONE; i++) {
         if (reserved[i] == pin) {
             return true;
         }

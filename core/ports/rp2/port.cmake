@@ -10,10 +10,12 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/strict.cmake)
 
 set(METALCLAW_PORT_RP2_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/usb/descriptors.c
+    ${CMAKE_CURRENT_LIST_DIR}/usb/interfaces.c
     ${CMAKE_CURRENT_LIST_DIR}/usb/owner.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/platform.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/pins.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/gpio.c
+    ${CMAKE_CURRENT_LIST_DIR}/hal/swd_pio.c
 )
 metalclaw_strict_sources(${METALCLAW_PORT_RP2_SOURCES})
 

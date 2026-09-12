@@ -22,6 +22,9 @@
 #define CFG_TUD_MSC                 1
 #define CFG_TUD_MSC_EP_BUFSIZE      4096
 
-#define CFG_TUD_VENDOR              0
+// Interfaces devices can attach; one re-enumeration per change.
+#define CFG_TUD_VENDOR              2
+#define CFG_TUD_VENDOR_RX_BUFSIZE   512
+#define CFG_TUD_VENDOR_TX_BUFSIZE   512
 
 #endif
