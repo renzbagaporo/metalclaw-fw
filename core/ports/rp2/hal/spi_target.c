@@ -827,15 +827,41 @@ static void build_tables(struct metalclaw_spi_target *t) {
     }
 }
 
-static void release_pads(const struct metalclaw_spi_target *t) {
-    const uint8_t pins[] = { t->sck, t->mosi, t->miso, t->cs };
+// SCK, MOSI and MISO are the bus, shared by every target on it, so the
+// engine owns them; only the chip select belongs to the instance.
+static const uint8_t spi_bus_token;
+#define SPI_BUS_OWNER ((const void *)&spi_bus_token)
 
-    hw_clear_bits(&SPI_PIO->input_sync_bypass, 1u << t->sck);
-    for (size_t i = 0; i < sizeof(pins); i++) {
-        gpio_set_function(pins[i], GPIO_FUNC_SIO);
-        gpio_set_dir(pins[i], GPIO_IN);
-        gpio_disable_pulls(pins[i]);
+static bool pin_used_elsewhere(const struct metalclaw_spi_target *t, uint8_t pin) {
+    for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
+        const struct metalclaw_spi_target *o = &targets[i];
+
+        if (o != t && o->owner != NULL && (o->sck == pin || o->mosi == pin || o->miso == pin)) {
+            return true;
+        }
     }
+    return false;
+}
+
+static void release_bus_pin(const struct metalclaw_spi_target *t, uint8_t pin) {
+    if (pin_used_elsewhere(t, pin)) {
+        return;
+    }
+    gpio_set_function(pin, GPIO_FUNC_SIO);
+    gpio_set_dir(pin, GPIO_IN);
+    gpio_disable_pulls(pin);
+    metalclaw_hal_pin_release(pin, SPI_BUS_OWNER);
+}
+
+static void release_pads(const struct metalclaw_spi_target *t) {
+    hw_clear_bits(&SPI_PIO->input_sync_bypass, 1u << t->sck);
+    release_bus_pin(t, t->sck);
+    release_bus_pin(t, t->mosi);
+    release_bus_pin(t, t->miso);
+    gpio_set_function(t->cs, GPIO_FUNC_SIO);
+    gpio_set_dir(t->cs, GPIO_IN);
+    gpio_disable_pulls(t->cs);
+    metalclaw_hal_pin_release(t->cs, t->owner);
 }
 
 struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t mosi, uint8_t miso,
@@ -875,11 +901,15 @@ struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t 
     claimed[2] = miso;
     claimed[3] = cs;
     for (claims = 0; claims < 4; claims++) {
-        *err = metalclaw_hal_pin_claim(claimed[claims], owner);
+        *err = metalclaw_hal_pin_claim(claimed[claims], claims < 3u ? SPI_BUS_OWNER : owner);
         if (*err != 0) {
             while (claims > 0u) {
                 claims--;
-                metalclaw_hal_pin_release(claimed[claims], owner);
+                if (claims == 3u) {
+                    metalclaw_hal_pin_release(claimed[claims], owner);
+                } else if (!pin_used_elsewhere(t, claimed[claims])) {
+                    metalclaw_hal_pin_release(claimed[claims], SPI_BUS_OWNER);
+                }
             }
             return NULL;
         }
@@ -979,9 +1009,12 @@ fail_dma:
     pio_sm_unclaim(SPI_PIO, t->sm);
     pio_sm_unclaim(SPI_PIO, t->monitor_sm);
 fail_pins:
-    for (size_t i = 0; i < 4u; i++) {
-        metalclaw_hal_pin_release(claimed[i], owner);
+    for (size_t i = 0; i < 3u; i++) {
+        if (!pin_used_elsewhere(t, claimed[i])) {
+            metalclaw_hal_pin_release(claimed[i], SPI_BUS_OWNER);
+        }
     }
+    metalclaw_hal_pin_release(cs, owner);
     return NULL;
 }
 
@@ -1013,18 +1046,10 @@ void metalclaw_hal_spi_target_disarm(struct metalclaw_spi_target *t) {
 }
 
 void metalclaw_hal_spi_target_close(struct metalclaw_spi_target *t) {
-    const void *owner;
-    uint8_t pins[4];
-
     if (t == NULL || t->owner == NULL) {
         return;
     }
     metalclaw_hal_spi_target_disarm(t);
-    owner = t->owner;
-    pins[0] = t->sck;
-    pins[1] = t->mosi;
-    pins[2] = t->miso;
-    pins[3] = t->cs;
 
     pio_sm_set_enabled(SPI_PIO, t->sm, false);
     pio_sm_unclaim(SPI_PIO, t->sm);
@@ -1054,9 +1079,6 @@ void metalclaw_hal_spi_target_close(struct metalclaw_spi_target *t) {
             pio_remove_program(SPI_PIO, &spi_program, program_offset);
             program_loaded = false;
         }
-    }
-    for (size_t i = 0; i < 4u; i++) {
-        metalclaw_hal_pin_release(pins[i], owner);
     }
 }
 
