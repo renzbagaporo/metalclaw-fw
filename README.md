@@ -23,19 +23,27 @@ The `metalclaw` module is the generic device API: a model registry, a runtime
 with instances, a simulation clock, faults and trace, and one `Instance` type
 whose attributes come from each model's own descriptors.
 
-Two devices exist. The SWD debug probe: attaching it adds a CMSIS-DAP v2
+Five devices exist. The SWD debug probe: attaching it adds a CMSIS-DAP v2
 interface to the USB device, and `probe-rs` then drives the board under test
-through the harness. And a simulated BMP388 barometer on I²C, which Zephyr's
-own BMP388 driver on the board under test reads as the real part:
+through the harness. And four simulated parts the board under test's own
+Zephyr drivers read as the real thing: a BMP388 barometer on I²C or SPI, an
+ADS7883 ADC on SPI, ICM-42688/42686 IMUs on SPI, and a NEO-M8N GNSS receiver
+on UART. A device is written from its datasheet with no bus code; the SPI,
+I²C and UART engines live in the port and serve every transfer with no CPU in
+the byte path.
 
 ```python
 >>> import metalclaw
 >>> metalclaw.models()
-('bmp388', 'swd_probe')
+('ads7883', 'bmp388', 'icm42688', 'icm42686', 'neo_m8n', 'swd_probe')
 >>> probe = metalclaw.attach("swd_probe", "dut", swd=(2, 3, 28))
 >>> baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
 >>> baro.pressure = 101325
->>> baro.temperature = 25000
+>>> imu = metalclaw.attach("icm42688", "imu", spi=(18, 19, 16, 17))
+>>> imu.accel = (2048, 0, 0)
+>>> gnss = metalclaw.attach("neo_m8n", "gnss", uart=(0, 1))
+>>> gnss.set(latitude=473977420, longitude=-1223321500, fix=3)
+>>> metalclaw.advance_us(1000000)     # one fix interval: one NAV-PVT to the target
 ```
 
 ```sh
@@ -49,13 +57,13 @@ See [docs/devices.md](docs/devices.md) for the model contract and
 
 The rig in `test/rig/` flashes a Zephyr fixture image onto the board under
 test through that probe, talks to it over a RAM mailbox, and runs every case
-in the tree on real hardware. With the bmp388 image, the fixture's Zephyr
-driver reads the simulated sensor and the cases compare what it read with
-what was injected:
+in the tree on real hardware. Each device has an image with Zephyr's driver
+for that part; the cases compare what the driver read with what was
+injected:
 
 ```sh
-just build-dut bmp388
-METALCLAW_DUT_DEVICE=bmp388 METALCLAW_HARNESS_SERIAL=<serial> just test hardware
+just build-dut icm4268x
+METALCLAW_DUT_DEVICE=icm4268x METALCLAW_HARNESS_SERIAL=<serial> just test hardware
 ```
 
 ## Layout
@@ -63,12 +71,12 @@ METALCLAW_DUT_DEVICE=bmp388 METALCLAW_HARNESS_SERIAL=<serial> just test hardware
 ```text
 core/                         the harness firmware
   include/metalclaw/          the ABI devices are written against, and the HAL
-  src/                        runtime, regmap
+  src/                        runtime, regmap, stream
   cmake/                      warning sets, device registry generation
   micropython/                the `metalclaw` module, Instance type, REPL stream
   ports/rp2/                  port config, USB device, HAL, board definitions
   third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
-devices/                      one directory per device model: swd_probe, bmp388
+devices/                      one directory per device model: swd_probe, bmp388, ads7883, icm4268x, neo_m8n
 test/
   rig/                        run.py, the hardware platform, the Zephyr DUT fixture
   cases/                      cases for the harness as a whole

@@ -101,11 +101,21 @@ A command is one line of ASCII with no newline, at most 100 bytes.
 | (boot, unprompted) | `{"test":"test_boot","status":"ok","image":"smoke","revision":"1","build":"<date time>"}` |
 | `PING` | `{"test":"test_ping","status":"ok","image":"smoke"}` |
 | `ID` | the boot line's fields, with `"test":"test_id"` |
+| `SENSOR` | the `barometer` alias through the sensor API: `pressure_pa`, `temperature_mc` |
+| `IMU [count]` | the `imu` alias through the sensor API: accel, gyro and temperature in micro-units, and how many of `count` fetches differed from the first |
+| `ADC [hz] [bytes] [count] [gap_us]` | `count` raw windows on the `adc` alias: the first frame, the 12-bit sample in it, and how many windows differed |
+| `RAW <hex> [w]` | one window on the `raw` alias clocking the given bytes; `w` makes it a write-only transfer; replies `rx` |
+| `GNSS [RATE\|NAV\|SYSTEMS]` | the `gnss` alias: the last fix the driver published and how many, or one of the driver's pull calls |
 | anything else | `{"test":"test_command","status":"error","detail":"unknown command"}` |
+
+A command whose alias the image was not built with answers
+`"status":"error"` with a `detail`; one whose device did not initialise
+answers `errno` 19 and `init_res`, the driver's init return code.
 
 `build` is the image's compile timestamp. It is what makes a stale image
 obvious: a reflash that did not take keeps the old timestamp, and a board that
-re-enumerates proves nothing.
+re-enumerates proves nothing. `image` is the device (or `device/variant`) the
+image was built for, `smoke` for none; `just build-dut` passes it in.
 
 The loop polls for a command, answers it, and sleeps 1 ms. `main()` never
 returns: a silent board must mean a dead board, never a board that fell out of

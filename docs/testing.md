@@ -11,6 +11,7 @@ just setup-rig                        # .venv with pytest and pyserial
 just setup-dut                        # Zephyr workspace in ../.zephyr-workspace
 just build-dut                        # build/dut/smoke/zephyr/zephyr.elf
 just build-dut bmp388                 # build/dut/bmp388/, with Zephyr's bmp388 driver
+just build-dut bmp388/spi             # build/dut/bmp388/spi/, the SPI variant of that image
 METALCLAW_HARNESS_SERIAL=<serial> METALCLAW_ARM_TOOLCHAIN_DIR=<dir> just test hardware
 ```
 
@@ -44,19 +45,35 @@ parsed result; `dut.reset()` resets the DUT through the probe;
 `dut.probe.read_words(addr, n)` reads DUT memory without halting it.
 
 `METALCLAW_DUT_DEVICE` picks which device's DUT image to flash, default
-`smoke`; `METALCLAW_DUT_IMAGE` names an image path outright.
+`smoke`; `METALCLAW_DUT_IMAGE` names an image path outright. Every image
+reports its name in `ID` and `PING`, `dut.image_name()` returns it, and a
+device's cases call `dut.require_image(name)` so they skip rather than fail
+when another image is flashed; one rig run therefore exercises one device.
+
+The harness fixture detaches every instance except the probe when the
+session starts: instances outlive a run, and a leftover device would hold
+pins a case needs.
 
 ## The DUT fixture
 
 `test/rig/dut/` is a Zephyr application for the Pico 2
 (`rpi_pico2/rp2350a/m33`). It boots, publishes a banner line, and serves
-one-line commands (`PING`, `ID`) through a RAM mailbox the host reads and
-writes over SWD without halting the core. The record layout and the protocol
+one-line commands through a RAM mailbox the host reads and writes over SWD
+without halting the core. The record layout, the protocol and the commands
 are in [test/rig/dut/README.md](../test/rig/dut/README.md). A device package
 adds a devicetree overlay and a Kconfig fragment under
 `devices/<name>/test/dut/rp2.{overlay,conf}` so that Zephyr's real driver for
 that part exercises the simulated one; `just build-dut <name>` applies them and
-builds `build/dut/<name>/`. One exists: `bmp388`.
+builds `build/dut/<name>/`. A variant lives one level down,
+`test/dut/<variant>/rp2.{overlay,conf}`, is built with
+`just build-dut <name>/<variant>` and names itself `<name>/<variant>`.
+Images exist for `bmp388` (I2C) and `bmp388/spi`, `ads7883`, `icm4268x` and
+`neo_m8n`.
+
+The fixture's SPI bus is GP18/GP19/GP16 with one GPIO chip select per part
+(the PL022's own chip select drops whenever its transmit FIFO drains), I2C is
+GP4/GP5, and the crossed UART pair is GP0/GP1. The rig's burst cases leave
+20 µs between windows, above the engine's re-arm time.
 
 The workspace is created from `test/rig/dut/west.yml`, which pins Zephyr
 v4.4.0 and the five modules the board needs. `METALCLAW_ZEPHYR_WORKSPACE`
