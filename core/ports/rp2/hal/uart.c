@@ -245,6 +245,13 @@ struct metalclaw_uart *metalclaw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t 
     u->tx_head = 0;
     u->tx_tail = 0;
 
+    // The pins are connected before the block is enabled: the SDK's format
+    // and FIFO writes each cycle the UART with character-time waits, and a
+    // receiver running on an unconnected input reads it low and logs a
+    // break the moment the pin comes up.
+    gpio_set_function(tx, UART_FUNCSEL_NUM(inst, tx));
+    gpio_set_function(rx, UART_FUNCSEL_NUM(inst, rx));
+    gpio_pull_up(rx);
     u->baud = uart_init(inst, baud);
     if (u->baud == 0u) {
         uart_deinit(inst);
@@ -258,9 +265,6 @@ struct metalclaw_uart *metalclaw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t 
     uart_set_hw_flow(inst, false, false);
     uart_set_fifo_enabled(inst, true);
     __dsb();
-    gpio_set_function(tx, UART_FUNCSEL_NUM(inst, tx));
-    gpio_set_function(rx, UART_FUNCSEL_NUM(inst, rx));
-    gpio_pull_up(rx);
 
     uart_hw_t *hw = uart_get_hw(inst);
     hw_write_masked(&hw->ifls,
