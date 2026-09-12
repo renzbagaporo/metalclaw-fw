@@ -28,7 +28,6 @@ struct metalclaw_instance {
     char name[METALCLAW_INSTANCE_NAME_MAX + 1];
     void *state;
     struct metalclaw_binding bindings[METALCLAW_INSTANCE_BINDINGS_MAX];
-    uint32_t revision;
     // Bumped on every attach of this slot, so a stale reference to a detached
     // instance can be recognised.
     uint32_t generation;
@@ -79,6 +78,25 @@ int metalclaw_clear_faults(struct metalclaw_instance *inst);
 int metalclaw_read_region(struct metalclaw_instance *inst, size_t region, uint32_t offset, void *buf, size_t len);
 int metalclaw_write_region(struct metalclaw_instance *inst, size_t region, uint32_t offset, const void *buf, size_t len);
 int metalclaw_reset(struct metalclaw_instance *inst, bool factory);
+
+// The bound engine's counters for one binding, as named values, so a
+// binding or a host codec never switches on the kind. Returns how many were
+// written, -EINVAL for an unbound binding, -ENOTSUP for a kind with none.
+#define METALCLAW_STATS_MAX 8
+
+struct metalclaw_stat {
+    const char *name;
+    uint32_t value;
+};
+
+int metalclaw_binding_stats(struct metalclaw_instance *inst, size_t binding, struct metalclaw_stat *out, size_t max);
+
+// The names every schema and trace consumer uses.
+const char *metalclaw_value_type_name(enum metalclaw_value_type type);
+const char *metalclaw_access_name(enum metalclaw_access access);
+const char *metalclaw_binding_kind_name(enum metalclaw_binding_kind kind);
+const char *metalclaw_uart_parity_name(enum metalclaw_uart_parity parity);
+const char *metalclaw_trace_kind_name(enum metalclaw_trace_kind kind);
 
 // Simulation time. It starts at zero and moves only when advanced.
 uint64_t metalclaw_now_us(void);

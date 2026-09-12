@@ -1261,10 +1261,6 @@ void metalclaw_hal_spi_target_poll(void) {
     }
 }
 
-uint32_t metalclaw_hal_spi_target_transactions(const struct metalclaw_spi_target *t) {
-    return t == NULL ? 0u : t->stats.transactions;
-}
-
 void metalclaw_hal_spi_target_stats(const struct metalclaw_spi_target *t,
     struct metalclaw_spi_target_stats *out) {
     uint32_t state;

@@ -23,19 +23,6 @@
 enum metalclaw_reg_flag {
     METALCLAW_REG_WRITABLE = 1u << 0,
     METALCLAW_REG_CLEAR_ON_READ = 1u << 1,
-    // Reads advance a stream instead of returning the register byte.
-    METALCLAW_REG_STREAM = 1u << 2,
-};
-
-// How the part frames a register access on SPI, from its datasheet: which
-// command-byte bit means read, which bits are the address, whether a
-// multi-byte access walks consecutive addresses, and how many don't-care
-// bytes the part clocks out before read data. Not used on I2C.
-struct metalclaw_regmap_framing {
-    uint8_t read_bit_mask;
-    uint8_t address_mask;
-    uint8_t read_dummy_bytes;
-    bool auto_increment;
 };
 
 struct metalclaw_regmap;
@@ -50,20 +37,14 @@ struct metalclaw_regmap {
     uint8_t filler;
     uint8_t value[METALCLAW_REGMAP_BANKS_MAX][METALCLAW_REGMAP_BANK_SIZE];
     uint8_t flags[METALCLAW_REGMAP_BANKS_MAX][METALCLAW_REGMAP_BANK_SIZE];
-    const uint8_t *stream;
-    uint32_t stream_len;
-    uint32_t stream_pos;
     metalclaw_regmap_on_write_t on_write;
     void *on_write_ctx;
-    // Bumped by every model-side set; engines that cache the image compare it.
-    volatile uint32_t revision;
 };
 
 // Clears the hook as well as the image.
 void metalclaw_regmap_init(struct metalclaw_regmap *map, uint8_t bank_count, uint8_t bank_select_reg, uint8_t filler);
 void metalclaw_regmap_set(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint8_t value, uint8_t flags);
 uint8_t metalclaw_regmap_get(const struct metalclaw_regmap *map, uint8_t bank, uint8_t reg);
-void metalclaw_regmap_set_stream(struct metalclaw_regmap *map, const uint8_t *data, uint32_t len);
 void metalclaw_regmap_set_on_write(struct metalclaw_regmap *map, metalclaw_regmap_on_write_t fn, void *ctx);
 
 // The engine side: what a bus read or write of `reg` in the active bank does.

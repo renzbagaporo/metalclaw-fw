@@ -158,7 +158,6 @@ static const struct metalclaw_model_ops ads7883_ops = {
     .clear_faults = NULL,
     .read_region = NULL,
     .write_region = NULL,
-    .prepare = NULL,
     .time_advanced = NULL,
     .usb_rx = NULL,
 };
@@ -167,6 +166,7 @@ const struct metalclaw_model metalclaw_model_ads7883 = {
     .abi_version = METALCLAW_ABI_VERSION,
     .id = "ads7883",
     .family = "ads7883",
+    .config = NULL,
     .properties = ads7883_properties,
     .property_count = sizeof(ads7883_properties) / sizeof(ads7883_properties[0]),
     .regions = NULL,

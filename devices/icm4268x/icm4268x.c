@@ -32,6 +32,10 @@ enum {
     BINDING_SPI,
 };
 
+struct icm4268x_config {
+    uint8_t who_am_i;
+};
+
 struct icm4268x_state {
     struct metalclaw_regmap map;
     struct metalclaw_spi_target *spi;
@@ -229,8 +233,7 @@ static int icm4268x_init(struct metalclaw_instance *inst, const struct metalclaw
     }
     state->inst = inst;
     state->spi = bindings[BINDING_SPI].spi;
-    state->who_am_i = inst->model == &metalclaw_model_icm42686 ? ICM4268X_WHO_AM_I_ICM42686
-        : ICM4268X_WHO_AM_I_ICM42688;
+    state->who_am_i = ((const struct icm4268x_config *)inst->model->config)->who_am_i;
     state->spi_mode = icm4268x_bindings[BINDING_SPI].spi.default_mode;
     metalclaw_regmap_init(&state->map, ICM4268X_BANKS, ICM4268X_REG_BANK_SEL, 0x00);
     metalclaw_regmap_set_on_write(&state->map, on_write, state);
@@ -340,16 +343,17 @@ static const struct metalclaw_model_ops icm4268x_ops = {
     .clear_faults = NULL,
     .read_region = NULL,
     .write_region = NULL,
-    .prepare = NULL,
     .time_advanced = NULL,
     .usb_rx = NULL,
 };
 
-#define ICM4268X_MODEL(symbol, name) \
+#define ICM4268X_MODEL(symbol, name, who) \
+    static const struct icm4268x_config symbol##_config = { .who_am_i = who }; \
     const struct metalclaw_model symbol = { \
         .abi_version = METALCLAW_ABI_VERSION, \
         .id = name, \
         .family = "icm4268x", \
+        .config = &symbol##_config, \
         .properties = icm4268x_properties, \
         .property_count = sizeof(icm4268x_properties) / sizeof(icm4268x_properties[0]), \
         .regions = NULL, \
@@ -362,5 +366,5 @@ static const struct metalclaw_model_ops icm4268x_ops = {
         .ops = &icm4268x_ops, \
     }
 
-ICM4268X_MODEL(metalclaw_model_icm42688, "icm42688");
-ICM4268X_MODEL(metalclaw_model_icm42686, "icm42686");
+ICM4268X_MODEL(metalclaw_model_icm42688, "icm42688", ICM4268X_WHO_AM_I_ICM42688);
+ICM4268X_MODEL(metalclaw_model_icm42686, "icm42686", ICM4268X_WHO_AM_I_ICM42686);

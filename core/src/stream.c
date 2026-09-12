@@ -30,7 +30,3 @@ void metalclaw_stream_publish(struct metalclaw_stream *stream, const uint8_t *by
         stream->notify(stream, stream->notify_ctx);
     }
 }
-
-const uint8_t *metalclaw_stream_current(const struct metalclaw_stream *stream) {
-    return stream->frame[stream->active];
-}

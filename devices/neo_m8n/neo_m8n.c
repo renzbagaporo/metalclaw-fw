@@ -743,7 +743,6 @@ static const struct metalclaw_model_ops neo_m8n_ops = {
     .clear_faults = NULL,
     .read_region = NULL,
     .write_region = NULL,
-    .prepare = NULL,
     .time_advanced = neo_m8n_time_advanced,
     .usb_rx = NULL,
 };
@@ -752,6 +751,7 @@ const struct metalclaw_model metalclaw_model_neo_m8n = {
     .abi_version = METALCLAW_ABI_VERSION,
     .id = "neo_m8n",
     .family = "neo_m8n",
+    .config = NULL,
     .properties = neo_m8n_properties,
     .property_count = sizeof(neo_m8n_properties) / sizeof(neo_m8n_properties[0]),
     .regions = NULL,

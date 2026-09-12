@@ -38,8 +38,8 @@ baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
 baro = metalclaw.attach("bmp388", "baro", spi=(18, 19, 16, 22))
 baro.pressure = 90000
 baro.temperature = -12500
-baro.transactions, baro.power_mode, baro.osr, baro.odr
-baro.stats("spi")
+baro.power_mode, baro.osr, baro.odr
+baro.stats("i2c")                      # or "spi": the bound engine's counters
 baro.reset()
 baro.detach()
 ```
@@ -50,7 +50,6 @@ baro.detach()
 | --- | --- | --- | --- | --- | --- |
 | `pressure` | i32 | rw | Pa | 30 000 .. 125 000 | the pressure the part reports; writing it republishes `DATA_0..DATA_2` |
 | `temperature` | i32 | rw | mC | -40 000 .. 85 000 | the temperature the part reports; writing it republishes `DATA_3..DATA_5` |
-| `transactions` | u32 | ro | | | transactions the bound engine has served, from the HAL |
 | `power_mode` | u32 | ro | | 0 .. 3 | `PWR_CTRL[5:4]` as the DUT left it: 0 sleep, 1 forced, 3 normal |
 | `osr` | u32 | ro | | 0 .. 63 | the whole `OSR` register: `osr_p` in bits 2:0, `osr_t` in bits 5:3 |
 | `odr` | u32 | ro | | 0 .. 31 | `ODR[4:0]` as the DUT left it; 2 is 50 Hz |
@@ -258,8 +257,8 @@ Zephyr probes the driver once at `POST_KERNEL` and a part that was not armed
 then never becomes ready. The cases set pressure and temperature, read the
 part through the DUT, and compare `pressure_pa` and `temperature_mc` against
 what was injected within the ±1 above; they walk both corners of both ranges,
-check that a new sample reaches the DUT, that each fetch moves
-`transactions`, that `power_mode`, `osr` and `odr` carry what the driver
+check that a new sample reaches the DUT, that each fetch moves the bound
+engine's `transactions` counter, that `power_mode`, `osr` and `odr` carry what the driver
 wrote, and that a `reset()` clears that configuration and a DUT reset puts it
 back.
 

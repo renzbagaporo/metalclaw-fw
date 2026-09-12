@@ -22,7 +22,7 @@ struct metalclaw_i2c_target {
     // Set by the master's first written byte; auto-incremented after use.
     uint8_t pointer;
     bool pointer_pending;
-    uint32_t transactions;
+    struct metalclaw_i2c_target_stats stats;
 };
 
 static struct metalclaw_i2c_target targets[2];
@@ -49,14 +49,16 @@ static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
             } else if (image != NULL) {
                 metalclaw_regmap_bus_write(image, t->pointer++, byte);
             }
+            t->stats.bytes++;
             break;
         }
         case I2C_SLAVE_REQUEST:
             i2c_write_byte_raw(i2c, image != NULL ? metalclaw_regmap_bus_read(image, t->pointer++) : 0xff);
+            t->stats.bytes++;
             break;
         case I2C_SLAVE_FINISH:
             t->pointer_pending = true;
-            t->transactions++;
+            t->stats.transactions++;
             break;
     }
 }
@@ -91,7 +93,8 @@ struct metalclaw_i2c_target *metalclaw_hal_i2c_target_open(uint8_t sda, uint8_t 
     t->image = NULL;
     t->pointer = 0;
     t->pointer_pending = true;
-    t->transactions = 0;
+    t->stats.transactions = 0;
+    t->stats.bytes = 0;
 
     gpio_init(sda);
     gpio_init(scl);
@@ -129,10 +132,8 @@ void metalclaw_hal_i2c_target_disarm(struct metalclaw_i2c_target *t) {
     metalclaw_hal_i2c_target_arm(t, NULL);
 }
 
-uint32_t metalclaw_hal_i2c_target_transactions(const struct metalclaw_i2c_target *t) {
-    return t->transactions;
-}
-
-uint8_t metalclaw_hal_i2c_target_address(const struct metalclaw_i2c_target *t) {
-    return t->address;
+void metalclaw_hal_i2c_target_stats(const struct metalclaw_i2c_target *t, struct metalclaw_i2c_target_stats *out) {
+    uint32_t state = metalclaw_hal_critical_enter();
+    *out = t->stats;
+    metalclaw_hal_critical_exit(state);
 }

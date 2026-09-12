@@ -46,7 +46,6 @@ enum metalclaw_binding_kind {
     METALCLAW_BINDING_SPI_TARGET,
     METALCLAW_BINDING_I2C_TARGET,
     METALCLAW_BINDING_UART,
-    METALCLAW_BINDING_PWM_CAPTURE,
     METALCLAW_BINDING_SWD_WIRE,
     METALCLAW_BINDING_USB_INTERFACE,
 };
@@ -81,15 +80,10 @@ struct metalclaw_binding {
 
 struct metalclaw_instance;
 
-// A register file the SPI and I2C target engines serve without calling
-// back into the model. Streams (metalclaw/stream.h) are the other image.
-struct metalclaw_regmap;
-
 enum metalclaw_trace_kind {
     METALCLAW_TRACE_SPI,
     METALCLAW_TRACE_I2C,
     METALCLAW_TRACE_UART,
-    METALCLAW_TRACE_GPIO,
     METALCLAW_TRACE_COMMAND,
     METALCLAW_TRACE_STATE,
     METALCLAW_TRACE_ERROR,
@@ -108,8 +102,6 @@ struct metalclaw_model_ops {
     int (*clear_faults)(struct metalclaw_instance *inst);
     int (*read_region)(struct metalclaw_instance *inst, size_t region, uint32_t offset, void *buf, size_t len);
     int (*write_region)(struct metalclaw_instance *inst, size_t region, uint32_t offset, const void *buf, size_t len);
-    // Render current state into the image the bound engine serves.
-    int (*prepare)(struct metalclaw_instance *inst, struct metalclaw_regmap *image);
     void (*time_advanced)(struct metalclaw_instance *inst, uint64_t now_us);
     // A packet arrived on the usb_interface binding `binding`. Runs in the
     // USB task context; answer through metalclaw_hal_usb_write before
@@ -121,6 +113,9 @@ struct metalclaw_model {
     uint32_t abi_version;
     const char *id;
     const char *family;
+    // The model's own constant data, for one source that defines several
+    // models. The runtime never reads it.
+    const void *config;
     const struct metalclaw_property_desc *properties;
     size_t property_count;
     const struct metalclaw_region_desc *regions;

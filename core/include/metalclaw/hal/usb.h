@@ -12,11 +12,9 @@
 
 struct metalclaw_usb_interface;
 
+// A vendor-class bulk interface; the name is the interface string hosts
+// such as probe-rs match on.
 struct metalclaw_usb_interface_desc {
-    uint8_t interface_class;
-    uint8_t interface_subclass;
-    uint8_t interface_protocol;
-    // Shown as the interface string; hosts such as probe-rs match on it.
     const char *name;
 };
 

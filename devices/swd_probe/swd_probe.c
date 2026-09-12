@@ -80,9 +80,6 @@ static const struct metalclaw_property_desc probe_properties[] = {
 };
 
 static const struct metalclaw_usb_interface_desc dap_interface = {
-    .interface_class = 0xff,
-    .interface_subclass = 0x00,
-    .interface_protocol = 0x00,
     .name = "CMSIS-DAP v2",
 };
 
@@ -187,7 +184,6 @@ static const struct metalclaw_model_ops probe_ops = {
     .clear_faults = NULL,
     .read_region = NULL,
     .write_region = NULL,
-    .prepare = NULL,
     .time_advanced = NULL,
     .usb_rx = probe_usb_rx,
 };
@@ -196,6 +192,7 @@ const struct metalclaw_model metalclaw_model_swd_probe = {
     .abi_version = METALCLAW_ABI_VERSION,
     .id = "swd_probe",
     .family = "probe",
+    .config = NULL,
     .properties = probe_properties,
     .property_count = sizeof(probe_properties) / sizeof(probe_properties[0]),
     .regions = NULL,

@@ -16,6 +16,17 @@
 
 struct metalclaw_spi_target;
 
+// How the part frames a register access, from its datasheet: which
+// command-byte bit means read, which bits are the address, whether a
+// multi-byte access walks consecutive addresses, and how many don't-care
+// bytes the part clocks out before read data.
+struct metalclaw_regmap_framing {
+    uint8_t read_bit_mask;
+    uint8_t address_mask;
+    uint8_t read_dummy_bytes;
+    bool auto_increment;
+};
+
 struct metalclaw_spi_target_stats {
     uint32_t transactions;
     uint32_t bytes;
@@ -47,7 +58,6 @@ void metalclaw_hal_spi_target_disarm(struct metalclaw_spi_target *t);
 // Called from the port's idle hook; a lost chip-select edge is recovered here.
 void metalclaw_hal_spi_target_poll(void);
 
-uint32_t metalclaw_hal_spi_target_transactions(const struct metalclaw_spi_target *t);
 void metalclaw_hal_spi_target_stats(const struct metalclaw_spi_target *t, struct metalclaw_spi_target_stats *out);
 uint32_t metalclaw_hal_spi_target_max_clock_hz(const struct metalclaw_spi_target *t);
 

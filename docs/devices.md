@@ -34,7 +34,7 @@ an ops table:
   tuple `(sda, scl, address)`; `spi_target` takes `(sck, mosi, miso, cs)`;
   `uart` takes `(tx, rx)`; `usb_interface` takes no keyword, the runtime
   allocates it from the descriptor the model carries and delivers packets to
-  the model's `usb_rx` op. Declared but not yet resolvable: `pwm_capture`.
+  the model's `usb_rx` op.
   An `spi_target` binding carries the part's datasheet facts (the SPI modes
   it supports, the default, bit order) and a `uart` binding its default baud
   and format; the runtime opens the engine with them and `schema()` shows
@@ -42,8 +42,15 @@ an ops table:
   property; a UART part exposes `baud`.
 - **state_size**: bytes of zeroed state the runtime hands the model.
 - **ops**: `init` and `deinit` are required; `reset`, `get`, `set`,
-  `inject_fault`, `clear_faults`, `read_region`, `write_region`, `prepare`,
-  `time_advanced` are optional and report `ENOTSUP` when absent.
+  `inject_fault`, `clear_faults`, `read_region`, `write_region`,
+  `time_advanced`, `usb_rx` are optional and report `ENOTSUP` when absent.
+- **config**: the model's own constant data, for one source that defines
+  several models (`icm4268x` picks its `WHO_AM_I` from it). The runtime never
+  reads it.
+
+A model owns its response image in its state, arms the bound engine from
+`init`, and edits the image under `metalclaw_hal_critical_enter()` whenever
+a property changes. The engine serves the image with no model call.
 
 A model declares the ABI version it targets twice: in `device.cmake`, where
 the generator refuses a mismatch at configure time, and in the struct, where
@@ -71,7 +78,9 @@ reverses it. Every instance is detached on a MicroPython soft reset.
 The simulation clock starts at zero and moves only when `advance_us()` is
 called, which also notifies every model through `time_advanced`. Each
 instance carries a 16-entry trace ring that models append to with
-`metalclaw_trace()`.
+`metalclaw_trace()`; a kind is one of `spi`, `i2c`, `uart`, `command`,
+`state`, `error`. Every engine's counters reach a binding or a host through
+one runtime call, `metalclaw_binding_stats()`, as named values.
 
 The simulation clock is also how a part that talks on its own gets its
 cadence: `neo_m8n` sends a fix from `time_advanced` when the clock reaches
@@ -82,14 +91,15 @@ the next interval.
 The response images are what a model edits and an engine serves.
 
 `core/include/metalclaw/regmap.h` is a register file with up to four banks,
-per-register flags for writable, clear-on-read and stream, and bus-side
-read/write helpers an engine calls without the model. A model may install an
+per-register flags for writable and clear-on-read, and bus-side read/write
+helpers an engine calls without the model. A model may install an
 `on_write` hook: it runs in interrupt context after a write has been
 committed, bank select included, and may only edit the image. For SPI the
-model adds a `struct metalclaw_regmap_framing` from the datasheet: which
-command bit means read, which bits are the address, whether a multi-byte
-access walks consecutive addresses, and whether one dummy byte precedes read
-data. The same map serves I2C and SPI; `bmp388` binds either.
+model adds a `struct metalclaw_regmap_framing` (in `hal/spi_target.h`) from
+the datasheet: which command bit means read, which bits are the address,
+whether a multi-byte access walks consecutive addresses, and whether one
+dummy byte precedes read data. The same map serves I2C and SPI; `bmp388`
+binds either.
 
 `core/include/metalclaw/stream.h` is the other image: a fixed-length frame
 of up to 64 bytes, double-buffered, that the part drives out (`OUT`, an ADC)
@@ -110,7 +120,8 @@ port exists.
   state machine.
 - `i2c_target.h`: an I2C target that serves a `regmap` from hardware. The
   model arms it once and updates the image under a critical section; the
-  engine answers the bus from interrupt context without the model.
+  engine answers the bus from interrupt context without the model. Counters:
+  `transactions`, `bytes`.
 - `spi_target.h`: an SPI target that serves a `regmap` (with its framing)
   or a `stream` from hardware, in the mode the model asked for, with
   `set_mode` to change it. It publishes a clock ceiling per image and
@@ -141,7 +152,8 @@ d = metalclaw.attach("bmp388", "baro", spi=(18, 19, 16, 22))
 g = metalclaw.attach("neo_m8n", "gnss", uart=(0, 1))
 d.get("pressure"); d.set(pressure=101325); d.pressure = 101325
 d.stats("spi"); g.stats("uart")          # the engine's counters, by binding name
-d.schema(); d.trace(); d.reset(); d.detach()
+d.schema(); d.reset(); d.detach()
+d.trace()                                # (t_us, kind, addr, len, result) tuples; kind is a name
 metalclaw.instances(); metalclaw.detach("baro")
 metalclaw.now_us(); metalclaw.advance_us(1000)
 

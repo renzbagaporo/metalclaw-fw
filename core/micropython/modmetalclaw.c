@@ -18,66 +18,8 @@ int metalclaw_check(int ret) {
     return ret;
 }
 
-static const char *type_name(enum metalclaw_value_type type) {
-    switch (type) {
-        case METALCLAW_TYPE_BOOL:
-            return "bool";
-        case METALCLAW_TYPE_I32:
-            return "i32";
-        case METALCLAW_TYPE_U32:
-            return "u32";
-    }
-    return "?";
-}
-
-static const char *access_name(enum metalclaw_access access) {
-    switch (access) {
-        case METALCLAW_ACCESS_RO:
-            return "ro";
-        case METALCLAW_ACCESS_WO:
-            return "wo";
-        case METALCLAW_ACCESS_RW:
-            return "rw";
-    }
-    return "?";
-}
-
-static const char *binding_kind_name(enum metalclaw_binding_kind kind) {
-    switch (kind) {
-        case METALCLAW_BINDING_GPIO_IN:
-            return "gpio_in";
-        case METALCLAW_BINDING_GPIO_OUT:
-            return "gpio_out";
-        case METALCLAW_BINDING_SPI_TARGET:
-            return "spi_target";
-        case METALCLAW_BINDING_I2C_TARGET:
-            return "i2c_target";
-        case METALCLAW_BINDING_UART:
-            return "uart";
-        case METALCLAW_BINDING_PWM_CAPTURE:
-            return "pwm_capture";
-        case METALCLAW_BINDING_SWD_WIRE:
-            return "swd_wire";
-        case METALCLAW_BINDING_USB_INTERFACE:
-            return "usb_interface";
-    }
-    return "?";
-}
-
 static void dict_store(mp_obj_t dict, const char *key, mp_obj_t value) {
     mp_obj_dict_store(dict, mp_obj_new_str_from_cstr(key), value);
-}
-
-static const char *parity_name(enum metalclaw_uart_parity parity) {
-    switch (parity) {
-        case METALCLAW_UART_PARITY_NONE:
-            return "none";
-        case METALCLAW_UART_PARITY_EVEN:
-            return "even";
-        case METALCLAW_UART_PARITY_ODD:
-            return "odd";
-    }
-    return "?";
 }
 
 static void binding_facts(mp_obj_t d, const struct metalclaw_binding_desc *b) {
@@ -96,7 +38,7 @@ static void binding_facts(mp_obj_t d, const struct metalclaw_binding_desc *b) {
         dict_store(d, "default_baud", mp_obj_new_int_from_uint(b->uart.default_baud));
         dict_store(d, "data_bits", MP_OBJ_NEW_SMALL_INT(b->uart.format.data_bits));
         dict_store(d, "stop_bits", MP_OBJ_NEW_SMALL_INT(b->uart.format.stop_bits));
-        dict_store(d, "parity", mp_obj_new_str_from_cstr(parity_name(b->uart.format.parity)));
+        dict_store(d, "parity", mp_obj_new_str_from_cstr(metalclaw_uart_parity_name(b->uart.format.parity)));
     }
 }
 
@@ -109,12 +51,12 @@ mp_obj_t metalclaw_model_schema(const struct metalclaw_model *model) {
     for (size_t i = 0; i < model->property_count; i++) {
         const struct metalclaw_property_desc *p = &model->properties[i];
         mp_obj_t d = mp_obj_new_dict(6);
-        dict_store(d, "type", mp_obj_new_str_from_cstr(type_name(p->type)));
+        dict_store(d, "type", mp_obj_new_str_from_cstr(metalclaw_value_type_name(p->type)));
         dict_store(d, "count", MP_OBJ_NEW_SMALL_INT(p->count));
         dict_store(d, "unit", p->unit ? mp_obj_new_str_from_cstr(p->unit) : mp_const_none);
         dict_store(d, "min", mp_obj_new_int_from_ll(p->min));
         dict_store(d, "max", mp_obj_new_int_from_ll(p->max));
-        dict_store(d, "access", mp_obj_new_str_from_cstr(access_name(p->access)));
+        dict_store(d, "access", mp_obj_new_str_from_cstr(metalclaw_access_name(p->access)));
         dict_store(properties, p->name, d);
     }
     dict_store(schema, "properties", properties);
@@ -124,7 +66,7 @@ mp_obj_t metalclaw_model_schema(const struct metalclaw_model *model) {
         const struct metalclaw_region_desc *r = &model->regions[i];
         mp_obj_t d = mp_obj_new_dict(2);
         dict_store(d, "size", mp_obj_new_int_from_uint(r->size));
-        dict_store(d, "access", mp_obj_new_str_from_cstr(access_name(r->access)));
+        dict_store(d, "access", mp_obj_new_str_from_cstr(metalclaw_access_name(r->access)));
         dict_store(regions, r->name, d);
     }
     dict_store(schema, "regions", regions);
@@ -143,7 +85,7 @@ mp_obj_t metalclaw_model_schema(const struct metalclaw_model *model) {
     for (size_t i = 0; i < model->binding_count; i++) {
         const struct metalclaw_binding_desc *b = &model->bindings[i];
         mp_obj_t d = mp_obj_new_dict(6);
-        dict_store(d, "kind", mp_obj_new_str_from_cstr(binding_kind_name(b->kind)));
+        dict_store(d, "kind", mp_obj_new_str_from_cstr(metalclaw_binding_kind_name(b->kind)));
         dict_store(d, "required", mp_obj_new_bool(b->required));
         binding_facts(d, b);
         dict_store(bindings, b->name, d);

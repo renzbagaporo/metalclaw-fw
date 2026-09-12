@@ -19,7 +19,6 @@
 enum {
     PROP_PRESSURE,
     PROP_TEMPERATURE,
-    PROP_TRANSACTIONS,
     PROP_POWER_MODE,
     PROP_OSR,
     PROP_ODR,
@@ -69,15 +68,6 @@ static const struct metalclaw_property_desc bmp388_properties[] = {
         .unit = "mC",
         .min = BMP388_TEMPERATURE_MIN_MC,
         .max = BMP388_TEMPERATURE_MAX_MC,
-    },
-    {
-        .name = "transactions",
-        .type = METALCLAW_TYPE_U32,
-        .count = 1,
-        .access = METALCLAW_ACCESS_RO,
-        .unit = NULL,
-        .min = 0,
-        .max = UINT32_MAX,
     },
     {
         .name = "power_mode",
@@ -305,10 +295,6 @@ static int bmp388_get(struct metalclaw_instance *inst, size_t property,
         case PROP_TEMPERATURE:
             out->v[0] = state->temperature_mc;
             return 0;
-        case PROP_TRANSACTIONS:
-            out->v[0] = state->i2c != NULL ? metalclaw_hal_i2c_target_transactions(state->i2c)
-                : metalclaw_hal_spi_target_transactions(state->spi);
-            return 0;
         case PROP_POWER_MODE:
             out->v[0] = (metalclaw_regmap_get(&state->map, 0, BMP388_REG_PWR_CTRL)
                 >> BMP388_PWR_CTRL_MODE_POS) & BMP388_PWR_CTRL_MODE_MASK;
@@ -369,7 +355,6 @@ static const struct metalclaw_model_ops bmp388_ops = {
     .clear_faults = NULL,
     .read_region = NULL,
     .write_region = NULL,
-    .prepare = NULL,
     .time_advanced = NULL,
     .usb_rx = NULL,
 };
@@ -378,6 +363,7 @@ const struct metalclaw_model metalclaw_model_bmp388 = {
     .abi_version = METALCLAW_ABI_VERSION,
     .id = "bmp388",
     .family = "bmp388",
+    .config = NULL,
     .properties = bmp388_properties,
     .property_count = sizeof(bmp388_properties) / sizeof(bmp388_properties[0]),
     .regions = NULL,

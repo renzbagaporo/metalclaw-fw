@@ -388,9 +388,6 @@ int metalclaw_set(struct metalclaw_instance *inst, size_t property, const struct
         return err;
     }
     err = inst->model->ops->set(inst, property, in);
-    if (err == 0) {
-        inst->revision++;
-    }
     return err;
 }
 
@@ -448,9 +445,6 @@ int metalclaw_write_region(struct metalclaw_instance *inst, size_t region, uint3
         return -ENOTSUP;
     }
     err = inst->model->ops->write_region(inst, region, offset, buf, len);
-    if (err == 0) {
-        inst->revision++;
-    }
     return err;
 }
 
@@ -462,10 +456,135 @@ int metalclaw_reset(struct metalclaw_instance *inst, bool factory) {
         return -ENOTSUP;
     }
     int err = inst->model->ops->reset(inst, factory);
-    if (err == 0) {
-        inst->revision++;
-    }
     return err;
+}
+
+int metalclaw_binding_stats(struct metalclaw_instance *inst, size_t binding, struct metalclaw_stat *out, size_t max) {
+    if (inst == NULL || !inst->attached || out == NULL || binding >= inst->model->binding_count) {
+        return -EINVAL;
+    }
+    const struct metalclaw_binding *b = &inst->bindings[binding];
+    if (!b->present) {
+        return -EINVAL;
+    }
+    size_t n = 0;
+#define STAT(field_name, field_value) \
+    do { \
+        if (n < max) { \
+            out[n].name = field_name; \
+            out[n].value = field_value; \
+        } \
+        n++; \
+    } while (0)
+    switch (b->kind) {
+        case METALCLAW_BINDING_I2C_TARGET: {
+            struct metalclaw_i2c_target_stats st;
+            metalclaw_hal_i2c_target_stats(b->i2c, &st);
+            STAT("transactions", st.transactions);
+            STAT("bytes", st.bytes);
+            break;
+        }
+        case METALCLAW_BINDING_SPI_TARGET: {
+            struct metalclaw_spi_target_stats st;
+            metalclaw_hal_spi_target_stats(b->spi, &st);
+            STAT("transactions", st.transactions);
+            STAT("bytes", st.bytes);
+            STAT("short_windows", st.short_windows);
+            STAT("long_windows", st.long_windows);
+            STAT("dma_faults", st.dma_faults);
+            STAT("stale_windows", st.stale_windows);
+            STAT("max_clock_hz", metalclaw_hal_spi_target_max_clock_hz(b->spi));
+            break;
+        }
+        case METALCLAW_BINDING_UART: {
+            struct metalclaw_uart_stats st;
+            metalclaw_hal_uart_stats(b->uart, &st);
+            STAT("bytes_rx", st.bytes_rx);
+            STAT("bytes_tx", st.bytes_tx);
+            STAT("overruns", st.overruns);
+            STAT("frame_errors", st.frame_errors);
+            STAT("baud", metalclaw_hal_uart_baud(b->uart));
+            break;
+        }
+        default:
+            return -ENOTSUP;
+    }
+#undef STAT
+    return n > max ? (int)max : (int)n;
+}
+
+const char *metalclaw_value_type_name(enum metalclaw_value_type type) {
+    switch (type) {
+        case METALCLAW_TYPE_BOOL:
+            return "bool";
+        case METALCLAW_TYPE_I32:
+            return "i32";
+        case METALCLAW_TYPE_U32:
+            return "u32";
+    }
+    return "?";
+}
+
+const char *metalclaw_access_name(enum metalclaw_access access) {
+    switch (access) {
+        case METALCLAW_ACCESS_RO:
+            return "ro";
+        case METALCLAW_ACCESS_WO:
+            return "wo";
+        case METALCLAW_ACCESS_RW:
+            return "rw";
+    }
+    return "?";
+}
+
+const char *metalclaw_binding_kind_name(enum metalclaw_binding_kind kind) {
+    switch (kind) {
+        case METALCLAW_BINDING_GPIO_IN:
+            return "gpio_in";
+        case METALCLAW_BINDING_GPIO_OUT:
+            return "gpio_out";
+        case METALCLAW_BINDING_SPI_TARGET:
+            return "spi_target";
+        case METALCLAW_BINDING_I2C_TARGET:
+            return "i2c_target";
+        case METALCLAW_BINDING_UART:
+            return "uart";
+        case METALCLAW_BINDING_SWD_WIRE:
+            return "swd_wire";
+        case METALCLAW_BINDING_USB_INTERFACE:
+            return "usb_interface";
+    }
+    return "?";
+}
+
+const char *metalclaw_uart_parity_name(enum metalclaw_uart_parity parity) {
+    switch (parity) {
+        case METALCLAW_UART_PARITY_NONE:
+            return "none";
+        case METALCLAW_UART_PARITY_EVEN:
+            return "even";
+        case METALCLAW_UART_PARITY_ODD:
+            return "odd";
+    }
+    return "?";
+}
+
+const char *metalclaw_trace_kind_name(enum metalclaw_trace_kind kind) {
+    switch (kind) {
+        case METALCLAW_TRACE_SPI:
+            return "spi";
+        case METALCLAW_TRACE_I2C:
+            return "i2c";
+        case METALCLAW_TRACE_UART:
+            return "uart";
+        case METALCLAW_TRACE_COMMAND:
+            return "command";
+        case METALCLAW_TRACE_STATE:
+            return "state";
+        case METALCLAW_TRACE_ERROR:
+            return "error";
+    }
+    return "?";
 }
 
 uint64_t metalclaw_now_us(void) {

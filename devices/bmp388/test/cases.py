@@ -44,14 +44,18 @@ baro = [i for i in metalclaw.instances() if i.name == {NAME!r}][0]
 
 
 class Barometer:
-    def __init__(self, harness):
+    def __init__(self, harness, bus):
         self.harness = harness
+        self.bus = bus
 
     def set(self, pressure, temperature):
         self.harness.run(SELECT + f"baro.set(pressure={pressure}, temperature={temperature})\n")
 
     def get(self, name):
         return int(self.harness.run(SELECT + f"print(baro.{name})\n").strip())
+
+    def transactions(self):
+        return eval(self.harness.run(SELECT + f"print(baro.stats({self.bus!r}))\n").strip())["transactions"]
 
 
 # On I2C the DUT runs Zephyr's bmp388 driver and the SENSOR command reports
@@ -169,7 +173,7 @@ def barometer(harness, dut):
     harness.run(DETACH + ATTACH[image] + "\n")
     dut.reset()
     dut.ping()
-    return Barometer(harness)
+    return Barometer(harness, "spi" if image.endswith("/spi") else "i2c")
 
 
 @pytest.fixture(scope="module")
@@ -204,9 +208,9 @@ def test_the_model_reports_what_it_was_set_to(barometer):
 
 
 def test_every_fetch_moves_bus_traffic(reader, barometer):
-    before = barometer.get("transactions")
+    before = barometer.transactions()
     reader.read()
-    assert barometer.get("transactions") > before
+    assert barometer.transactions() > before
 
 
 def test_the_dut_configured_the_part(reader, barometer):

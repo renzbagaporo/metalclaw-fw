@@ -50,6 +50,5 @@ void metalclaw_stream_set_on_frame(struct metalclaw_stream *stream, metalclaw_st
 // OUT only. Copies `len` bytes (short frames are padded with filler) into
 // the inactive frame and swaps. Safe from thread context while armed.
 void metalclaw_stream_publish(struct metalclaw_stream *stream, const uint8_t *bytes, size_t len);
-const uint8_t *metalclaw_stream_current(const struct metalclaw_stream *stream);
 
 #endif
