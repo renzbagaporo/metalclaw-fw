@@ -9,7 +9,8 @@ are on; they get a `harness` and a `dut` from the rig and speak to them.
 ```sh
 just setup-rig                        # .venv with pytest and pyserial
 just setup-dut                        # Zephyr workspace in ../.zephyr-workspace
-just build-dut                        # build/dut/zephyr/zephyr.elf
+just build-dut                        # build/dut/smoke/zephyr/zephyr.elf
+just build-dut bmp388                 # build/dut/bmp388/, with Zephyr's bmp388 driver
 METALCLAW_HARNESS_SERIAL=<serial> METALCLAW_ARM_TOOLCHAIN_DIR=<dir> just test hardware
 ```
 
@@ -42,8 +43,8 @@ what it printed. `dut.command(line)` sends one mailbox command and returns the
 parsed result; `dut.reset()` resets the DUT through the probe;
 `dut.probe.read_words(addr, n)` reads DUT memory without halting it.
 
-`METALCLAW_DUT_IMAGE` selects a different DUT image; the default is the one
-`just build-dut` produces.
+`METALCLAW_DUT_DEVICE` picks which device's DUT image to flash, default
+`smoke`; `METALCLAW_DUT_IMAGE` names an image path outright.
 
 ## The DUT fixture
 
@@ -51,9 +52,11 @@ parsed result; `dut.reset()` resets the DUT through the probe;
 (`rpi_pico2/rp2350a/m33`). It boots, publishes a banner line, and serves
 one-line commands (`PING`, `ID`) through a RAM mailbox the host reads and
 writes over SWD without halting the core. The record layout and the protocol
-are in [test/rig/dut/README.md](../test/rig/dut/README.md). Device packages
-will add devicetree overlays under `devices/<name>/test/dut/` so that Zephyr's
-real drivers exercise the simulated parts; none exist yet.
+are in [test/rig/dut/README.md](../test/rig/dut/README.md). A device package
+adds a devicetree overlay and a Kconfig fragment under
+`devices/<name>/test/dut/rp2.{overlay,conf}` so that Zephyr's real driver for
+that part exercises the simulated one; `just build-dut <name>` applies them and
+builds `build/dut/<name>/`. One exists: `bmp388`.
 
 The workspace is created from `test/rig/dut/west.yml`, which pins Zephyr
 v4.4.0 and the five modules the board needs. `METALCLAW_ZEPHYR_WORKSPACE`

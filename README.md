@@ -23,15 +23,19 @@ The `metalclaw` module is the generic device API: a model registry, a runtime
 with instances, a simulation clock, faults and trace, and one `Instance` type
 whose attributes come from each model's own descriptors.
 
-One device exists, the SWD debug probe. Attaching it adds a CMSIS-DAP v2
+Two devices exist. The SWD debug probe: attaching it adds a CMSIS-DAP v2
 interface to the USB device, and `probe-rs` then drives the board under test
-through the harness:
+through the harness. And a simulated BMP388 barometer on I²C, which Zephyr's
+own BMP388 driver on the board under test reads as the real part:
 
 ```python
 >>> import metalclaw
 >>> metalclaw.models()
-('swd_probe',)
+('bmp388', 'swd_probe')
 >>> probe = metalclaw.attach("swd_probe", "dut", swd=(2, 3, 28))
+>>> baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
+>>> baro.pressure = 101325
+>>> baro.temperature = 25000
 ```
 
 ```sh
@@ -45,11 +49,13 @@ See [docs/devices.md](docs/devices.md) for the model contract and
 
 The rig in `test/rig/` flashes a Zephyr fixture image onto the board under
 test through that probe, talks to it over a RAM mailbox, and runs every case
-in the tree on real hardware:
+in the tree on real hardware. With the bmp388 image, the fixture's Zephyr
+driver reads the simulated sensor and the cases compare what it read with
+what was injected:
 
 ```sh
-just build-dut
-METALCLAW_HARNESS_SERIAL=<serial> just test hardware
+just build-dut bmp388
+METALCLAW_DUT_DEVICE=bmp388 METALCLAW_HARNESS_SERIAL=<serial> just test hardware
 ```
 
 ## Layout
@@ -62,7 +68,7 @@ core/                         the harness firmware
   micropython/                the `metalclaw` module, Instance type, REPL stream
   ports/rp2/                  port config, USB device, HAL, board definitions
   third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
-devices/                      one directory per device model; swd_probe so far
+devices/                      one directory per device model: swd_probe, bmp388
 test/
   rig/                        run.py, the hardware platform, the Zephyr DUT fixture
   cases/                      cases for the harness as a whole

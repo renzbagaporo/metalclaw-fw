@@ -5,8 +5,9 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct metalclaw_model` and nothing else the
-runtime needs to know about. One exists: [`swd_probe`](../devices/swd_probe/README.md),
-a CMSIS-DAP v2 debug probe.
+runtime needs to know about. Two exist:
+[`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe, and
+[`bmp388`](../devices/bmp388/README.md), a Bosch barometer on I2C.
 
 ## The model
 
@@ -21,10 +22,11 @@ an ops table:
 - **faults**: names the model knows how to misbehave under.
 - **bindings**: what the model needs from the platform, by name and kind.
   The names are the `attach()` keywords. `gpio_in` and `gpio_out` take a pin;
-  `swd_wire` takes a tuple `(swclk, swdio[, nreset])`; `usb_interface` takes
-  no keyword, the runtime allocates it from the descriptor the model carries
-  and delivers packets to the model's `usb_rx` op. Declared but not yet
-  resolvable: `spi_target`, `i2c_target`, `uart`, `pwm_capture`.
+  `swd_wire` takes a tuple `(swclk, swdio[, nreset])`; `i2c_target` takes a
+  tuple `(sda, scl, address)`; `usb_interface` takes no keyword, the runtime
+  allocates it from the descriptor the model carries and delivers packets to
+  the model's `usb_rx` op. Declared but not yet resolvable: `spi_target`,
+  `uart`, `pwm_capture`.
 - **state_size**: bytes of zeroed state the runtime hands the model.
 - **ops**: `init` and `deinit` are required; `reset`, `get`, `set`,
   `inject_fault`, `clear_faults`, `read_region`, `write_region`, `prepare`,
@@ -75,6 +77,9 @@ port exists.
 - `swd.h`: the SWD wire: transfers, bit sequences, pin control, clock. On
   rp2 it is a PIO program; every wait is bounded and a timeout resyncs the
   state machine.
+- `i2c_target.h`: an I2C target that serves a `regmap` from hardware. The
+  model arms it once and updates the image under a critical section; the
+  engine answers the bus from interrupt context without the model.
 - `usb.h`: a vendor bulk interface on the composite device, with a receive
   callback and a write; see [usb.md](usb.md).
 
@@ -84,15 +89,17 @@ port exists.
 import metalclaw
 metalclaw.models()                       # ids of every model in the build
 metalclaw.schema("bmp388")               # properties, regions, faults, bindings
-d = metalclaw.attach("bmp388", "baro", sda=4, scl=5)
+d = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
 d.get("pressure"); d.set(pressure=101325); d.pressure = 101325
-d.schema(); d.faults(); d.inject("nak", 3); d.clear_faults()
-d.read_region("registers", 0, 16); d.write_region("registers", 0, b"\x00")
-d.trace(); d.reset(); d.detach()
+d.schema(); d.trace(); d.reset(); d.detach()
 metalclaw.instances(); metalclaw.detach("baro")
 metalclaw.now_us(); metalclaw.advance_us(1000)
+
+d.faults(); d.inject(name, 3); d.clear_faults()   # a model that declares faults
+d.read_region(name, 0, 16); d.write_region(name, 0, b"\x00")   # ... or regions
 ```
 
 Property names are attributes on the instance. Unknown names raise
 `ValueError`, out-of-range values raise `ValueError`, and platform refusals
-raise `OSError` with the errno.
+raise `OSError` with the errno. Neither device in the tree declares a fault or
+a region, so both sets of calls answer `ENOTSUP` today.
