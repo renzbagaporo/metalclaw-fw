@@ -5,13 +5,9 @@ import struct
 import pytest
 
 NAME = "baro"
-SDA = 4
-SCL = 5
-ADDRESS = 0x76
-SCK = 18
-MOSI = 19
-MISO = 16
-CS = 22
+FAMILY = "bmp388"
+ALIAS = "barometer"
+IMAGES = ("bmp388", "bmp388/spi")
 
 PRESSURE_TOLERANCE_PA = 1
 TEMPERATURE_TOLERANCE_MC = 1
@@ -27,11 +23,18 @@ SAMPLES = [
     (125000, -40000),
 ]
 
+
 # The same model on either bus; which one is a binding line, nothing else.
-ATTACH = {
-    "bmp388": f"metalclaw.attach('bmp388', {NAME!r}, i2c=({SDA}, {SCL}, {ADDRESS:#04x}))",
-    "bmp388/spi": f"metalclaw.attach('bmp388', {NAME!r}, spi=({SCK}, {MOSI}, {MISO}, {CS}))",
-}
+def attach(fixture, image):
+    if image.endswith("/spi"):
+        spi = fixture["spi"]
+        pins = (spi["sck"], spi["mosi"], spi["miso"], spi["cs"][FAMILY])
+        return f"metalclaw.attach('bmp388', {NAME!r}, spi={pins})"
+    i2c = fixture["i2c"]
+    bus = (i2c["sda"], i2c["scl"], i2c["address"][FAMILY])
+    return f"metalclaw.attach('bmp388', {NAME!r}, i2c={bus})"
+
+
 DETACH = f"""import metalclaw
 for instance in metalclaw.instances():
     if instance.name == {NAME!r}:
@@ -71,10 +74,10 @@ class DriverReader:
         pass
 
     def read(self):
-        result = self.dut.command("SENSOR")
+        result = self.dut.command(f"SENSOR {ALIAS} press ambient_temp")
         assert result["test"] == "test_sensor", result
         assert result["status"] == "ok", result
-        return result["pressure_pa"], result["temperature_mc"]
+        return result["press"][0] // 1000, result["ambient_temp"][0] // 1000
 
 
 def cdiv(a, b):
@@ -166,11 +169,11 @@ READERS = {"bmp388": DriverReader, "bmp388/spi": RawReader}
 
 
 @pytest.fixture(scope="module")
-def barometer(harness, dut):
+def barometer(harness, dut, fixture):
     image = dut.image_name()
-    if image not in ATTACH:
+    if image not in IMAGES:
         pytest.skip(f"the DUT image is not built for bmp388 ({image})")
-    harness.run(DETACH + ATTACH[image] + "\n")
+    harness.run(DETACH + attach(fixture, image) + "\n")
     dut.reset()
     dut.ping()
     return Barometer(harness, "spi" if image.endswith("/spi") else "i2c")

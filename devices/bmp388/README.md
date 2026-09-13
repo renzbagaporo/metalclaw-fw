@@ -53,7 +53,7 @@ baro.detach()
 | `power_mode` | u32 | ro | | 0 .. 3 | `PWR_CTRL[5:4]` as the DUT left it: 0 sleep, 1 forced, 3 normal |
 | `osr` | u32 | ro | | 0 .. 63 | the whole `OSR` register: `osr_p` in bits 2:0, `osr_t` in bits 5:3 |
 | `odr` | u32 | ro | | 0 .. 31 | `ODR[4:0]` as the DUT left it; 2 is 50 Hz |
-| `spi_mode` | u32 | rw | | 0 or 3 | the SPI mode the target listens in; `ENODEV` to set on an I2C instance |
+| `spi_mode` | u32 | rw | | 0 or 3 | the SPI mode the target listens in; `ENODEV` on an I2C instance |
 
 `pressure` and `temperature` default to 101 325 Pa and 25 000 mC. `power_mode`,
 `osr` and `odr` are read straight out of the register map, so they are the
@@ -250,12 +250,13 @@ METALCLAW_DUT_DEVICE=bmp388/spi just test hardware
 
 ## Tests
 
-`test/cases.py` runs on the rig's `harness` and `dut` fixtures. It attaches the
-model from the harness REPL on the bus the flashed image is built for, I2C at
-`(4, 5, 0x76)` or SPI at `(18, 19, 16, 22)`, and then resets the DUT, because
-Zephyr probes the driver once at `POST_KERNEL` and a part that was not armed
-then never becomes ready. The cases set pressure and temperature, read the
-part through the DUT, and compare `pressure_pa` and `temperature_mc` against
+`test/cases.py` runs on the rig's `harness`, `dut` and `fixture` fixtures. It
+attaches the model from the harness REPL on the bus the flashed image is built
+for, taking the pins from the platform's `fixture` description: on fixture 1
+I2C at `(4, 5, 0x76)` or SPI at `(18, 19, 16, 22)`. It then resets the DUT,
+because Zephyr probes the driver once at `POST_KERNEL` and a part that was not
+armed then never becomes ready. The cases set pressure and temperature, read
+the part through the DUT, and compare the pressure and temperature against
 what was injected within the ±1 above; they walk both corners of both ranges,
 check that a new sample reaches the DUT, that each fetch moves the bound
 engine's `transactions` counter, that `power_mode`, `osr` and `odr` carry what the driver
@@ -263,7 +264,8 @@ wrote, and that a `reset()` clears that configuration and a DUT reset puts it
 back.
 
 The read goes through one of two readers. On the I2C image it is the DUT's
-`SENSOR` command, the driver's own fetch and compensation. On the SPI image
+`SENSOR barometer press ambient_temp` command, the driver's own fetch and
+compensation, in the sensor API's micro-units. On the SPI image
 the case clocks `bmp388_init()`'s sequence itself through `RAW` after every
 DUT reset (soft reset, chip id, calibration block, `ODR` read-modify-write,
 `OSR`, `CONFIG`, `PWR_CTRL`, `ERR_REG`), reads the six data bytes the same

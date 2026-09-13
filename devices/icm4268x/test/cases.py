@@ -3,10 +3,9 @@
 import pytest
 
 NAME = "imu"
-SCK = 18
-MOSI = 19
-MISO = 16
-CS = 17
+FAMILY = "icm4268x"
+ALIAS = "imu"
+CHANNELS = "accel_xyz gyro_xyz die_temp"
 
 # What the DUT overlay configures, and the driver's own conversions from
 # raw counts at those full scales: 2048 LSB/g, 16.4 LSB/dps, raw/132.48 + 25 C.
@@ -40,12 +39,16 @@ def temperature_micro(raw):
     return int((raw * 100 + 25 * TEMPERATURE_SENSITIVITY_X100) * 1_000_000 / TEMPERATURE_SENSITIVITY_X100)
 
 
-ATTACH = f"""import metalclaw
+def attach(fixture):
+    spi = fixture["spi"]
+    pins = (spi["sck"], spi["mosi"], spi["miso"], spi["cs"][FAMILY])
+    return f"""import metalclaw
 for instance in metalclaw.instances():
     if instance.name == {NAME!r}:
         instance.detach()
-metalclaw.attach('icm42688', {NAME!r}, spi=({SCK}, {MOSI}, {MISO}, {CS}))
+metalclaw.attach('icm42688', {NAME!r}, spi={pins})
 """
+
 
 SELECT = f"""import metalclaw
 imu = [i for i in metalclaw.instances() if i.name == {NAME!r}][0]
@@ -67,17 +70,17 @@ class Imu:
 
 
 @pytest.fixture(scope="module")
-def imu(harness, dut):
+def imu(harness, dut, fixture):
     dut.require_image('icm4268x')
-    harness.run(ATTACH)
+    harness.run(attach(fixture))
     dut.reset()
     dut.ping()
     return Imu(harness)
 
 
 def fetch(dut, count=1):
-    result = dut.command(f"IMU {count}")
-    assert result["test"] == "test_imu", result
+    result = dut.command(f"SENSOR {ALIAS} {CHANNELS} count={count}")
+    assert result["test"] == "test_sensor", result
     assert result["status"] == "ok", result
     return result
 
@@ -91,9 +94,9 @@ def test_the_dut_driver_reads_what_was_injected(dut, imu, accel, gyro, temperatu
     imu.set(accel, gyro, temperature)
     result = fetch(dut)
     for axis in range(3):
-        assert_close(result["accel_ums2"][axis], accel_micro(accel[axis]), accel_micro(1))
-        assert_close(result["gyro_urads"][axis], gyro_micro(gyro[axis]), gyro_micro(1))
-    assert_close(result["temp_uc"], temperature_micro(temperature), temperature_micro(1) - temperature_micro(0))
+        assert_close(result["accel_xyz"][axis], accel_micro(accel[axis]), accel_micro(1))
+        assert_close(result["gyro_xyz"][axis], gyro_micro(gyro[axis]), gyro_micro(1))
+    assert_close(result["die_temp"][0], temperature_micro(temperature), temperature_micro(1) - temperature_micro(0))
 
 
 def test_the_dut_configured_the_part(dut, imu):
@@ -127,7 +130,7 @@ def test_a_dut_reset_reinitialises_the_part(dut, imu):
     assert imu.get("power_mode") == POWER_MODE_LN_BOTH
     imu.set((1, 2, 3), (4, 5, 6), 7)
     result = fetch(dut)
-    assert_close(result["temp_uc"], temperature_micro(7), temperature_micro(1) - temperature_micro(0))
+    assert_close(result["die_temp"][0], temperature_micro(7), temperature_micro(1) - temperature_micro(0))
 
 
 def test_a_model_reset_clears_the_configuration(dut, imu):

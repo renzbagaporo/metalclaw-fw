@@ -65,10 +65,11 @@ on GP21, because the PL022's own chip select drops whenever its transmit FIFO
 drains and the frame is one chip-select window by definition. The overlay
 sets `spi-max-frequency` to 15 MHz and mode 0.
 
-The DUT command is `ADC [hz] [bytes] [count]`: `count` windows of `bytes`
-bytes at `hz` (0 for the overlay's clock). It reports the first frame, the
-sample decoded from it, the two zero fields, and how many later windows
-differed from the first.
+The DUT command is `SPI adc [hz] [bytes] [count] [gap_us]`: `count` windows of
+`bytes` bytes at `hz` (0 for the overlay's clock), `gap_us` apart. It reports
+the first frame as hex and how many later windows differed from it. The image
+knows nothing about the frame layout; `test/cases.py` decodes the sample and
+the two zero fields out of the hex.
 
 ```sh
 just build-dut ads7883
@@ -78,8 +79,9 @@ METALCLAW_DUT_DEVICE=ads7883 just test hardware
 
 ## Tests
 
-`test/cases.py` attaches the model at `(18, 19, 16, 21)`, resets the DUT and
-checks: five samples across the range read back exactly with both zero fields
+`test/cases.py` attaches the model on the rig's SPI pins for this part
+(`(18, 19, 16, 21)` on fixture 1, from the platform's `fixture` description),
+resets the DUT and checks: five samples across the range read back exactly with both zero fields
 clear; a new sample is in the very next window; a six-byte window is the frame
 followed by zeros; ten windows move `transactions` by at least ten; at 1, 5,
 10 and 15 MHz a thousand windows each all carry the same exact frame with no

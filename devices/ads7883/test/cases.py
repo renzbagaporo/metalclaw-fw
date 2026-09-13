@@ -3,10 +3,8 @@
 import pytest
 
 NAME = "adc"
-SCK = 18
-MOSI = 19
-MISO = 16
-CS = 21
+FAMILY = "ads7883"
+ALIAS = "adc"
 
 SAMPLES = [0, 1, 0x800, 0xABC, 0xFFF]
 CLOCKS_HZ = [1_000_000, 5_000_000, 10_000_000, 15_000_000]
@@ -15,12 +13,17 @@ WINDOWS_PER_CLOCK = 1000
 # window may start; the DUT's own turnaround is about 5 us.
 GAP_US = 20
 
-ATTACH = f"""import metalclaw
+
+def attach(fixture):
+    spi = fixture["spi"]
+    pins = (spi["sck"], spi["mosi"], spi["miso"], spi["cs"][FAMILY])
+    return f"""import metalclaw
 for instance in metalclaw.instances():
     if instance.name == {NAME!r}:
         instance.detach()
-metalclaw.attach('ads7883', {NAME!r}, spi=({SCK}, {MOSI}, {MISO}, {CS}))
+metalclaw.attach('ads7883', {NAME!r}, spi={pins})
 """
+
 
 SELECT = f"""import metalclaw
 adc = [i for i in metalclaw.instances() if i.name == {NAME!r}][0]
@@ -42,18 +45,22 @@ class Converter:
 
 
 @pytest.fixture(scope="module")
-def converter(harness, dut):
+def converter(harness, dut, fixture):
     dut.require_image('ads7883')
-    harness.run(ATTACH)
+    harness.run(attach(fixture))
     dut.reset()
     dut.ping()
     return Converter(harness)
 
 
 def read_frame(dut, hz=0, count=1, length=2, gap_us=GAP_US):
-    result = dut.command(f"ADC {hz} {length} {count} {gap_us}")
-    assert result["test"] == "test_adc", result
+    result = dut.command(f"SPI {ALIAS} {hz} {length} {count} {gap_us}")
+    assert result["test"] == "test_spi", result
     assert result["status"] == "ok", result
+    frame = int(result["frame"][:4], 16)
+    result["leading"] = frame >> 14
+    result["sample"] = (frame >> 2) & 0xFFF
+    result["trailing"] = frame & 0x3
     return result
 
 

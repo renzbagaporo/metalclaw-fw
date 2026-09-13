@@ -23,7 +23,7 @@ Extra arguments after `hardware` go to pytest.
 - `devices/<name>/test/cases.py` (or `cases/`) for one device.
 - `client/test/cases.py` for the client, when it exists.
 
-A case is a pytest function taking `harness`, `dut`, or `probe`:
+A case is a pytest function taking `harness`, `dut`, `probe` or `fixture`:
 
 ```python
 def test_dut_answers_ping(dut):
@@ -44,6 +44,21 @@ what it printed. `dut.command(line)` sends one mailbox command and returns the
 parsed result; `dut.reset()` resets the DUT through the probe;
 `dut.probe.read_words(addr, n)` reads DUT memory without halting it.
 
+`fixture` is the platform's description of the wiring: which pin carries
+which bus role, and where each part sits on the shared buses. A case builds
+its attach line from it and carries no pin number of its own. On the hardware
+platform it is
+
+```python
+{"swd": (2, 3, 28),
+ "i2c": {"sda": 4, "scl": 5, "address": {"bmp388": 0x76}},
+ "uart": {"tx": 0, "rx": 1},
+ "spi": {"sck": 18, "mosi": 19, "miso": 16,
+         "cs": {"ads7883": 21, "icm4268x": 17, "bmp388": 22}}}
+```
+
+and the platform attaches its own probe on `fixture["swd"]`.
+
 `METALCLAW_DUT_DEVICE` picks which device's DUT image to flash, default
 `smoke`; `METALCLAW_DUT_IMAGE` names an image path outright. Every image
 reports its name in `ID` and `PING`, `dut.image_name()` returns it, and a
@@ -62,7 +77,11 @@ as `neo_m8n`'s do.
 (`rpi_pico2/rp2350a/m33`). It boots, publishes a banner line, and serves
 one-line commands through a RAM mailbox the host reads and writes over SWD
 without halting the core. The record layout, the protocol and the commands
-are in [test/rig/dut/README.md](../test/rig/dut/README.md). A device package
+are in [test/rig/dut/README.md](../test/rig/dut/README.md). The commands are
+per Zephyr subsystem, not per part: `SENSOR <alias> <channel>...` fetches
+through the sensor API, `SPI <alias> [hz] [bytes] [count] [gap_us]` clocks
+master windows, `RAW` clocks one window of given bytes and `GNSS` reads the
+GNSS API; what a value means is the case's business. A device package
 adds a devicetree overlay and a Kconfig fragment under
 `devices/<name>/test/dut/rp2.{overlay,conf}` so that Zephyr's real driver for
 that part exercises the simulated one; `just build-dut <name>` applies them and
@@ -72,10 +91,11 @@ builds `build/dut/<name>/`. A variant lives one level down,
 Images exist for `bmp388` (I2C) and `bmp388/spi`, `ads7883`, `icm4268x` and
 `neo_m8n`.
 
-The fixture's SPI bus is GP18/GP19/GP16 with one GPIO chip select per part
-(the PL022's own chip select drops whenever its transmit FIFO drains), I2C is
-GP4/GP5, and the crossed UART pair is GP0/GP1. The rig's burst cases leave
-20 µs between windows, above the engine's re-arm time.
+The overlays follow the `fixture` description above: the SPI bus is
+GP18/GP19/GP16 with one GPIO chip select per part (the PL022's own chip
+select drops whenever its transmit FIFO drains), I2C is GP4/GP5, and the
+crossed UART pair is GP0/GP1. The rig's burst cases leave 20 µs between
+windows, above the engine's re-arm time.
 
 The workspace is created from `test/rig/dut/west.yml`, which pins Zephyr
 v4.4.0 and the five modules the board needs. `METALCLAW_ZEPHYR_WORKSPACE`

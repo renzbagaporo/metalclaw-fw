@@ -100,9 +100,9 @@ the driver splits every read into a command chunk and a data chunk), an
 the engine needs about 10 µs after a release before it can serve the next
 window; the setup delay lets it join a window that has already been asserted.
 
-The DUT command is `IMU [count]`: `count` fetches through the driver, the
-first reading in the sensor API's micro-units, and how many later fetches
-differed from it.
+The DUT command is `SENSOR imu accel_xyz gyro_xyz die_temp [count=N]`: `N`
+fetches through the driver, the first reading's channels in the sensor API's
+micro-units, and how many later fetches differed from it.
 
 ```sh
 just build-dut icm4268x
@@ -112,8 +112,9 @@ METALCLAW_DUT_DEVICE=icm4268x just test hardware
 
 ## Tests
 
-`test/cases.py` attaches `icm42688` at `(18, 19, 16, 17)`, resets the DUT and
-checks: four samples across the range come back through the driver within one
+`test/cases.py` attaches `icm42688` on the rig's SPI pins for this part
+(`(18, 19, 16, 17)` on fixture 1, from the platform's `fixture` description),
+resets the DUT and checks: four samples across the range come back through the driver within one
 LSB on every axis; the driver left `PWR_MGMT0`, `ACCEL_CONFIG0` and
 `GYRO_CONFIG0` at the overlay's values, bank 0 selected, at least one soft
 reset counted; ten fetches move at least twenty transactions; a thousand

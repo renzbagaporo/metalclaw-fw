@@ -15,6 +15,18 @@ from test.rig.platforms.hardware.repl import Repl
 
 ROOT = Path(__file__).resolve().parents[4]
 
+FIXTURE = {
+    "swd": (2, 3, 28),
+    "i2c": {"sda": 4, "scl": 5, "address": {"bmp388": 0x76}},
+    "uart": {"tx": 0, "rx": 1},
+    "spi": {
+        "sck": 18,
+        "mosi": 19,
+        "miso": 16,
+        "cs": {"ads7883": 21, "icm4268x": 17, "bmp388": 22},
+    },
+}
+
 
 def _required(name: str) -> str:
     value = os.environ.get(name)
@@ -89,6 +101,11 @@ class Dut:
 
 
 @pytest.fixture(scope="session")
+def fixture() -> dict:
+    return FIXTURE
+
+
+@pytest.fixture(scope="session")
 def harness() -> Harness:
     serial = _required("METALCLAW_HARNESS_SERIAL")
     h = Harness(serial)
@@ -100,11 +117,11 @@ def harness() -> Harness:
 
 
 @pytest.fixture(scope="session")
-def probe(harness: Harness):
+def probe(harness: Harness, fixture: dict):
     # The probe device is attached from the harness's REPL; adding its USB
     # interface re-enumerates the harness once.
     if "CMSIS-DAP v2" not in harness.usb_interfaces():
-        harness.run("import metalclaw\nmetalclaw.attach('swd_probe', 'dut', swd=(2, 3, 28))")
+        harness.run(f"import metalclaw\nmetalclaw.attach('swd_probe', 'dut', swd={fixture['swd']})")
         time.sleep(1.5)
         harness.wait_enumerated()
     return harness.probe_id

@@ -5,6 +5,7 @@
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/util.h>
 #if defined(CONFIG_SENSOR)
 #include <zephyr/drivers/sensor.h>
 #endif
@@ -16,6 +17,7 @@
 #endif
 
 #include <errno.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -29,6 +31,7 @@
 #define IMAGE_BUILD (__DATE__ " " __TIME__)
 
 #define RESULT_LINE_MAX 512U
+#define RESULT_BODY_MAX (RESULT_LINE_MAX - 4U)
 #define COMMAND_MAX (MCLW_DEBUG_PORT_COMMAND_CAPACITY + 1U)
 #define POLL_INTERVAL_MS 1
 
@@ -64,253 +67,355 @@ static void emit_unknown(void)
 	mclw_debug_port_write(result_line);
 }
 
-/*
- * A device overlay gives the image a `barometer` alias bound to Zephyr's own
- * driver for the simulated part; the DUT reads it exactly as production
- * firmware would. Values are reported in Pa and milli-degrees.
- */
-#if defined(CONFIG_SENSOR) && DT_NODE_EXISTS(DT_ALIAS(barometer))
-static void emit_sensor(void)
-{
-	const struct device *dev = DEVICE_DT_GET(DT_ALIAS(barometer));
-	struct sensor_value press;
-	struct sensor_value temp;
-	int rc;
+#if defined(CONFIG_SENSOR) || defined(CONFIG_SPI)
+struct token {
+	const char *text;
+	size_t length;
+};
 
+static size_t append(char *text, size_t size, size_t used, const char *format, ...)
+{
+	va_list arguments;
+	int written;
+
+	if (used >= size) {
+		return size;
+	}
+	va_start(arguments, format);
+	written = vsnprintf(&text[used], size - used, format, arguments);
+	va_end(arguments);
+	if (written < 0) {
+		return used;
+	}
+	used += (size_t)written;
+	return used < size ? used : size;
+}
+
+static bool next_token(const char **cursor, struct token *token)
+{
+	const char *text = *cursor;
+
+	while (*text == ' ') {
+		text++;
+	}
+	if (*text == '\0') {
+		*cursor = text;
+		return false;
+	}
+	token->text = text;
+	while (*text != '\0' && *text != ' ') {
+		text++;
+	}
+	token->length = (size_t)(text - token->text);
+	*cursor = text;
+	return true;
+}
+
+static bool token_equals(const struct token *token, const char *name)
+{
+	return strlen(name) == token->length && strncmp(token->text, name, token->length) == 0;
+}
+
+static void emit_error(const char *test, const char *detail)
+{
+	snprintf(result_line, sizeof(result_line),
+		"MCLW-HIL/1 {\"test\":\"%s\",\"status\":\"error\",\"detail\":\"%s\"}\r\n",
+		test, detail);
+	mclw_debug_port_write(result_line);
+}
+#endif
+
+#if defined(CONFIG_SENSOR)
+#define SENSOR_CHANNELS_MAX 4U
+#define SENSOR_VALUES_MAX 12U
+
+struct sensor_alias {
+	const char *name;
+	const struct device *dev;
+};
+
+struct sensor_channel_name {
+	const char *name;
+	enum sensor_channel channel;
+	size_t values;
+};
+
+#define SENSOR_ALIAS(id) IF_ENABLED(DT_NODE_EXISTS(DT_ALIAS(id)), \
+	({STRINGIFY(id), DEVICE_DT_GET(DT_ALIAS(id))},))
+
+static const struct sensor_alias sensor_aliases[] = {
+	SENSOR_ALIAS(barometer)
+	SENSOR_ALIAS(imu)
+	{.name = NULL},
+};
+
+static const struct sensor_channel_name sensor_channel_names[] = {
+	{"press", SENSOR_CHAN_PRESS, 1},
+	{"ambient_temp", SENSOR_CHAN_AMBIENT_TEMP, 1},
+	{"accel_xyz", SENSOR_CHAN_ACCEL_XYZ, 3},
+	{"gyro_xyz", SENSOR_CHAN_GYRO_XYZ, 3},
+	{"die_temp", SENSOR_CHAN_DIE_TEMP, 1},
+	{.name = NULL},
+};
+
+static bool token_is_count(const struct token *token, unsigned long *count)
+{
+	static const char prefix[] = "count=";
+	size_t offset = 0;
+	unsigned long value = 0;
+
+	if (token->length > sizeof(prefix) - 1U &&
+		strncmp(token->text, prefix, sizeof(prefix) - 1U) == 0) {
+		offset = sizeof(prefix) - 1U;
+	} else if (token->text[0] < '0' || token->text[0] > '9') {
+		return false;
+	}
+	for (size_t i = offset; i < token->length; i++) {
+		if (token->text[i] < '0' || token->text[i] > '9') {
+			return false;
+		}
+		value = value * 10U + (unsigned long)(token->text[i] - '0');
+	}
+	*count = value;
+	return true;
+}
+
+static int fetch_channels(const struct device *dev,
+	const struct sensor_channel_name *const *channels, size_t count, int64_t *out)
+{
+	struct sensor_value values[3];
+	size_t at = 0;
+	int rc = sensor_sample_fetch(dev);
+
+	for (size_t i = 0; rc == 0 && i < count; i++) {
+		rc = sensor_channel_get(dev, channels[i]->channel, values);
+		for (size_t v = 0; rc == 0 && v < channels[i]->values; v++) {
+			out[at++] = sensor_value_to_micro(&values[v]);
+		}
+	}
+	return rc;
+}
+
+static void emit_sensor(const char *args)
+{
+	const struct sensor_channel_name *channels[SENSOR_CHANNELS_MAX];
+	const char *cursor = args != NULL ? args : "";
+	const struct device *dev = NULL;
+	const char *detail = NULL;
+	int64_t first[SENSOR_VALUES_MAX];
+	int64_t again[SENSOR_VALUES_MAX];
+	struct token token;
+	size_t channel_count = 0;
+	size_t values = 0;
+	size_t used;
+	unsigned long count = 1;
+	unsigned long mismatches = 0;
+	int rc = 0;
+
+	if (!next_token(&cursor, &token)) {
+		detail = "no alias";
+	} else {
+		for (const struct sensor_alias *a = sensor_aliases; a->name != NULL; a++) {
+			if (token_equals(&token, a->name)) {
+				dev = a->dev;
+			}
+		}
+		if (dev == NULL) {
+			detail = "unknown alias";
+		}
+	}
+	while (detail == NULL && next_token(&cursor, &token)) {
+		const struct sensor_channel_name *found = NULL;
+
+		if (token_is_count(&token, &count)) {
+			continue;
+		}
+		for (const struct sensor_channel_name *c = sensor_channel_names; c->name != NULL; c++) {
+			if (token_equals(&token, c->name)) {
+				found = c;
+			}
+		}
+		if (found == NULL) {
+			detail = "unknown channel";
+		} else if (channel_count == SENSOR_CHANNELS_MAX ||
+			values + found->values > SENSOR_VALUES_MAX) {
+			detail = "too many channels";
+		} else {
+			channels[channel_count++] = found;
+			values += found->values;
+		}
+	}
+	if (detail == NULL && channel_count == 0) {
+		detail = "no channel";
+	}
+	if (detail == NULL && count == 0) {
+		detail = "bad count";
+	}
+	if (detail != NULL) {
+		emit_error("test_sensor", detail);
+		return;
+	}
 	if (!device_is_ready(dev)) {
 		rc = -ENODEV;
-	} else {
-		rc = sensor_sample_fetch(dev);
 	}
-	if (rc == 0) {
-		rc = sensor_channel_get(dev, SENSOR_CHAN_PRESS, &press);
-	}
-	if (rc == 0) {
-		rc = sensor_channel_get(dev, SENSOR_CHAN_AMBIENT_TEMP, &temp);
+	for (unsigned long i = 0; rc == 0 && i < count; i++) {
+		rc = fetch_channels(dev, channels, channel_count, i == 0 ? first : again);
+		if (rc == 0 && i > 0 && memcmp(first, again, values * sizeof(first[0])) != 0) {
+			mismatches++;
+		}
 	}
 	if (rc != 0) {
 		snprintf(result_line, sizeof(result_line),
 			"MCLW-HIL/1 {\"test\":\"test_sensor\",\"status\":\"error\",\"errno\":%d,"
 			"\"init_res\":%u}\r\n", -rc, (unsigned int)dev->state->init_res);
-	} else {
-		int64_t pressure_pa = (int64_t)press.val1 * 1000 + press.val2 / 1000;
-		int64_t temperature_mc = (int64_t)temp.val1 * 1000 + temp.val2 / 1000;
-		snprintf(result_line, sizeof(result_line),
-			"MCLW-HIL/1 {\"test\":\"test_sensor\",\"status\":\"ok\","
-			"\"pressure_pa\":%lld,\"temperature_mc\":%lld}\r\n",
-			(long long)pressure_pa, (long long)temperature_mc);
+		mclw_debug_port_write(result_line);
+		return;
 	}
+	used = append(result_line, RESULT_BODY_MAX, 0,
+		"MCLW-HIL/1 {\"test\":\"test_sensor\",\"status\":\"ok\","
+		"\"count\":%lu,\"mismatches\":%lu", count, mismatches);
+	values = 0;
+	for (size_t i = 0; i < channel_count; i++) {
+		used = append(result_line, RESULT_BODY_MAX, used, ",\"%s\":[", channels[i]->name);
+		for (size_t v = 0; v < channels[i]->values; v++) {
+			used = append(result_line, RESULT_BODY_MAX, used, "%s%lld",
+				v == 0 ? "" : ",", (long long)first[values++]);
+		}
+		used = append(result_line, RESULT_BODY_MAX, used, "]");
+	}
+	append(result_line, sizeof(result_line), used, "}\r\n");
 	mclw_debug_port_write(result_line);
 }
 #else
-static void emit_sensor(void)
+static void emit_sensor(const char *args)
 {
+	(void)args;
 	snprintf(result_line, sizeof(result_line),
 		"MCLW-HIL/1 {\"test\":\"test_sensor\",\"status\":\"error\",\"detail\":\"no sensor in this image\"}\r\n");
 	mclw_debug_port_write(result_line);
 }
 #endif
 
-/*
- * `IMU [count]`: `count` fetches from the `imu` alias through Zephyr's own
- * driver, reporting the first reading's accel, gyro and die temperature in
- * the sensor API's micro-units and how many later fetches differed from it.
- */
-#if defined(CONFIG_SENSOR) && DT_NODE_EXISTS(DT_ALIAS(imu))
-static int fetch_imu(const struct device *dev, int64_t out[7])
-{
-	struct sensor_value v[3];
-	int rc = sensor_sample_fetch(dev);
+#if defined(CONFIG_SPI)
+#define SPI_BYTES_MAX 16U
+#define SPI_OPERATION (SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB | SPI_WORD_SET(8))
 
-	if (rc == 0) {
-		rc = sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ, v);
-		for (int i = 0; rc == 0 && i < 3; i++) {
-			out[i] = sensor_value_to_micro(&v[i]);
-		}
-	}
-	if (rc == 0) {
-		rc = sensor_channel_get(dev, SENSOR_CHAN_GYRO_XYZ, v);
-		for (int i = 0; rc == 0 && i < 3; i++) {
-			out[3 + i] = sensor_value_to_micro(&v[i]);
-		}
-	}
-	if (rc == 0) {
-		rc = sensor_channel_get(dev, SENSOR_CHAN_DIE_TEMP, v);
-		out[6] = sensor_value_to_micro(&v[0]);
-	}
-	return rc;
-}
+struct spi_alias {
+	const char *name;
+	struct spi_dt_spec spec;
+};
 
-static void emit_imu(const char *args)
-{
-	const struct device *dev = DEVICE_DT_GET(DT_ALIAS(imu));
-	unsigned long count = args != NULL ? strtoul(args, NULL, 10) : 1;
-	unsigned long mismatches = 0;
-	int64_t first[7];
-	int64_t now[7];
-	int rc = device_is_ready(dev) ? 0 : -ENODEV;
+#define SPI_ALIAS(id) IF_ENABLED(DT_NODE_EXISTS(DT_ALIAS(id)), \
+	({STRINGIFY(id), SPI_DT_SPEC_GET(DT_ALIAS(id), SPI_OPERATION)},))
 
-	if (count == 0) {
-		rc = -EINVAL;
-	}
-	for (unsigned long i = 0; rc == 0 && i < count; i++) {
-		rc = fetch_imu(dev, i == 0 ? first : now);
-		if (rc == 0 && i > 0 && memcmp(first, now, sizeof(first)) != 0) {
-			mismatches++;
-		}
-	}
-	if (rc != 0) {
-		snprintf(result_line, sizeof(result_line),
-			"MCLW-HIL/1 {\"test\":\"test_imu\",\"status\":\"error\",\"errno\":%d}\r\n", -rc);
-	} else {
-		snprintf(result_line, sizeof(result_line),
-			"MCLW-HIL/1 {\"test\":\"test_imu\",\"status\":\"ok\","
-			"\"accel_ums2\":[%lld,%lld,%lld],\"gyro_urads\":[%lld,%lld,%lld],"
-			"\"temp_uc\":%lld,\"count\":%lu,\"mismatches\":%lu}\r\n",
-			(long long)first[0], (long long)first[1], (long long)first[2],
-			(long long)first[3], (long long)first[4], (long long)first[5],
-			(long long)first[6], count, mismatches);
-	}
-	mclw_debug_port_write(result_line);
-}
-#else
-static void emit_imu(const char *args)
-{
-	(void)args;
-	snprintf(result_line, sizeof(result_line),
-		"MCLW-HIL/1 {\"test\":\"test_imu\",\"status\":\"error\",\"detail\":\"no imu in this image\"}\r\n");
-	mclw_debug_port_write(result_line);
-}
-#endif
-
-/*
- * `ADC [hz] [bytes] [count] [gap_us]`: clock `count` windows of `bytes` bytes
- * at `hz` on the `adc` alias, a converter with no in-tree driver, `gap_us`
- * apart, and report the first frame, the 12-bit sample it carries in the
- * ADS7883 layout, and how many of the later windows differed from the first.
- * Defaults: the overlay's clock, 2 bytes, 1 window, no gap.
- */
-#if defined(CONFIG_SPI) && DT_NODE_EXISTS(DT_ALIAS(adc))
-#define ADC_BYTES_MAX 16U
-
-static const struct spi_dt_spec adc_spec = SPI_DT_SPEC_GET(DT_ALIAS(adc),
-	SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB | SPI_WORD_SET(8));
+static const struct spi_alias spi_aliases[] = {
+	SPI_ALIAS(adc)
+	{.name = NULL},
+};
 
 /*
  * The PL022 driver reconfigures only when the config pointer changes, so
  * two configs alternate: every command is then applied with its own clock.
  */
-static struct spi_config adc_configs[2];
-static unsigned int adc_config_index;
+static struct spi_config spi_configs[2];
+static unsigned int spi_config_index;
 
-static void emit_adc(const char *args)
+static void emit_spi(const char *args)
 {
-	struct spi_config *config_slot = &adc_configs[adc_config_index ^= 1U];
-	struct spi_config config = adc_spec.config;
-	uint8_t transmit[ADC_BYTES_MAX] = {0};
-	uint8_t first[ADC_BYTES_MAX];
-	uint8_t receive[ADC_BYTES_MAX];
-	char last_hex[2 * ADC_BYTES_MAX + 1];
-	const struct spi_buf tx_buf = {.buf = transmit, .len = 0};
-	const struct spi_buf rx_buf = {.buf = receive, .len = 0};
-	const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
-	const struct spi_buf_set rx = {.buffers = &rx_buf, .count = 1};
+	const struct spi_alias *alias = NULL;
+	const char *cursor = args != NULL ? args : "";
+	uint8_t transmit[SPI_BYTES_MAX] = {0};
+	uint8_t first[SPI_BYTES_MAX] = {0};
+	uint8_t receive[SPI_BYTES_MAX] = {0};
+	struct spi_config *slot;
+	struct spi_config config;
+	struct token token;
+	char *end;
+	size_t used;
 	unsigned long hz = 0;
-	unsigned long bytes = 2;
+	unsigned long bytes = 1;
 	unsigned long count = 1;
 	unsigned long gap_us = 0;
 	unsigned long mismatches = 0;
-	uint32_t started = 0;
-	uint32_t elapsed_us = 0;
-	unsigned long first_bad = 0;
-	uint8_t bad[ADC_BYTES_MAX] = {0};
-	char bad_hex[2 * ADC_BYTES_MAX + 1];
-	char frame_hex[2 * ADC_BYTES_MAX + 1];
 	int rc = 0;
 
-	if (args != NULL) {
-		char *end;
-
-		hz = strtoul(args, &end, 10);
-		if (*end != '\0') {
-			bytes = strtoul(end, &end, 10);
-		}
-		if (*end != '\0') {
-			count = strtoul(end, &end, 10);
-		}
-		if (*end != '\0') {
-			gap_us = strtoul(end, &end, 10);
+	if (!next_token(&cursor, &token)) {
+		emit_error("test_spi", "no alias");
+		return;
+	}
+	for (const struct spi_alias *a = spi_aliases; a->name != NULL; a++) {
+		if (token_equals(&token, a->name)) {
+			alias = a;
 		}
 	}
-	if (bytes == 0 || bytes > ADC_BYTES_MAX || count == 0) {
-		rc = -EINVAL;
+	if (alias == NULL) {
+		emit_error("test_spi", "unknown alias");
+		return;
 	}
+	hz = strtoul(cursor, &end, 10);
+	if (*end != '\0') {
+		bytes = strtoul(end, &end, 10);
+	}
+	if (*end != '\0') {
+		count = strtoul(end, &end, 10);
+	}
+	if (*end != '\0') {
+		gap_us = strtoul(end, &end, 10);
+	}
+	config = alias->spec.config;
 	if (hz != 0) {
 		config.frequency = (uint32_t)hz;
 	}
-	if (rc == 0 && !spi_is_ready_dt(&adc_spec)) {
+	if (bytes == 0 || bytes > SPI_BYTES_MAX || count == 0) {
+		rc = -EINVAL;
+	}
+	if (rc == 0 && !spi_is_ready_dt(&alias->spec)) {
 		rc = -ENODEV;
 	}
+	slot = &spi_configs[spi_config_index ^= 1U];
 	for (unsigned long i = 0; rc == 0 && i < count; i++) {
-		struct spi_buf tx_now = tx_buf;
-		struct spi_buf rx_now = rx_buf;
-		struct spi_buf_set tx_set = tx;
-		struct spi_buf_set rx_set = rx;
+		const struct spi_buf tx_buf = {.buf = transmit, .len = bytes};
+		const struct spi_buf rx_buf = {.buf = receive, .len = bytes};
+		const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
+		const struct spi_buf_set rx = {.buffers = &rx_buf, .count = 1};
 
-		tx_now.len = bytes;
-		rx_now.len = bytes;
-		tx_set.buffers = &tx_now;
-		rx_set.buffers = &rx_now;
 		memset(receive, 0, sizeof(receive));
 		if (i > 0 && gap_us > 0) {
 			k_busy_wait((uint32_t)gap_us);
 		}
-		*config_slot = config;
-		if (i == 0) {
-			started = k_cycle_get_32();
-		}
-		rc = spi_transceive(adc_spec.bus, config_slot, &tx_set, &rx_set);
+		*slot = config;
+		rc = spi_transceive(alias->spec.bus, slot, &tx, &rx);
 		if (rc != 0) {
 			break;
 		}
 		if (i == 0) {
 			memcpy(first, receive, bytes);
 		} else if (memcmp(first, receive, bytes) != 0) {
-			if (mismatches == 0) {
-				first_bad = i;
-				memcpy(bad, receive, bytes);
-			}
 			mismatches++;
 		}
 	}
-	elapsed_us = (uint32_t)k_cyc_to_us_floor64(k_cycle_get_32() - started);
 	if (rc != 0) {
 		snprintf(result_line, sizeof(result_line),
-			"MCLW-HIL/1 {\"test\":\"test_adc\",\"status\":\"error\",\"errno\":%d}\r\n", -rc);
-	} else {
-		unsigned int frame = ((unsigned int)first[0] << 8) | first[1];
-
-		for (unsigned long i = 0; i < bytes; i++) {
-			snprintf(&frame_hex[2 * i], 3, "%02x", first[i]);
-			snprintf(&last_hex[2 * i], 3, "%02x", receive[i]);
-			snprintf(&bad_hex[2 * i], 3, "%02x", bad[i]);
-		}
-		snprintf(result_line, sizeof(result_line),
-			"MCLW-HIL/1 {\"test\":\"test_adc\",\"status\":\"ok\","
-			"\"hz\":%u,\"frame\":\"%s\",\"sample\":%u,\"leading\":%u,\"trailing\":%u,"
-			"\"count\":%lu,\"mismatches\":%lu,\"last\":\"%s\",\"elapsed_us\":%u,"
-			"\"first_bad\":%lu,\"bad\":\"%s\"}\r\n",
-			(unsigned int)config.frequency, frame_hex, (frame >> 2) & 0x0fffU, frame >> 14,
-			frame & 0x3U, count, mismatches, last_hex, (unsigned int)elapsed_us, first_bad, bad_hex);
+			"MCLW-HIL/1 {\"test\":\"test_spi\",\"status\":\"error\",\"errno\":%d}\r\n", -rc);
+		mclw_debug_port_write(result_line);
+		return;
 	}
+	used = append(result_line, RESULT_BODY_MAX, 0,
+		"MCLW-HIL/1 {\"test\":\"test_spi\",\"status\":\"ok\",\"hz\":%u,"
+		"\"count\":%lu,\"mismatches\":%lu,\"frame\":\"",
+		(unsigned int)config.frequency, count, mismatches);
+	for (unsigned long i = 0; i < bytes; i++) {
+		used = append(result_line, RESULT_BODY_MAX, used, "%02x", first[i]);
+	}
+	append(result_line, sizeof(result_line), used, "\"}\r\n");
 	mclw_debug_port_write(result_line);
 }
 #else
-static void emit_adc(const char *args)
+static void emit_spi(const char *args)
 {
 	(void)args;
 	snprintf(result_line, sizeof(result_line),
-		"MCLW-HIL/1 {\"test\":\"test_adc\",\"status\":\"error\",\"detail\":\"no adc in this image\"}\r\n");
+		"MCLW-HIL/1 {\"test\":\"test_spi\",\"status\":\"error\",\"detail\":\"no spi in this image\"}\r\n");
 	mclw_debug_port_write(result_line);
 }
 #endif
@@ -338,8 +443,7 @@ static void trim(char *text)
 #if defined(CONFIG_SPI) && DT_NODE_EXISTS(DT_ALIAS(raw))
 #define RAW_BYTES_MAX 32U
 
-static const struct spi_dt_spec raw_spec = SPI_DT_SPEC_GET(DT_ALIAS(raw),
-	SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB | SPI_WORD_SET(8));
+static const struct spi_dt_spec raw_spec = SPI_DT_SPEC_GET(DT_ALIAS(raw), SPI_OPERATION);
 
 static int hex_nibble(char c)
 {
@@ -511,15 +615,13 @@ static void dispatch(const char *command)
 	} else if (strcmp(command, "ID") == 0) {
 		emit_identity("test_id");
 	} else if (strcmp(command, "SENSOR") == 0) {
-		emit_sensor();
-	} else if (strcmp(command, "IMU") == 0) {
-		emit_imu(NULL);
-	} else if (strncmp(command, "IMU ", 4) == 0) {
-		emit_imu(command + 4);
-	} else if (strcmp(command, "ADC") == 0) {
-		emit_adc(NULL);
-	} else if (strncmp(command, "ADC ", 4) == 0) {
-		emit_adc(command + 4);
+		emit_sensor(NULL);
+	} else if (strncmp(command, "SENSOR ", 7) == 0) {
+		emit_sensor(command + 7);
+	} else if (strcmp(command, "SPI") == 0) {
+		emit_spi(NULL);
+	} else if (strncmp(command, "SPI ", 4) == 0) {
+		emit_spi(command + 4);
 	} else if (strncmp(command, "RAW ", 4) == 0) {
 		emit_raw(command + 4);
 	} else if (strcmp(command, "GNSS") == 0) {

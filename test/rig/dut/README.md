@@ -3,8 +3,10 @@
 # DUT fixture firmware
 
 The board under test the rig uses to judge the harness: a Zephyr application
-for the Raspberry Pi Pico 2, built with `just build-dut` into
-`build/dut/zephyr/zephyr.elf`.
+for the Raspberry Pi Pico 2 (`rpi_pico2/rp2350a/m33`, the in-tree board with
+no MetalClaw changes), built with `just build-dut [<name>]` into
+`build/dut/<name>/zephyr/zephyr.elf`, `<name>` being the device the image was
+built for or `smoke` for none.
 
 The image is deliberately inert. It has no console, no shell, no logging and no
 USB, and it touches no pin. It boots, announces itself, and answers commands
@@ -17,9 +19,13 @@ and a serial console would need a UART that the DUT's devices are wired to.
 CMakeLists.txt      the Zephyr application
 prj.conf            what is switched off, which is nearly everything
 src/mailbox.[ch]    the RAM mailbox
-src/main.c          the smoke image: banner, then PING / ID
-ports/rp2/          board-specific pieces for rpi_pico2/rp2350a/m33
+src/main.c          the banner and the commands below
 ```
+
+The smoke image binds nothing and needs no overlay. A device that needs
+DUT-side wiring brings its own from `devices/<name>/test/dut/rp2.overlay`,
+which `just build-dut <name>` applies on top of the board: `bmp388` (and the
+`bmp388/spi` variant), `ads7883`, `icm4268x` and `neo_m8n` have one.
 
 ## The mailbox
 
@@ -96,19 +102,27 @@ A JSON object with string values only. `test` names what the line reports,
 
 A command is one line of ASCII with no newline, at most 100 bytes.
 
+The commands are per Zephyr subsystem, not per part: each names a devicetree
+alias the image was built with and says what to do with it. What a value
+means is the case's business, not the image's.
+
 | command | reply |
 | --- | --- |
-| (boot, unprompted) | `{"test":"test_boot","status":"ok","image":"smoke","revision":"1","build":"<date time>"}` |
+| (boot, unprompted) | `{"test":"test_boot","status":"ok","image":"smoke","revision":"1","build":"<date time>","boots":<n>}` |
 | `PING` | `{"test":"test_ping","status":"ok","image":"smoke"}` |
 | `ID` | the boot line's fields, with `"test":"test_id"` |
-| `SENSOR` | the `barometer` alias through the sensor API: `pressure_pa`, `temperature_mc` |
-| `IMU [count]` | the `imu` alias through the sensor API: accel, gyro and temperature in micro-units, and how many of `count` fetches differed from the first |
-| `ADC [hz] [bytes] [count] [gap_us]` | `count` raw windows on the `adc` alias: the first frame, the 12-bit sample in it, and how many windows differed |
+| `SENSOR <alias> <channel>... [count=N]` | one fetch through the sensor API, each named channel as a JSON array of micro-units from `sensor_value_to_micro`; with a count, `N` fetches, the first reported and `mismatches` counting the later ones that differed |
+| `SPI <alias> [hz] [bytes] [count] [gap_us]` | `count` chip-select windows of `bytes` bytes through the SPI API at `hz` (0 for the node's own clock), `gap_us` apart: the first `frame` as hex and `mismatches` counting the later windows that differed |
 | `RAW <hex> [w]` | one window on the `raw` alias clocking the given bytes; `w` makes it a write-only transfer; replies `rx` |
 | `GNSS [RATE\|NAV\|SYSTEMS]` | the `gnss` alias: the last fix the driver published and how many, or one of the driver's pull calls |
 | anything else | `{"test":"test_command","status":"error","detail":"unknown command"}` |
 
-A command whose alias the image was not built with answers
+`SENSOR` knows the aliases `barometer` and `imu` and the channels `press`,
+`ambient_temp`, `accel_xyz`, `gyro_xyz` and `die_temp`; `SPI` knows the alias
+`adc`. Each is one line of a table in `src/main.c`, compiled in only when the
+image's devicetree has that alias.
+
+A command naming an alias the image was not built with answers
 `"status":"error"` with a `detail`; one whose device did not initialise
 answers `errno` 19 and `init_res`, the driver's init return code.
 

@@ -5,8 +5,6 @@ import time
 import pytest
 
 NAME = "gnss"
-TX = 0
-RX = 1
 
 CURRENT_SPEED = 115200
 INITIAL_BAUD = 9600
@@ -30,12 +28,17 @@ FIXES = [
     (0, 0, 0, 0, 27000000, 12, (2000, 2, 29, 12, 30, 0)),
 ]
 
-ATTACH = f"""import metalclaw
+
+def attach(fixture):
+    uart = fixture["uart"]
+    pins = (uart["tx"], uart["rx"])
+    return f"""import metalclaw
 for instance in metalclaw.instances():
     if instance.name == {NAME!r}:
         instance.detach()
-metalclaw.attach('neo_m8n', {NAME!r}, uart=({TX}, {RX}))
+metalclaw.attach('neo_m8n', {NAME!r}, uart={pins})
 """
+
 
 SELECT = f"""import metalclaw
 gnss = [i for i in metalclaw.instances() if i.name == {NAME!r}][0]
@@ -74,9 +77,9 @@ class Receiver:
 # The clock runs by default and the part sends a fix every interval on its
 # own. The cases that count fixes pause it and step it by hand.
 @pytest.fixture(scope="module")
-def receiver(harness, dut):
+def receiver(harness, dut, fixture):
     dut.require_image('neo_m8n')
-    harness.run(ATTACH)
+    harness.run(attach(fixture))
     r = Receiver(harness)
     r.pause()
     dut.reset()
