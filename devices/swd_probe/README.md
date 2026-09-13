@@ -87,7 +87,10 @@ and no queue exists.
 
 ## Tests
 
-None yet. The rig (`test/rig/`) does not exist, so this package has no `test/`
-directory. The bench check for it is `probe-rs info` reading the Pico 2 DUT
-through the harness; that needs the rp2 SWD backend and the USB interface
-binding in the runtime, neither of which has landed.
+`test/cases.py` runs on the rig's `harness`, `dut` and `probe` fixtures. The
+rig's hardware platform attaches this device itself, on the pins its fixture
+description gives as `swd`, because every other case reaches the DUT through
+it. The cases check that the instance is there and that the harness advertises
+its CMSIS-DAP interface on USB, that probe-rs reads the DUT's `CPUID` through
+it without halting the core, and that such a read moves the model's
+`transfers` counter.
