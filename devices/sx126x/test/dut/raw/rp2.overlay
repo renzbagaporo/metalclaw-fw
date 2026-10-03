@@ -1,0 +1,41 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
+
+/ {
+	aliases {
+		raw = &radio;
+	};
+};
+
+&pinctrl {
+	spi0_fixture1: spi0_fixture1 {
+		group1 {
+			pinmux = <SPI0_SCK_P18>, <SPI0_TX_P19>;
+		};
+		group2 {
+			pinmux = <SPI0_RX_P16>;
+			input-enable;
+		};
+	};
+};
+
+/*
+ * The radio as a bare SPI device: the cases clock its command frames
+ * themselves through RAW, to check framing, status bytes and command
+ * errors byte for byte and to qualify the clock.
+ */
+&spi0 {
+	status = "okay";
+	pinctrl-0 = <&spi0_fixture1>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio0 21 GPIO_ACTIVE_LOW>;
+
+	radio: radio@0 {
+		compatible = "vnd,spi-device";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		status = "okay";
+	};
+};

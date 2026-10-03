@@ -205,11 +205,20 @@ class Mailbox:
 
     def command(self, line, timeout=DEFAULT_TIMEOUT_S):
         deadline = time.monotonic() + timeout
-        self._wait_ready(deadline)
+        sequence = self.send(line, timeout)
+        return self.receive(sequence, max(0.0, deadline - time.monotonic()), line)
+
+    # A command whose result takes a while (the DUT blocks in a driver call)
+    # is sent first and collected later, so the fixture side can act meanwhile.
+    def send(self, line, timeout=DEFAULT_TIMEOUT_S):
+        self._wait_ready(time.monotonic() + timeout)
         _, before = self._snapshot()
         if before is not None and before.sequence > self.last_result:
             self.last_result = before.sequence
-        sequence = self.write_command(line)
+        return self.write_command(line)
+
+    def receive(self, sequence, timeout=DEFAULT_TIMEOUT_S, line=""):
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             found = self.read_result()
             if found is not None:

@@ -16,3 +16,4 @@ manifest:
           - hal_rpi_pico
           - picolibc
           - littlefs
+          - loramac-node

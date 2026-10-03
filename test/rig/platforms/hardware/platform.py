@@ -27,8 +27,9 @@ FIXTURE = {
         "sck": 18,
         "mosi": 19,
         "miso": 16,
-        "cs": {"ads7883": 21, "icm4268x": 17, "bmp388": 22},
+        "cs": {"ads7883": 21, "icm4268x": 17, "bmp388": 22, "sx126x": 21},
     },
+    "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6}},
 }
 
 
@@ -108,6 +109,14 @@ class Dut:
 
     def command(self, line: str, timeout=_DEFAULT_MAILBOX_TIMEOUT) -> dict:
         return self.mailbox.command(line, _mailbox_timeout(timeout))
+
+    # `start` a command and collect it with `finish`: for a command that
+    # blocks the DUT while the harness has to act, such as a receive.
+    def start(self, line: str, timeout: float = 10.0) -> int:
+        return self.mailbox.send(line, timeout)
+
+    def finish(self, sequence: int, timeout: float = 10.0) -> dict:
+        return self.mailbox.receive(sequence, timeout)
 
     # The device the flashed image was built for, "smoke" for none.
     def image_name(self) -> str:

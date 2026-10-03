@@ -15,6 +15,9 @@
 #if defined(CONFIG_GNSS)
 #include <zephyr/drivers/gnss.h>
 #endif
+#if defined(CONFIG_LORA)
+#include <zephyr/drivers/lora.h>
+#endif
 
 #include <errno.h>
 #include <stdarg.h>
@@ -67,7 +70,7 @@ static void emit_unknown(void)
 	mclw_dut_mailbox_write(result_line);
 }
 
-#if defined(CONFIG_SENSOR) || defined(CONFIG_SPI)
+#if defined(CONFIG_SENSOR) || defined(CONFIG_SPI) || defined(CONFIG_LORA)
 struct token {
 	const char *text;
 	size_t length;
@@ -420,6 +423,217 @@ static void emit_spi(const char *args)
 }
 #endif
 
+/*
+ * `LORA CONFIG [key=value]...`, `LORA SEND <hex>|pattern=<len>`,
+ * `LORA RECV <timeout_ms>`, `LORA AIRTIME <len>`: the LoRa API on the
+ * `lora0` alias. CONFIG keys are freq (Hz), bw (kHz), sf, cr (5..8 for
+ * 4/5..4/8), power (dBm), preamble, tx, iq, public, crc (0 or 1); a key left
+ * out keeps its last value. A pattern payload is byte i = i * 7 + 1, for
+ * payloads longer than a command line holds.
+ */
+#if defined(CONFIG_LORA) && DT_NODE_EXISTS(DT_ALIAS(lora0))
+#define LORA_PAYLOAD_MAX 255U
+#define LORA_PRINT_MAX 200U
+
+static const struct device *const lora_dev = DEVICE_DT_GET(DT_ALIAS(lora0));
+static struct lora_modem_config lora_config_now = {
+	.frequency = 868100000,
+	.bandwidth = BW_125_KHZ,
+	.datarate = SF_7,
+	.coding_rate = CR_4_5,
+	.preamble_len = 8,
+	.tx_power = 14,
+	.tx = true,
+};
+static uint8_t lora_payload[LORA_PAYLOAD_MAX];
+
+static int lora_hex_nibble(char c)
+{
+	if (c >= '0' && c <= '9') {
+		return c - '0';
+	}
+	if (c >= 'a' && c <= 'f') {
+		return c - 'a' + 10;
+	}
+	if (c >= 'A' && c <= 'F') {
+		return c - 'A' + 10;
+	}
+	return -1;
+}
+
+static bool lora_key(const struct token *token, const char *key, long *value)
+{
+	size_t length = strlen(key);
+	char text[16];
+	char *end;
+
+	if (token->length <= length + 1U || token->length - length - 1U >= sizeof(text) ||
+		strncmp(token->text, key, length) != 0 || token->text[length] != '=') {
+		return false;
+	}
+	memcpy(text, &token->text[length + 1U], token->length - length - 1U);
+	text[token->length - length - 1U] = '\0';
+	*value = strtol(text, &end, 10);
+	return *end == '\0';
+}
+
+static int lora_parse_config(const char *cursor)
+{
+	struct lora_modem_config next = lora_config_now;
+	struct token token;
+	long v;
+
+	while (next_token(&cursor, &token)) {
+		if (lora_key(&token, "freq", &v)) {
+			next.frequency = (uint32_t)v;
+		} else if (lora_key(&token, "bw", &v)) {
+			next.bandwidth = (enum lora_signal_bandwidth)v;
+		} else if (lora_key(&token, "sf", &v)) {
+			next.datarate = (enum lora_datarate)v;
+		} else if (lora_key(&token, "cr", &v) && v >= 5 && v <= 8) {
+			next.coding_rate = (enum lora_coding_rate)(v - 4);
+		} else if (lora_key(&token, "power", &v)) {
+			next.tx_power = (int8_t)v;
+		} else if (lora_key(&token, "preamble", &v)) {
+			next.preamble_len = (uint16_t)v;
+		} else if (lora_key(&token, "tx", &v)) {
+			next.tx = v != 0;
+		} else if (lora_key(&token, "iq", &v)) {
+			next.iq_inverted = v != 0;
+		} else if (lora_key(&token, "public", &v)) {
+			next.public_network = v != 0;
+		} else if (lora_key(&token, "crc", &v)) {
+			next.packet_crc_disable = v == 0;
+		} else {
+			return -EINVAL;
+		}
+	}
+	lora_config_now = next;
+	return lora_config(lora_dev, &lora_config_now);
+}
+
+static int lora_parse_payload(const char *cursor, size_t *length)
+{
+	struct token token;
+	long v;
+
+	if (!next_token(&cursor, &token)) {
+		return -EINVAL;
+	}
+	if (lora_key(&token, "pattern", &v)) {
+		if (v < 1 || v > (long)LORA_PAYLOAD_MAX) {
+			return -EINVAL;
+		}
+		for (long i = 0; i < v; i++) {
+			lora_payload[i] = (uint8_t)(i * 7 + 1);
+		}
+		*length = (size_t)v;
+		return 0;
+	}
+	if (token.length % 2U != 0U || token.length / 2U > LORA_PAYLOAD_MAX) {
+		return -EINVAL;
+	}
+	for (size_t i = 0; i < token.length / 2U; i++) {
+		int hi = lora_hex_nibble(token.text[2U * i]);
+		int lo = lora_hex_nibble(token.text[2U * i + 1U]);
+
+		if (hi < 0 || lo < 0) {
+			return -EINVAL;
+		}
+		lora_payload[i] = (uint8_t)((hi << 4) | lo);
+	}
+	*length = token.length / 2U;
+	return 0;
+}
+
+static void emit_lora(const char *args)
+{
+	const char *cursor = args != NULL ? args : "";
+	struct token verb;
+	size_t used;
+	int rc;
+
+	if (!next_token(&cursor, &verb)) {
+		emit_error("test_lora", "no verb");
+		return;
+	}
+	if (!device_is_ready(lora_dev)) {
+		snprintf(result_line, sizeof(result_line),
+			"MCLW-HIL/1 {\"test\":\"test_lora\",\"status\":\"error\",\"errno\":%d,"
+			"\"init_res\":%u}\r\n", ENODEV, (unsigned int)lora_dev->state->init_res);
+		mclw_dut_mailbox_write(result_line);
+		return;
+	}
+	if (token_equals(&verb, "CONFIG")) {
+		rc = lora_parse_config(cursor);
+		snprintf(result_line, sizeof(result_line),
+			"MCLW-HIL/1 {\"test\":\"test_lora\",\"status\":\"%s\",\"errno\":%d,"
+			"\"freq\":%u,\"bw\":%d,\"sf\":%d,\"cr\":%d,\"power\":%d,\"preamble\":%u,"
+			"\"tx\":%d,\"iq\":%d,\"public\":%d,\"crc\":%d}\r\n",
+			rc == 0 ? "ok" : "error", -rc, (unsigned int)lora_config_now.frequency,
+			(int)lora_config_now.bandwidth, (int)lora_config_now.datarate,
+			(int)lora_config_now.coding_rate + 4, (int)lora_config_now.tx_power,
+			(unsigned int)lora_config_now.preamble_len, (int)lora_config_now.tx,
+			(int)lora_config_now.iq_inverted, (int)lora_config_now.public_network,
+			(int)!lora_config_now.packet_crc_disable);
+	} else if (token_equals(&verb, "SEND")) {
+		size_t length = 0;
+		int64_t start;
+		int64_t elapsed = 0;
+
+		rc = lora_parse_payload(cursor, &length);
+		if (rc == 0) {
+			start = k_uptime_get();
+			rc = lora_send(lora_dev, lora_payload, (uint32_t)length);
+			elapsed = k_uptime_get() - start;
+		}
+		snprintf(result_line, sizeof(result_line),
+			"MCLW-HIL/1 {\"test\":\"test_lora\",\"status\":\"%s\",\"errno\":%d,"
+			"\"len\":%u,\"elapsed_ms\":%lld}\r\n", rc == 0 ? "ok" : "error", -rc,
+			(unsigned int)length, (long long)elapsed);
+	} else if (token_equals(&verb, "RECV")) {
+		unsigned long timeout_ms = strtoul(cursor, NULL, 10);
+		int16_t rssi = 0;
+		int8_t snr = 0;
+
+		rc = lora_recv(lora_dev, lora_payload, (uint8_t)LORA_PAYLOAD_MAX, K_MSEC(timeout_ms),
+			&rssi, &snr);
+		if (rc < 0) {
+			snprintf(result_line, sizeof(result_line),
+				"MCLW-HIL/1 {\"test\":\"test_lora\",\"status\":\"error\",\"errno\":%d}\r\n",
+				-rc);
+		} else {
+			used = append(result_line, RESULT_BODY_MAX, 0,
+				"MCLW-HIL/1 {\"test\":\"test_lora\",\"status\":\"ok\",\"len\":%d,"
+				"\"rssi\":%d,\"snr\":%d,\"data\":\"", rc, (int)rssi, (int)snr);
+			for (int i = 0; i < rc && i < (int)LORA_PRINT_MAX; i++) {
+				used = append(result_line, RESULT_BODY_MAX, used, "%02x", lora_payload[i]);
+			}
+			append(result_line, sizeof(result_line), used, "\"}\r\n");
+		}
+	} else if (token_equals(&verb, "AIRTIME")) {
+		unsigned long length = strtoul(cursor, NULL, 10);
+
+		snprintf(result_line, sizeof(result_line),
+			"MCLW-HIL/1 {\"test\":\"test_lora\",\"status\":\"ok\",\"len\":%lu,"
+			"\"airtime_ms\":%u}\r\n", length,
+			(unsigned int)lora_airtime(lora_dev, (uint32_t)length));
+	} else {
+		emit_error("test_lora", "unknown verb");
+		return;
+	}
+	mclw_dut_mailbox_write(result_line);
+}
+#else
+static void emit_lora(const char *args)
+{
+	(void)args;
+	snprintf(result_line, sizeof(result_line),
+		"MCLW-HIL/1 {\"test\":\"test_lora\",\"status\":\"error\",\"detail\":\"no lora in this image\"}\r\n");
+	mclw_dut_mailbox_write(result_line);
+}
+#endif
+
 static void trim(char *text)
 {
 	size_t length = strlen(text);
@@ -435,15 +649,21 @@ static void trim(char *text)
 }
 
 /*
- * `RAW <hex> [w]`: one chip-select window on the `raw` alias, a
- * vnd,spi-device node carrying the mode and clock of the part under test,
- * clocking the hex bytes out and reporting what came back. `w` sends a
- * write-only transfer, as drivers do for register writes.
+ * `RAW <hex> [w] [hz] [n=<count>] [gap=<us>]`: one chip-select window on the
+ * `raw` alias, a vnd,spi-device node carrying the mode and clock of the part
+ * under test, clocking the hex bytes out and reporting what came back. `w`
+ * sends a write-only transfer, as drivers do for register writes; `hz`
+ * overrides the node's clock. With a count, the window repeats that many
+ * times `gap` microseconds apart, the first reply is reported and
+ * `mismatches` counts the later ones that differed.
  */
 #if defined(CONFIG_SPI) && DT_NODE_EXISTS(DT_ALIAS(raw))
 #define RAW_BYTES_MAX 32U
 
 static const struct spi_dt_spec raw_spec = SPI_DT_SPEC_GET(DT_ALIAS(raw), SPI_OPERATION);
+/* Alternated for the same reason as spi_configs. */
+static struct spi_dt_spec raw_specs[2];
+static unsigned int raw_spec_index;
 
 static int hex_nibble(char c)
 {
@@ -465,7 +685,11 @@ static void emit_raw(const char *args)
 	uint8_t receive[RAW_BYTES_MAX] = {0};
 	char rx_hex[2 * RAW_BYTES_MAX + 1] = "";
 	size_t bytes = 0;
+	uint8_t first[RAW_BYTES_MAX] = {0};
 	bool write_only = false;
+	unsigned long count = 1;
+	unsigned long gap_us = 0;
+	unsigned long mismatches = 0;
 	int rc = 0;
 
 	if (args == NULL) {
@@ -485,29 +709,57 @@ static void emit_raw(const char *args)
 	if (rc == 0 && bytes == 0) {
 		rc = -EINVAL;
 	}
-	if (rc == 0 && *args == ' ') {
-		write_only = args[1] == 'w';
+	struct spi_dt_spec *spec = &raw_specs[raw_spec_index ^= 1U];
+
+	*spec = raw_spec;
+	while (rc == 0 && *args == ' ') {
+		args++;
+		if (*args == 'w') {
+			write_only = true;
+			args++;
+		} else if (*args >= '0' && *args <= '9') {
+			spec->config.frequency = (uint32_t)strtoul(args, (char **)&args, 10);
+		} else if (strncmp(args, "n=", 2) == 0) {
+			count = strtoul(args + 2, (char **)&args, 10);
+		} else if (strncmp(args, "gap=", 4) == 0) {
+			gap_us = strtoul(args + 4, (char **)&args, 10);
+		} else {
+			rc = -EINVAL;
+		}
 	}
-	if (rc == 0 && !spi_is_ready_dt(&raw_spec)) {
+	if (rc == 0 && !spi_is_ready_dt(spec)) {
 		rc = -ENODEV;
 	}
-	if (rc == 0) {
+	if (rc == 0 && count == 0) {
+		rc = -EINVAL;
+	}
+	for (unsigned long i = 0; rc == 0 && i < count; i++) {
 		const struct spi_buf tx_buf = {.buf = transmit, .len = bytes};
 		const struct spi_buf rx_buf = {.buf = receive, .len = bytes};
 		const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
 		const struct spi_buf_set rx = {.buffers = &rx_buf, .count = 1};
 
-		rc = write_only ? spi_write_dt(&raw_spec, &tx) : spi_transceive_dt(&raw_spec, &tx, &rx);
+		if (i > 0 && gap_us > 0) {
+			k_busy_wait((uint32_t)gap_us);
+		}
+		memset(receive, 0, sizeof(receive));
+		rc = write_only ? spi_write_dt(spec, &tx) : spi_transceive_dt(spec, &tx, &rx);
+		if (i == 0) {
+			memcpy(first, receive, bytes);
+		} else if (memcmp(first, receive, bytes) != 0) {
+			mismatches++;
+		}
 	}
 	if (rc != 0) {
 		snprintf(result_line, sizeof(result_line),
 			"MCLW-HIL/1 {\"test\":\"test_raw\",\"status\":\"error\",\"errno\":%d}\r\n", -rc);
 	} else {
 		for (size_t i = 0; i < bytes; i++) {
-			snprintf(&rx_hex[2 * i], 3, "%02x", receive[i]);
+			snprintf(&rx_hex[2 * i], 3, "%02x", first[i]);
 		}
 		snprintf(result_line, sizeof(result_line),
-			"MCLW-HIL/1 {\"test\":\"test_raw\",\"status\":\"ok\",\"rx\":\"%s\"}\r\n", rx_hex);
+			"MCLW-HIL/1 {\"test\":\"test_raw\",\"status\":\"ok\",\"rx\":\"%s\","
+			"\"count\":%lu,\"mismatches\":%lu}\r\n", rx_hex, count, mismatches);
 	}
 	mclw_dut_mailbox_write(result_line);
 }
@@ -624,6 +876,8 @@ static void dispatch(const char *command)
 		emit_spi(command + 4);
 	} else if (strncmp(command, "RAW ", 4) == 0) {
 		emit_raw(command + 4);
+	} else if (strncmp(command, "LORA ", 5) == 0) {
+		emit_lora(command + 5);
 	} else if (strcmp(command, "GNSS") == 0) {
 		emit_gnss(NULL);
 	} else if (strncmp(command, "GNSS ", 5) == 0) {
