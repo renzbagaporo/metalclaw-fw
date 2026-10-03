@@ -342,6 +342,27 @@ uint32_t mclw_hal_uart_baud(const struct mclw_uart *u) {
     return u == NULL ? 0u : u->baud;
 }
 
+int mclw_hal_uart_set_format(struct mclw_uart *u, const struct mclw_uart_format *format) {
+    uart_parity_t parity = UART_PARITY_NONE;
+
+    if (u == NULL || u->owner == NULL || format == NULL ||
+        format->data_bits < 5 || format->data_bits > 8 ||
+        format->stop_bits < 1 || format->stop_bits > 2 ||
+        !parity_for(format->parity, &parity)) {
+        return -EINVAL;
+    }
+    tx_flush(u);
+
+    uart_hw_t *hw = uart_get_hw(u->inst);
+    uint32_t imsc = hw->imsc;
+    hw->imsc = 0u;
+    uart_set_format(u->inst, format->data_bits, format->stop_bits, parity);
+    hw->icr = UART_UARTICR_BITS;
+    hw->rsr = 0u;
+    hw->imsc = imsc;
+    return 0;
+}
+
 void mclw_hal_uart_set_rx(struct mclw_uart *u, mclw_uart_rx_t fn, void *ctx) {
     if (u == NULL) {
         return;
