@@ -69,12 +69,12 @@ while radio.tx_pending:
 Writing the `rx` region puts a frame on the air now. The `rx_*` properties
 set this one frame's parameters and its signal; any that are not set are
 the radio's own (the frame is on the radio's channel), RSSI -60 dBm, SNR
-10 dB, signal RSSI equal to the RSSI. They return to that once the frame is
+10 dB (`rx_snr` counts centidecibels, 1000), signal RSSI equal to the RSSI. They return to that once the frame is
 on the air. Faults corrupt the next frames: `radio.inject("crc_error")`
 makes the next injected frame fail its CRC, `"header_error"` its header.
 
 ```python
-radio.set(rx_rssi=-73, rx_snr=7)
+radio.set(rx_rssi=-73, rx_snr=725)                     # SNR 7.25 dB
 radio.write_region("rx", 0, b"hello")                   # received if the radio listens
 
 radio.set(rx_frequency=869525000, rx_sf=10)
@@ -112,7 +112,8 @@ returns the radio to its fallback mode; continuous RX stays. A paused clock
 pauses all of it.
 
 `GetPacketStatus` reports the frame's RSSI and signal RSSI as `-2 × dBm`
-and its SNR as `4 × dB`, the encodings the drivers decode. `GetRssiInst`
+and its SNR as `4 × dB`, rounded to the part's quarter decibel, the
+encodings the drivers decode. `GetRssiInst`
 reports the frame's RSSI while one is on the air and `noise_floor`
 otherwise.
 
@@ -148,7 +149,7 @@ The frames:
 | `tx_next` | bool | wo | | `True` drops the oldest frame |
 | `rx_received`, `rx_missed` | u32 | ro | | frames delivered with RxDone (CRC errors included), and not heard |
 | `rx_frequency`, `rx_sf`, `rx_bw`, `rx_cr`, `rx_preamble`, `rx_crc`, `rx_iq_inverted`, `rx_sync_word` | | rw | | the next injected frame; reads show what it will carry |
-| `rx_rssi`, `rx_snr`, `rx_signal_rssi` | i32 | rw | dBm, dB, dBm | its signal |
+| `rx_rssi`, `rx_snr`, `rx_signal_rssi` | i32 | rw | dBm, cdB, dBm | its signal |
 
 `power` is the RadioLib measurement for the PA settings when they are one
 of the 32 pairs RadioLib uses (`paOptTable` in its `SX1262.cpp`, from

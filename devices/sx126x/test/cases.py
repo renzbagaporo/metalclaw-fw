@@ -217,7 +217,7 @@ def test_an_injected_frame_is_received_with_its_signal(dut, radio, rssi, snr):
     configure(dut, *CONFIGS[0], tx=False)
     before = radio.get("rx_received")
     payload = b"from the harness " + str(rssi).encode()
-    result = receive(dut, radio, 3000, (payload, {"rssi": rssi, "snr": snr}))
+    result = receive(dut, radio, 3000, (payload, {"rssi": rssi, "snr": snr * 100}))
     assert result["status"] == "ok", result
     assert bytes.fromhex(result["data"]) == payload
     assert result["len"] == len(payload)
@@ -374,14 +374,14 @@ def raw_lora(dut, raw, sf=7, freq=868_100_000):
 def test_a_frame_received_raises_the_receive_irqs_in_order(dut, raw):
     raw_lora(dut, raw)
     raw_window(dut, "82ffffff", write=True)
-    raw.inject(b"hello raw", rssi=-80, snr=6, signal_rssi=-82)
+    raw.inject(b"hello raw", rssi=-80, snr=575, signal_rssi=-82)
     time.sleep(0.3)
     # RX mode, "data available" through every read, PreambleDetected |
     # HeaderValid | RxDone.
     assert raw_window(dut, "1200000000")["rx"] == "d4d4001600"
     assert raw_window(dut, "13000000")["rx"] == "d4d40900"
     assert bytes.fromhex(raw_window(dut, "1e0000" + "00" * 9)["rx"])[3:] == b"hello raw"
-    assert raw_window(dut, "1400000000")["rx"] == "d4d4a018a4"
+    assert raw_window(dut, "1400000000")["rx"] == "d4d4a017a4"
     raw_window(dut, "800000", write=True)
 
 

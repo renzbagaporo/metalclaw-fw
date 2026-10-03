@@ -107,7 +107,7 @@ enum sx126x_mode {
 
 #define TX_QUEUE 4u
 #define RX_RSSI_DEFAULT (-60)
-#define RX_SNR_DEFAULT 10
+#define RX_SNR_DEFAULT 1000
 #define NOISE_FLOOR_DEFAULT (-120)
 // Symbols a receiver needs to latch a preamble; RadioLib's duty-cycle
 // arithmetic uses the same figure from Semtech.
@@ -157,7 +157,7 @@ struct sx126x_rx_frame {
     uint64_t end_us;
     int16_t rssi;
     int16_t signal_rssi;
-    int8_t snr;
+    int16_t snr;
     uint8_t fault;
     enum rx_stage stage;
     bool on_air;
@@ -171,7 +171,7 @@ struct sx126x_injection {
     struct sx126x_air air;
     int16_t rssi;
     int16_t signal_rssi;
-    int8_t snr;
+    int16_t snr;
 };
 
 struct sx126x_state {
@@ -297,7 +297,7 @@ static const struct mclw_property_desc sx126x_properties[] = {
     PROP("rx_iq_inverted", MCLW_TYPE_BOOL, 1, MCLW_ACCESS_RW, NULL, 0, 1),
     RW_U32("rx_sync_word", NULL, 0xffff),
     PROP("rx_rssi", MCLW_TYPE_I32, 1, MCLW_ACCESS_RW, "dBm", -127, 0),
-    PROP("rx_snr", MCLW_TYPE_I32, 1, MCLW_ACCESS_RW, "dB", -32, 31),
+    PROP("rx_snr", MCLW_TYPE_I32, 1, MCLW_ACCESS_RW, "cdB", -3200, 3175),
     PROP("rx_signal_rssi", MCLW_TYPE_I32, 1, MCLW_ACCESS_RW, "dBm", -127, 0),
 };
 
@@ -487,6 +487,13 @@ static uint8_t rssi_byte(int16_t dbm) {
     int32_t v = -2 * (int32_t)dbm;
 
     return (uint8_t)(v < 0 ? 0 : (v > 255 ? 255 : v));
+}
+
+// GetPacketStatus's SNR counts quarter decibels.
+static uint8_t snr_byte(int16_t cdb) {
+    int32_t quarters = (4 * (int32_t)cdb + (cdb < 0 ? -50 : 50)) / 100;
+
+    return (uint8_t)(int8_t)quarters;
 }
 
 static bool on_air_now(const struct sx126x_state *state, uint64_t now) {
@@ -733,7 +740,7 @@ static void rx_done(struct sx126x_state *state) {
     state->rx_length = f->length;
     state->rx_start = state->rx_base;
     state->rssi_packet = rssi_byte(f->rssi);
-    state->snr_packet = (uint8_t)(int8_t)(f->snr * 4);
+    state->snr_packet = snr_byte(f->snr);
     state->signal_rssi_packet = rssi_byte(f->signal_rssi);
     if (f->fault == FAULT_CRC_ERROR + 1u) {
         bits |= SX126X_IRQ_CRC_ERR;
@@ -1359,7 +1366,7 @@ static int sx126x_set(struct mclw_instance *inst, size_t property, const struct 
         case PROP_RX_IQ_INVERTED: next->air.iq_inverted = v != 0; break;
         case PROP_RX_SYNC_WORD: next->air.sync_word = (uint16_t)v; break;
         case PROP_RX_RSSI: next->rssi = (int16_t)v; break;
-        case PROP_RX_SNR: next->snr = (int8_t)v; break;
+        case PROP_RX_SNR: next->snr = (int16_t)v; break;
         case PROP_RX_SIGNAL_RSSI: next->signal_rssi = (int16_t)v; break;
         default:
             return -EINVAL;
@@ -1388,7 +1395,7 @@ static void inject(struct sx126x_state *state, const uint8_t *payload, size_t le
     sx126x_get(mclw_instance_from_state(state), PROP_RX_RSSI, &value);
     f->rssi = (int16_t)value.v[0];
     sx126x_get(mclw_instance_from_state(state), PROP_RX_SNR, &value);
-    f->snr = (int8_t)value.v[0];
+    f->snr = (int16_t)value.v[0];
     sx126x_get(mclw_instance_from_state(state), PROP_RX_SIGNAL_RSSI, &value);
     f->signal_rssi = (int16_t)value.v[0];
     f->start_us = now;
