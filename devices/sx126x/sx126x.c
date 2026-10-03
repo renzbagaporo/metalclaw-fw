@@ -161,6 +161,7 @@ struct sx126x_rx_frame {
     uint8_t fault;
     enum rx_stage stage;
     bool on_air;
+    bool missed;
     uint8_t length;
     uint8_t payload[SX126X_PAYLOAD_MAX];
 };
@@ -586,6 +587,7 @@ static void set_register(struct sx126x_state *state, uint16_t address, uint8_t v
 static void drop_rx(struct sx126x_state *state) {
     if (state->rx.stage != RX_IDLE) {
         state->rx.stage = RX_IDLE;
+        state->rx.missed = true;
         state->rx_missed++;
     }
 }
@@ -708,15 +710,6 @@ static void capture_tx(struct sx126x_state *state, uint64_t now, uint32_t timeou
     mclw_command_read_buffer(&state->image, state->tx_base, f->payload, length);
 }
 
-static void start_rx(struct sx126x_state *state, uint64_t now, uint32_t timeout_steps) {
-    enter(state, MODE_RX);
-    state->rx_continuous = timeout_steps == SX126X_RX_CONTINUOUS;
-    state->rx_timer_stopped = false;
-    if (!state->rx_continuous && timeout_steps != 0u) {
-        state->rx_timeout_us = now + steps_to_us(timeout_steps);
-    }
-}
-
 static uint32_t cad_symbols(uint8_t code) {
     return code <= 4u ? 1u << code : 1u;
 }
@@ -730,6 +723,36 @@ static bool receivable(const struct sx126x_state *state, const struct sx126x_air
     return (state->mode == MODE_RX || state->mode == MODE_RX_DUTY_CYCLE) &&
         state->packet_type == SX126X_PACKET_TYPE_LORA && air->sf == radio.sf && air->bw_hz == radio.bw_hz &&
         offset <= radio.bw_hz / 4u && air->sync_word == radio.sync_word && air->iq_inverted == radio.iq_inverted;
+}
+
+// A receiver that starts listening while a frame's preamble is on the air
+// locks onto it if enough preamble remains to detect: a real SX1262
+// received a frame whose preamble began before its SetRx.
+static void join(struct sx126x_state *state, uint64_t now) {
+    struct sx126x_rx_frame *f = &state->rx;
+    uint64_t symbol = symbol_us(&f->air);
+    uint64_t detected = now + symbol * PREAMBLE_DETECT_SYMBOLS;
+
+    if (!f->on_air || f->stage != RX_IDLE || now < f->start_us ||
+        detected > f->start_us + symbol * f->air.preamble || !receivable(state, &f->air)) {
+        return;
+    }
+    if (f->missed) {
+        f->missed = false;
+        state->rx_missed--;
+    }
+    f->preamble_us = detected;
+    f->stage = RX_PREAMBLE;
+}
+
+static void start_rx(struct sx126x_state *state, uint64_t now, uint32_t timeout_steps) {
+    enter(state, MODE_RX);
+    state->rx_continuous = timeout_steps == SX126X_RX_CONTINUOUS;
+    state->rx_timer_stopped = false;
+    if (!state->rx_continuous && timeout_steps != 0u) {
+        state->rx_timeout_us = now + steps_to_us(timeout_steps);
+    }
+    join(state, now);
 }
 
 static void rx_done(struct sx126x_state *state) {
@@ -967,6 +990,7 @@ static bool execute(struct sx126x_state *state, uint8_t op, const uint8_t *p, si
             }
             enter(state, MODE_RX_DUTY_CYCLE);
             state->rx_continuous = false;
+            join(state, now);
             return true;
         case SX126X_OP_SET_CAD_PARAMS:
             if (!params(n, 7)) {
@@ -1415,6 +1439,7 @@ static void inject(struct sx126x_state *state, const uint8_t *payload, size_t le
     if (receivable(state, &air)) {
         f->stage = RX_PREAMBLE;
     } else {
+        f->missed = true;
         state->rx_missed++;
     }
     (void)advance(state, now);

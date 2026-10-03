@@ -85,10 +85,13 @@ radio.write_region("rx", 0, b"garbled")                 # RxDone | CrcErr
 ```
 
 A frame is received when the radio is in RX or RX duty cycle at the moment
-it starts, with the packet type LoRa, the same spreading factor, bandwidth,
-sync word and IQ polarity, and a carrier within a quarter of the bandwidth.
-Otherwise it is counted in `rx_missed`; it is still on the air for its
-air time, which is what channel activity detection sees.
+it starts, or enters one while at least 8 symbols of the frame's preamble
+are still to come, as a real SX1262 does, with the packet type LoRa, the
+same spreading factor, bandwidth, sync word and IQ polarity, and a carrier
+within a quarter of the bandwidth. Otherwise it is counted in `rx_missed`;
+it is still on the air for its air time, which is what channel activity
+detection sees. A frame the radio stops receiving before RxDone (a command
+that leaves RX, the RX timeout, a reset) is counted in `rx_missed` too.
 
 ### Timing
 
@@ -101,7 +104,7 @@ after its time:
 | --- | --- |
 | TxDone | the air time after `SetTx`; the radio then goes to its fallback mode |
 | Timeout | the `SetTx` or single `SetRx` timeout, in steps of 15.625 µs |
-| PreambleDetected | 8 symbols into the frame (fewer if the preamble is shorter) |
+| PreambleDetected | 8 symbols into the frame (fewer if the preamble is shorter), or 8 symbols after a receiver that joined late started listening |
 | HeaderValid, HeaderErr | after the preamble, sync word and the 8-symbol header block |
 | RxDone (and CrcErr) | the frame's air time after it started; the payload is in the buffer at the RX base address |
 | CadDone (and CadDetected) | the `SetCadParams` symbol count after `SetCad`; detected if a frame on the radio's channel overlaps it |
