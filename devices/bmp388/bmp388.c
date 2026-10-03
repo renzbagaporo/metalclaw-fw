@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 #include <errno.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -157,6 +158,23 @@ static void build_calibration(struct mclw_regmap *map) {
     for (uint8_t reg = BMP388_REG_NVM_PAR_P3; reg <= BMP388_REG_NVM_PAR_P11; reg++) {
         mclw_regmap_set(map, 0, reg, 0, 0);
     }
+    // The part keeps a CRC-8 (polynomial 0x1D, seed 0xFF, final XOR 0xFF) of the
+    // trimming block in NVM, readable at 0x30. Adafruit's BMP3XX driver (the
+    // one Meshtastic uses) checks it in begin() and refuses a part whose CRC
+    // does not match (validate_trimming_param in Adafruit_BMP3XX.cpp).
+    uint8_t crc = 0xff;
+    for (uint8_t reg = BMP388_REG_NVM_PAR_T1; reg <= BMP388_REG_NVM_PAR_P11; reg++) {
+        uint8_t data = mclw_regmap_get(map, 0, reg);
+        for (int bit = 0; bit < 8; bit++) {
+            bool flip = ((crc ^ data) & 0x80u) != 0;
+            crc = (uint8_t)(crc << 1);
+            data = (uint8_t)(data << 1);
+            if (flip) {
+                crc ^= 0x1du;
+            }
+        }
+    }
+    mclw_regmap_set(map, 0, BMP388_REG_NVM_CRC, (uint8_t)(crc ^ 0xffu), 0);
 }
 
 static void build_map(struct bmp388_state *state) {

@@ -96,6 +96,7 @@ Everything lives in one 256-byte bank, filler `0x00`. `W` is
 | 0x1c | `OSR` | `0x02` | W | reset value; the driver writes it unconditionally |
 | 0x1d | `ODR` | `0x00` | W | the driver read-modify-writes it |
 | 0x1f | `CONFIG` | `0x00` | W | IIR coefficient |
+| 0x30 | `NVM_CRC` | `0x17` | | CRC-8 (polynomial 0x1D, seed and final XOR 0xFF) of 0x31..0x45; Adafruit's BMP3XX driver checks it in `begin()` |
 | 0x31..0x45 | `NVM_PAR_T1..P11` | the calibration below | | one 21-byte burst read at init |
 | 0x7e | `CMD` | `0x00` | W | takes the write and does nothing; see below |
 
