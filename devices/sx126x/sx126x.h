@@ -85,6 +85,9 @@
 #define SX126X_IRQ_TIMEOUT 0x0200u
 #define SX126X_IRQ_ALL 0x43FFu
 
+// GetDeviceErrors (OpError) bits.
+#define SX126X_DEVICE_ERROR_XOSC_START 0x0020u
+
 #define SX126X_PACKET_TYPE_GFSK 0x00u
 #define SX126X_PACKET_TYPE_LORA 0x01u
 

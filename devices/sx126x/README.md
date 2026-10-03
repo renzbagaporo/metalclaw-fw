@@ -182,6 +182,10 @@ and reads 1 on a real SX1262. The GetStatus response is the same byte
 without bit 7. On GetStatus's second byte the part clocks that response and
 the engine the status byte, the one place the two differ.
 
+Out of reset `GetDeviceErrors` reports `XOSC_START_ERR` (`0x0020`), as a
+module whose TCXO is powered from DIO3 does before `SetDio3AsTcxoCtrl`;
+`ClearDeviceErrors` clears it.
+
 The command status is 5 ("failure to execute") out of reset until the first
 command, 1 after a command was executed, 4 after one was refused (unknown
 opcode, missing parameters, a value out of range), 6 after TxDone and 2
@@ -267,8 +271,8 @@ hearing a frame, and a thousand windows of each read framing per clock at
 
 ## Not modelled
 
-GFSK and LR-FHSS reception, frequency error, image calibration and RSSI
-noise, collisions between injected frames (a new frame replaces one still
+A crystal module (no TCXO), GFSK and LR-FHSS reception, frequency error,
+image calibration and RSSI noise, collisions between injected frames (a new frame replaces one still
 on the air), the RX duty cycle's sleep periods (the radio listens
 throughout), and BUSY hold times: BUSY drops as soon as the model has
 executed a command.

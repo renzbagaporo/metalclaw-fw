@@ -638,7 +638,10 @@ static void power_on(struct sx126x_state *state) {
     state->tcxo_mv = 0;
     state->stop_on_preamble = false;
     memset(state->cad_params, 0, sizeof(state->cad_params));
-    state->device_errors = 0;
+    // The modules this models run from a TCXO that DIO3 powers, and nothing
+    // powers it yet: the power-on calibration cannot start the oscillator.
+    // A real SX1262 module reports this at its first GetDeviceErrors.
+    state->device_errors = SX126X_DEVICE_ERROR_XOSC_START;
     state->stats_received = 0;
     state->stats_crc_errors = 0;
     state->stats_header_errors = 0;
