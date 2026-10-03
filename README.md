@@ -28,10 +28,12 @@ model's own descriptors.
 
 ## Devices
 
-Five device packages exist, and `icm4268x` defines two models, so
-`models()` lists six. The SWD debug probe: attaching it adds a CMSIS-DAP v2
+Seven device packages exist; `icm4268x` defines two models and `sx126x`
+four, so `models()` lists eleven. The SWD debug probe: attaching it adds a CMSIS-DAP v2
 interface to the USB device, and `probe-rs` then drives the board under test
-through the harness. And five simulated parts the board under test's own
+through the harness. The console bridge: attaching it adds a serial port to
+the USB device that carries the board under test's console UART. And five
+simulated parts the board under test's own
 Zephyr drivers read as the real thing: a BMP388 barometer on I²C or SPI, an
 ADS7883 ADC on SPI, ICM-42688/42686 IMUs on SPI, a NEO-M8N GNSS receiver
 on UART, and SX1262-family LoRa transceivers on SPI, whose transmissions the
@@ -42,7 +44,7 @@ the byte path.
 ```python
 >>> import metalclaw
 >>> metalclaw.models()
-('ads7883', 'bmp388', 'icm42688', 'icm42686', 'neo_m8n', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68')
+('ads7883', 'bmp388', 'console_bridge', 'icm42688', 'icm42686', 'neo_m8n', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68')
 >>> probe = metalclaw.attach("swd_probe", "dut", swd=(2, 3, 28))
 >>> baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
 >>> baro.pressure = 101325
@@ -91,7 +93,7 @@ core/                         the harness firmware
   micropython/                the `metalclaw` module and Instance type
   ports/rp2/                  port config, USB device, REPL stream, HAL, board definitions
   third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
-devices/                      one directory per device model: swd_probe, bmp388, ads7883, icm4268x, neo_m8n, sx126x
+devices/                      one directory per device model: swd_probe, console_bridge, bmp388, ads7883, icm4268x, neo_m8n, sx126x
 test/
   rig/                        run.py, the hardware platform, the Zephyr DUT fixture
   cases/                      cases for the harness as a whole

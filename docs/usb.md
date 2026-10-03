@@ -37,7 +37,8 @@ interface exists; vendor interfaces follow and their numbers move when a
 serial function comes or goes. Endpoint numbers are fixed per position,
 and the REPL's notification endpoint sits above the vendor range so
 nothing ever moves it. The interface string is the device's to choose;
-`swd_probe` uses `CMSIS-DAP v2`, which is what probe-rs matches on.
+`swd_probe` uses `CMSIS-DAP v2`, which is what probe-rs matches on, and
+`console_bridge` uses `Metalclaw DUT console`.
 
 On Linux the REPL appears as `/dev/serial/by-id/usb-Metalclaw_<product>_<serial>-if00`,
 a serial function as the same name ending in its control interface number

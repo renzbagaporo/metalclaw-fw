@@ -5,8 +5,10 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct mclw_model` and nothing else the
-runtime needs to know about. Six exist:
+runtime needs to know about. Seven exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
+[`console_bridge`](../devices/console_bridge/README.md), a USB serial port on
+the board's console UART;
 [`bmp388`](../devices/bmp388/README.md), a Bosch barometer on I2C or SPI;
 [`ads7883`](../devices/ads7883/README.md), a Texas Instruments ADC on SPI;
 [`icm4268x`](../devices/icm4268x/README.md), TDK InvenSense IMUs on SPI;
