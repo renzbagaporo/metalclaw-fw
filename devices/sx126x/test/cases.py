@@ -129,8 +129,7 @@ def radio(harness, dut, fixture):
 @pytest.fixture(scope="module")
 def raw(harness, dut, fixture):
     dut.require_image(RAW_IMAGE)
-    # The raw image leaves NRESET undriven, so it is not bound.
-    harness.run(attach(fixture, nreset=False))
+    harness.run(attach(fixture))
     # Out of reset the part reports a failed command until its first one.
     raw_window(dut, "8000", write=True)
     return Radio(harness)
@@ -413,3 +412,106 @@ def test_a_duty_cycled_receiver_hears_a_frame(dut, raw):
     time.sleep(0.3)
     assert raw_window(dut, "1200000000")["rx"][4:] == "001600"
     assert raw.get("mode") == 1, "back in STBY_RC after the packet"
+
+
+def test_a_register_read_runs_on_into_the_next_page(dut, raw):
+    raw_window(dut, "0d05005a", write=True)
+    raw_window(dut, "0d03fe0102", write=True)
+    raw_window(dut, "0d07ff11a5", write=True)
+    try:
+        assert raw_window(dut, "1d03fe" + "00" * 5)["rx"][8:] == "01020000", "0x0400 is not held"
+        assert raw_window(dut, "1d04ff" + "00" * 3)["rx"][8:] == "005a"
+        assert raw_window(dut, "1d07ff" + "00" * 3)["rx"][8:] == "11a5"
+    finally:
+        for frame in ["0d050000", "0d03fe0000", "0d07ff0000"]:
+            raw_window(dut, frame, write=True)
+
+
+def test_a_frame_cut_short_by_standby_is_missed(dut, raw):
+    raw_lora(dut, raw, sf=9)
+    raw_window(dut, "82ffffff", write=True)
+    missed, received = raw.get("rx_missed"), raw.get("rx_received")
+    raw.inject(bytes(120))
+    time.sleep(0.2)
+    raw_window(dut, "8000", write=True)
+    assert raw.get("rx_missed") == missed + 1
+    time.sleep(lora_airtime_us(9, 125000, 1, 12, 120) / 1e6)
+    assert raw.get("rx_received") == received
+
+
+def test_a_late_tick_never_receives_past_the_rx_timeout(dut, raw):
+    # The preamble is detected 8 symbols in, 262 ms at SF12, after the
+    # 100 ms timeout; one step covers both and the whole frame.
+    raw_lora(dut, raw, sf=12)
+    missed = raw.get("rx_missed")
+    raw.run("metalclaw.pause()\n")
+    try:
+        raw_window(dut, "82001900", write=True)
+        raw.inject(b"late")
+        raw.run("metalclaw.advance_us(3_000_000)\n")
+        assert raw_window(dut, "1200000000")["rx"] == "a2a2020000", "Timeout alone, back in STBY_RC"
+    finally:
+        raw.run("metalclaw.resume()\n")
+    assert raw.get("rx_missed") == missed + 1
+
+
+def test_a_single_receive_times_out_after_a_header_error(dut, raw):
+    raw_lora(dut, raw)
+    raw.run("metalclaw.pause()\n")
+    try:
+        raw_window(dut, "82001900", write=True)
+        raw.inject(b"garbled", fault="header_error")
+        raw.run("metalclaw.advance_us(50_000)\n")
+        assert raw_window(dut, "1200000000")["rx"] == "d2d2002400", "PreambleDetected | HeaderErr, still in RX"
+        raw.run("metalclaw.advance_us(50_000)\n")
+        assert raw_window(dut, "1200000000")["rx"] == "a2a2022400", "and Timeout, back in STBY_RC"
+    finally:
+        raw.run("metalclaw.resume()\n")
+
+
+def pulse_reset(dut, us):
+    result = dut.command(f"PULSE {us}")
+    assert result["test"] == "test_pulse" and result["status"] == "ok", result
+
+
+def test_a_reset_pulse_shorter_than_a_tick_resets_the_part(dut, raw):
+    raw_window(dut, "8000", write=True)
+    resets = raw.get("resets")
+    pulse_reset(dut, 100)
+    time.sleep(0.05)
+    assert raw.get("resets") == resets + 1
+    assert raw_window(dut, "c00000")["rx"] == "aaaa2a"
+    raw_window(dut, "8000", write=True)
+
+
+def test_a_reset_pulse_while_the_clock_is_paused_resets_the_part(dut, raw):
+    raw_window(dut, "8000", write=True)
+    resets = raw.get("resets")
+    raw.run("metalclaw.pause()\n")
+    try:
+        pulse_reset(dut, 100)
+        # The part notices at the next window, which it answers as before
+        # the reset and executes after it.
+        raw_window(dut, "c00000")
+        assert raw_window(dut, "c00000")["rx"] == "aaaa2a"
+        assert raw.get("resets") == resets + 1
+    finally:
+        raw.run("metalclaw.resume()\n")
+    raw_window(dut, "8000", write=True)
+
+
+def test_a_reset_while_nreset_is_held_low_leaves_the_part_in_reset(dut, raw):
+    sequence = dut.start("PULSE 2000000")
+    time.sleep(0.3)
+    resets, after, mode = map(int, raw.run("""import time
+before = radio.resets
+radio.reset()
+time.sleep_ms(20)
+print(before, radio.resets, radio.mode)
+""").split())
+    assert mode == 8 and after == resets
+    result = dut.finish(sequence, 10)
+    assert result["test"] == "test_pulse" and result["status"] == "ok", result
+    time.sleep(0.05)
+    assert raw.get("mode") == 1
+    raw_window(dut, "8000", write=True)

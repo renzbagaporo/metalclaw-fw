@@ -6,6 +6,15 @@
 / {
 	aliases {
 		raw = &radio;
+		reset = &radio_reset;
+	};
+
+	lines {
+		compatible = "gpio-leds";
+
+		radio_reset: radio_reset {
+			gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
+		};
 	};
 };
 
@@ -24,7 +33,8 @@
 /*
  * The radio as a bare SPI device: the cases clock its command frames
  * themselves through RAW, to check framing, status bytes and command
- * errors byte for byte and to qualify the clock.
+ * errors byte for byte and to qualify the clock, and pulse its NRESET on
+ * GP6 through PULSE.
  */
 &spi0 {
 	status = "okay";
