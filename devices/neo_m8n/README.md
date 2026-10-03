@@ -115,13 +115,21 @@ pull API polls `CFG-RATE`, `CFG-NAV5` (`dynModel` 0 maps to
 
 ## The DUT image
 
+Two images, the same driver on either of the DUT's UARTs.
 `test/dut/rp2.overlay` puts `uart0` on GP0/GP1 at `current-speed` 115200
 with a `u-blox,m8` node aliased `gnss`, `initial-baudrate` 9600 and
 `fix-rate` 1000 ms, and removes the console from that UART. The two rates
 differ on purpose: the driver's first poll fails, and its baud negotiation
 is exercised on every DUT reset. `test/dut/rp2.conf` turns the serial
 driver, its interrupt-driven and runtime-configure paths and `CONFIG_GNSS`
-on.
+on. `test/dut/uart1/` is the same receiver on `uart1`, GP8 (DUT TX) and GP9
+(DUT RX), the straight-through pins. On the harness that pair is TX on GP9
+and RX on GP8, which is no PL011's, so it is served by the PIO UART, and
+the driver's baud negotiation runs on that engine:
+
+```python
+gnss = metalclaw.attach("neo_m8n", "gnss", uart=(9, 8))
+```
 
 The DUT command is `GNSS`: the last fix the driver published, in the GNSS
 API's units, and how many it has published since boot. `GNSS RATE`,
@@ -129,14 +137,15 @@ API's units, and how many it has published since boot. `GNSS RATE`,
 the receiver.
 
 ```sh
-just build-dut neo_m8n
+just build-dut neo_m8n          # or neo_m8n/uart1
 METALCLAW_HARNESS_SERIAL=<serial> METALCLAW_ARM_TOOLCHAIN_DIR=<dir> \
 METALCLAW_DUT_DEVICE=neo_m8n just test hardware
 ```
 
 ## Tests
 
-`test/cases.py` attaches the model at `(0, 1)`, resets the DUT and checks:
+`test/cases.py` attaches the model on the fixture's UART for the image
+flashed, `(0, 1)` or `(9, 8)`, resets the DUT and checks:
 the driver came up, moved the part to 115200 and left `rate_ms` 1000 and
 `NAV-PVT` on with a stop and a start counted; four injected fixes across the
 ranges come back through the GNSS API field for field, UTC included; a

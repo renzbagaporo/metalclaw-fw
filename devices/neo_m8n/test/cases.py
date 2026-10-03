@@ -5,6 +5,9 @@ import time
 import pytest
 
 NAME = "gnss"
+# The DUT's UART0 on the crossed pair, or its UART1 on pins only the
+# harness's PIO UART can serve.
+IMAGES = {"neo_m8n": "uart", "neo_m8n/uart1": "uart1"}
 
 CURRENT_SPEED = 115200
 INITIAL_BAUD = 9600
@@ -29,8 +32,8 @@ FIXES = [
 ]
 
 
-def attach(fixture):
-    uart = fixture["uart"]
+def attach(fixture, image):
+    uart = fixture[IMAGES[image]]
     pins = (uart["tx"], uart["rx"])
     return f"""import metalclaw
 for instance in metalclaw.instances():
@@ -78,8 +81,10 @@ class Receiver:
 # own. The cases that count fixes pause it and step it by hand.
 @pytest.fixture(scope="module")
 def receiver(harness, dut, fixture):
-    dut.require_image('neo_m8n')
-    harness.run(attach(fixture))
+    image = dut.image_name()
+    if image not in IMAGES:
+        pytest.skip(f"the DUT image is not built for neo_m8n ({image})")
+    harness.run(attach(fixture, image))
     r = Receiver(harness)
     r.pause()
     dut.reset()

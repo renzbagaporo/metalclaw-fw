@@ -61,6 +61,7 @@ platform it is
 {"swd": (2, 3, 28),
  "i2c": {"sda": 4, "scl": 5, "address": {"bmp388": 0x76}},
  "uart": {"tx": 0, "rx": 1},
+ "uart1": {"tx": 9, "rx": 8},
  "spi": {"sck": 18, "mosi": 19, "miso": 16,
          "cs": {"ads7883": 21, "icm4268x": 17, "bmp388": 22, "sx126x": 21}},
  "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6}}}
@@ -100,14 +101,16 @@ builds `build/dut/<name>/`. A variant lives one level down,
 `test/dut/<variant>/rp2.{overlay,conf}`, is built with
 `just build-dut <name>/<variant>` and names itself `<name>/<variant>`.
 Images exist for `bmp388` (I2C) and `bmp388/spi`, `ads7883`, `icm4268x`,
-`neo_m8n`, `sx126x` (Zephyr's loramac-node driver), `sx126x/native` (its
-native driver) and `sx126x/raw` (a bare SPI device for byte-level cases),
-and `console_bridge`, whose image echoes its console UART.
+`neo_m8n` (UART0) and `neo_m8n/uart1`, `sx126x` (Zephyr's loramac-node
+driver), `sx126x/native` (its native driver) and `sx126x/raw` (a bare SPI
+device for byte-level cases), and `console_bridge`, whose image echoes its
+console UART.
 
 The overlays follow the `fixture` description above: the SPI bus is
 GP18/GP19/GP16 with one GPIO chip select per part (the PL022's own chip
-select drops whenever its transmit FIFO drains), I2C is GP4/GP5, and the
-crossed UART pair is GP0/GP1. The rig's burst cases leave 20 µs between
+select drops whenever its transmit FIFO drains), I2C is GP4/GP5, the
+crossed UART pair is GP0/GP1, and the DUT's UART1 is GP8/GP9, which the
+harness serves as TX GP9, RX GP8. The rig's burst cases leave 20 µs between
 windows, above the engine's re-arm time.
 
 The workspace is created from `test/rig/dut/west.yml`, which pins Zephyr

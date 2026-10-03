@@ -1,0 +1,41 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
+
+/ {
+	aliases {
+		gnss = &gnss;
+	};
+};
+
+&pinctrl {
+	uart1_fixture1: uart1_fixture1 {
+		group1 {
+			pinmux = <UART1_TX_P8>;
+		};
+		group2 {
+			pinmux = <UART1_RX_P9>;
+			input-enable;
+		};
+	};
+};
+
+/*
+ * UART1 on the straight-through pins: the DUT's GP8 (TX) reaches the
+ * harness's GP8 and the harness's GP9 reaches the DUT's GP9 (RX). That
+ * pair is no PL011's TX and RX on the harness, so the harness serves it
+ * with its PIO UART. Rates as in the UART0 image.
+ */
+&uart1 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart1_fixture1>;
+	pinctrl-names = "default";
+
+	gnss: neo_m8n {
+		compatible = "u-blox,m8";
+		initial-baudrate = <9600>;
+		fix-rate = <1000>;
+		status = "okay";
+	};
+};

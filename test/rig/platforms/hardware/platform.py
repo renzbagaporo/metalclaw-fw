@@ -24,6 +24,7 @@ FIXTURE = {
     "swd": (2, 3, 28),
     "i2c": {"sda": 4, "scl": 5, "address": {"bmp388": 0x76}},
     "uart": {"tx": 0, "rx": 1},
+    "uart1": {"tx": 9, "rx": 8},
     "spi": {
         "sck": 18,
         "mosi": 19,
