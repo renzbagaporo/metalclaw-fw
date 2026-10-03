@@ -196,10 +196,16 @@ port exists.
   14-byte register reads stay clean down to a 15 µs gap between windows and
   start failing at about 14 µs, so drivers that read back-to-back without a
   BUSY line rely on a chip-select setup delay in their overlay.
-- `uart.h`: a UART with `send()` that queues and returns, `set_baud`, and a
-  receive callback delivered on the worker under the runtime lock with
-  whatever accumulated, never per byte and never from an interrupt, so a
-  model parses, touches its state and answers from inside it.
+- `uart.h`: a UART with `send()` that queues and returns, `set_baud`,
+  `set_format`, and a receive callback delivered on the worker under the
+  runtime lock with whatever accumulated, never per byte and never from an
+  interrupt, so a model parses, touches its state and answers from inside it.
+  On rp2 any pin pair works: a pair that carries a PL011's TX and RX
+  functions gets that block while it is free; any other pair gets a PIO
+  engine: a transmit and a receive state machine on PIO0 if it has room,
+  14 instruction words shared by every PIO UART on that block, DMA both
+  ways, 8 data bits, no parity, one or two stop bits, two at once at most.
+  Its receive ring holds 1 KiB, about 90 ms at 115200 baud.
 - `usb.h`: a vendor bulk interface on the composite device, with a receive
   callback and a write; see [usb.md](usb.md).
 - `console.h`: the channel the harness's own REPL runs over; the port owns

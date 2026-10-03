@@ -20,6 +20,7 @@ set(METALCLAW_PORT_RP2_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/hal/i2c_target.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/spi_target.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/uart.c
+    ${CMAKE_CURRENT_LIST_DIR}/hal/uart_pio.c
 )
 metalclaw_strict_sources(${METALCLAW_PORT_RP2_SOURCES})
 
