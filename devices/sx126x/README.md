@@ -275,6 +275,12 @@ timing out, CAD with and without a frame on the air, a duty-cycled receiver
 hearing a frame, and a thousand windows of each read framing per clock at
 1, 2, 4 and 8 MHz with no mismatch and no DMA fault.
 
+`test/traces/` holds two SPI traces of a real SX1262 under RadioLib 7.7.1
+and Meshtastic 2.8.2: every window with the bytes the part answered, and
+the air side it saw, in the format each file's header gives. They are the
+reference for the status byte, reset values and reception behaviour above.
+The engine differs from them in one place, GetStatus's second byte.
+
 ## Not modelled
 
 A crystal module (no TCXO), GFSK and LR-FHSS reception, frequency error,
