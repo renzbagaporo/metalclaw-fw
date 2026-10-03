@@ -2,6 +2,7 @@
 # The hardware platform: a real harness on USB and a real DUT behind its
 # probe. It refuses to run without explicit identities and never scans.
 
+import glob
 import math
 import os
 import subprocess
@@ -31,6 +32,16 @@ FIXTURE = {
     },
     "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6}},
 }
+
+
+DETACH_ALL_BUT_PROBE = """import metalclaw
+for i in metalclaw.instances():
+    if i.model != 'swd_probe':
+        kinds = [b['kind'] for b in i.schema()['bindings'].values()]
+        i.detach()
+        if 'usb_interface' in kinds:
+            print('usb')
+"""
 
 
 def _required(name: str) -> str:
@@ -73,6 +84,21 @@ class Harness:
             if len(parts) == 3 and parts[0] == "iInterface" and parts[1] != "0":
                 names.append(parts[2].strip())
         return names
+
+    # A serial function the harness serves for an attached device, by its
+    # interface string. Linux names the tty after its interface number; the
+    # string is read back from sysfs so no case assumes the layout.
+    def serial_port(self, interface: str, timeout: float = 15.0) -> str:
+        deadline = time.monotonic() + timeout
+        while True:
+            for path in sorted(glob.glob(f"/dev/serial/by-id/usb-Metalclaw_*_{self.serial}-if*")):
+                tty = os.path.basename(os.path.realpath(path))
+                label = Path(f"/sys/class/tty/{tty}/device/interface")
+                if label.is_file() and label.read_text().strip() == interface:
+                    return path
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"harness {self.serial} serves no serial port {interface!r}")
+            time.sleep(0.25)
 
     def wait_enumerated(self, timeout: float = 15.0) -> None:
         deadline = time.monotonic() + timeout
@@ -138,8 +164,12 @@ def harness() -> Harness:
     h = Harness(serial)
     h.wait_enumerated()
     # Instances outlive a rig run; a leftover device would hold pins a case
-    # needs. The probe stays, detaching it would re-enumerate the harness.
-    h.run("import metalclaw\nfor i in metalclaw.instances():\n    if i.model != 'swd_probe':\n        i.detach()\n")
+    # needs. The probe stays, detaching it would re-enumerate the harness;
+    # detaching another USB-facing device does, and is waited out.
+    out = h.run(DETACH_ALL_BUT_PROBE)
+    if "usb" in out.split():
+        time.sleep(1.5)
+        h.wait_enumerated()
     return h
 
 

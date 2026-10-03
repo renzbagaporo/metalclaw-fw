@@ -42,10 +42,13 @@ interface is not already present, flash the DUT image through that probe with
 PING. If any of that fails, no case runs.
 
 `harness.run(code)` executes Python on the harness's raw REPL and returns
-what it printed. `dut.command(line)` sends one mailbox command and returns the
-parsed result; a command that blocks the DUT while the harness has to act
-(a radio receive waiting for a frame the case injects) is sent with
-`dut.start(line)` and collected with `dut.finish(sequence)`;
+what it printed. `harness.serial_port(interface)` waits for the serial port
+the harness serves for an attached device and returns its
+`/dev/serial/by-id/` path, matched by serial number and by the interface
+string read back from sysfs. `dut.command(line)` sends one mailbox command
+and returns the parsed result; a command that blocks the DUT while the
+harness has to act (a radio receive waiting for a frame the case injects)
+is sent with `dut.start(line)` and collected with `dut.finish(sequence)`;
 `dut.reset()` resets the DUT through the probe;
 `dut.probe.read_words(addr, n)` reads DUT memory without halting it.
 
@@ -73,7 +76,8 @@ when another image is flashed; one rig run therefore exercises one device.
 
 The harness fixture detaches every instance except the probe when the
 session starts: instances outlive a run, and a leftover device would hold
-pins a case needs. The simulation clock runs by default; a case that counts
+pins a case needs. If one of them had a USB interface, the harness
+re-enumerates and the fixture waits it out. The simulation clock runs by default; a case that counts
 what a part sends per interval pauses it and steps it with `advance_us()`,
 as `neo_m8n`'s do.
 
