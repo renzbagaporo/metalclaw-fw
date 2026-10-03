@@ -173,17 +173,25 @@ addresses, DIO and IRQ parameters, IRQ status and clear, device errors,
 statistics, RX buffer and packet status, instantaneous RSSI, DIO2 as RF
 switch, DIO3 as TCXO control, calibration, image calibration, regulator
 mode, fallback mode, StopTimerOnPreamble, LoRa symbol timeout, register and
-buffer reads and writes. `0x00` is ResetStats, which RadioLib also clocks
-alone to wake the part.
+buffer reads and writes. `0x00` is ResetStats; clocked alone, as RadioLib
+does to wake the part, it is ignored.
 
-The status byte is `chip mode << 4 | command status << 1` on every byte of
-a window that carries no data. The command status is 1 after a command was
-executed, 4 after one was refused (unknown opcode, missing parameters, a
-value out of range), 6 after TxDone and 2 after RxDone, and it reaches the
-host on its next window, as on the part. A window that starts while BUSY is
-high is served from the image as it was but not executed, except that any
-window wakes a sleeping part. While NRESET is low the part answers nothing
-new and holds BUSY high.
+The status byte is `0x80 | chip mode << 4 | command status << 1` on every
+byte of a window that carries no data: bit 7 is reserved in the datasheet
+and reads 1 on a real SX1262. The GetStatus response is the same byte
+without bit 7. On GetStatus's second byte the part clocks that response and
+the engine the status byte, the one place the two differ.
+
+The command status is 5 ("failure to execute") out of reset until the first
+command, 1 after a command was executed, 4 after one was refused (unknown
+opcode, missing parameters, a value out of range), 6 after TxDone and 2
+after RxDone. Reads (every Get command, ReadRegister, ReadBuffer) and
+ClearIrqStatus leave it as it was, so "data available" and "TX done" stay
+until the next command that does something. It reaches the host on its
+next window, as on the part. A window that starts while BUSY is high is
+served from the image as it was but not executed, except that any window
+wakes a sleeping part. Asleep or with NRESET low the part answers `0xFF`
+on every status and response byte, and NRESET low holds BUSY high.
 
 ## Register coverage
 
@@ -249,7 +257,8 @@ bandwidth, sync word or IQ polarity is not received and is counted as
 missed; a receive with nothing on the air times out; a frame with a CRC
 fault ends in `EIO`; the public sync word selects which frames are heard;
 no window faulted. On the raw image: the version string, the status byte
-on the header, refused commands showing in the next status byte, register
+on the header and after power-on, the wake-up NOP leaving it, refused
+commands showing in it until the next command, register
 write-back, the buffer wrapping at 256, TxDone and its command status, the
 receive IRQs in order with RX buffer and packet status, a single receive
 timing out, CAD with and without a frame on the air, a duty-cycled receiver

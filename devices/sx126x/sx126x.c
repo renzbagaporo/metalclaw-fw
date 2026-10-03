@@ -480,7 +480,7 @@ static uint8_t mode_bits(enum sx126x_mode mode) {
 }
 
 static uint8_t status_byte(const struct sx126x_state *state) {
-    return (uint8_t)((mode_bits(state->mode) << 4) | (state->command_status << 1));
+    return (uint8_t)(SX126X_STATUS_RESERVED | (mode_bits(state->mode) << 4) | (state->command_status << 1));
 }
 
 static uint8_t rssi_byte(int16_t dbm) {
@@ -493,16 +493,15 @@ static bool on_air_now(const struct sx126x_state *state, uint64_t now) {
     return state->rx.on_air && now >= state->rx.start_us && now < state->rx.end_us;
 }
 
-// Rebuilds everything a read may serve and hands it to the engine.
-static void publish(struct sx126x_state *state) {
+static void set_answers(struct sx126x_state *state) {
     struct mclw_command_image *image = &state->image;
-    uint64_t now = mclw_now_us();
     uint8_t status = status_byte(state);
-    uint8_t rssi_inst = rssi_byte(on_air_now(state, now) ? state->rx.rssi : state->noise_floor);
+    uint8_t get_status = (uint8_t)(status & ~SX126X_STATUS_RESERVED);
+    uint8_t rssi_inst = rssi_byte(on_air_now(state, mclw_now_us()) ? state->rx.rssi : state->noise_floor);
     uint8_t bytes[6];
 
     mclw_command_set_status(image, status);
-    mclw_command_set_response(image, SX126X_OP_GET_STATUS, &status, 1);
+    mclw_command_set_response(image, SX126X_OP_GET_STATUS, &get_status, 1);
     mclw_command_set_response(image, SX126X_OP_GET_PACKET_TYPE, &state->packet_type, 1);
     bytes[0] = (uint8_t)(state->irq >> 8);
     bytes[1] = (uint8_t)state->irq;
@@ -525,7 +524,26 @@ static void publish(struct sx126x_state *state) {
     bytes[0] = (uint8_t)(state->device_errors >> 8);
     bytes[1] = (uint8_t)state->device_errors;
     mclw_command_set_response(image, SX126X_OP_GET_DEVICE_ERRORS, bytes, 2);
-    mclw_command_publish(image);
+}
+
+static void set_absent(struct mclw_command_image *image) {
+    uint8_t bytes[MCLW_COMMAND_RESPONSE_MAX];
+
+    memset(bytes, SX126X_STATUS_ABSENT, sizeof(bytes));
+    mclw_command_set_status(image, SX126X_STATUS_ABSENT);
+    for (size_t i = 0; i < sizeof(sx126x_responses); i++) {
+        mclw_command_set_response(image, sx126x_responses[i], bytes, sizeof(bytes));
+    }
+}
+
+// Rebuilds everything a read may serve and hands it to the engine.
+static void publish(struct sx126x_state *state) {
+    if (state->mode == MODE_SLEEP || state->mode == MODE_RESET) {
+        set_absent(&state->image);
+    } else {
+        set_answers(state);
+    }
+    mclw_command_publish(&state->image);
     if (state->dio1 != NULL) {
         mclw_hal_gpio_write(state->dio1, (state->irq & state->dio1_mask) != 0u);
     }
@@ -596,7 +614,9 @@ static void power_on(struct sx126x_state *state) {
 
     state->mode = MODE_STBY_RC;
     state->fallback = MODE_STBY_RC;
-    state->command_status = SX126X_STATUS_CMD_OK;
+    // A real SX1262 out of reset reports "failure to execute" until its first
+    // command; RadioLib's begin() retries SetStandby on it.
+    state->command_status = SX126X_STATUS_CMD_EXEC_FAILURE;
     state->packet_type = SX126X_PACKET_TYPE_GFSK;
     state->rf_frequency = 0;
     memset(state->modulation, 0, sizeof(state->modulation));
@@ -796,6 +816,28 @@ static bool advance(struct sx126x_state *state, uint64_t now) {
         }
     }
     return irq != state->irq || mode != state->mode || on_air != f->on_air;
+}
+
+// On a real SX1262 "data available" and "TX done" survive every read and
+// ClearIrqStatus, and the next command that does something replaces them.
+// An error is kept the same way.
+static bool keeps_status(uint8_t op) {
+    switch (op) {
+        case SX126X_OP_CLEAR_IRQ_STATUS:
+        case SX126X_OP_GET_STATS:
+        case SX126X_OP_GET_PACKET_TYPE:
+        case SX126X_OP_GET_IRQ_STATUS:
+        case SX126X_OP_GET_RX_BUFFER_STATUS:
+        case SX126X_OP_GET_PACKET_STATUS:
+        case SX126X_OP_GET_RSSI_INST:
+        case SX126X_OP_GET_DEVICE_ERRORS:
+        case SX126X_OP_READ_REGISTER:
+        case SX126X_OP_READ_BUFFER:
+        case SX126X_OP_GET_STATUS:
+            return true;
+        default:
+            return false;
+    }
 }
 
 static bool params(size_t have, size_t need) {
@@ -1060,14 +1102,17 @@ static void on_window(struct mclw_command_image *image, const uint8_t *bytes, si
             power_on(state);
         }
         state->mode = MODE_STBY_RC;
-    } else if (!busy && len > 0u) {
+    } else if (!busy && len > 0u &&
+        !(bytes[0] == SX126X_OP_RESET_STATS && len < 1u + SX126X_RESET_STATS_PARAMS)) {
         bool ok = execute(state, bytes[0], bytes + 1, len - 1u, now);
 
         state->commands++;
         if (!ok) {
             state->command_errors++;
+            state->command_status = SX126X_STATUS_CMD_PROCESSING_ERROR;
+        } else if (!keeps_status(bytes[0])) {
+            state->command_status = SX126X_STATUS_CMD_OK;
         }
-        state->command_status = ok ? SX126X_STATUS_CMD_OK : SX126X_STATUS_CMD_PROCESSING_ERROR;
         mclw_trace(mclw_instance_from_state(state), MCLW_TRACE_COMMAND, bytes[0], (uint16_t)len,
             ok ? 0 : -EINVAL);
         (void)advance(state, now);

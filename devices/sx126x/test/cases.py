@@ -13,8 +13,7 @@ EIO = 5
 
 SYNC_PRIVATE = 0x1424
 SYNC_PUBLIC = 0x3444
-STATUS_STBY_RC = 0x22
-STATUS_ERROR = 0x28
+STATUS_STBY_RC = 0xA2
 VERSION = b"SX1261 V2D 2D02\0"
 
 TX_KEYS = ("length", "frequency", "packet_type", "sf", "bw", "cr", "ldro", "preamble", "implicit_header",
@@ -132,6 +131,8 @@ def raw(harness, dut, fixture):
     dut.require_image(RAW_IMAGE)
     # The raw image leaves NRESET undriven, so it is not bound.
     harness.run(attach(fixture, nreset=False))
+    # Out of reset the part reports a failed command until its first one.
+    raw_window(dut, "8000", write=True)
     return Radio(harness)
 
 
@@ -279,16 +280,36 @@ def test_the_version_string_reads_from_its_registers(dut, raw):
 
 
 def test_the_status_byte_is_clocked_on_the_header(dut, raw):
-    assert raw_window(dut, "c00000")["rx"] == "222222"
-    assert raw_window(dut, "1100000000")["rx"] == "2222000000"
+    # The part clocks its GetStatus response, 0x22 without the reserved bit 7,
+    # on the second byte too; the engine clocks the status byte there.
+    assert raw_window(dut, "c00000")["rx"] == "a2a222"
+    assert raw_window(dut, "1100000000")["rx"] == "a2a2000000"
+
+
+def test_the_part_reports_a_failed_command_after_power_on(dut, raw):
+    raw.run("radio.reset()\n")
+    assert raw_window(dut, "c00000")["rx"] == "aaaa2a"
+    raw_window(dut, "8000", write=True)
+    assert raw_window(dut, "c00000")["rx"] == "a2a222"
+
+
+def test_the_wake_up_nop_leaves_the_status(dut, raw):
+    raw_window(dut, "55", write=True)
+    commands = raw.get("commands")
+    assert raw_window(dut, "00")["rx"] == "a8"
+    assert raw.get("commands") == commands
+    assert raw_window(dut, "c00000")["rx"] == "a8a828"
+    raw_window(dut, "8000", write=True)
 
 
 @pytest.mark.parametrize("bad", ["55", "80", "8a07"])
-def test_a_refused_command_shows_in_the_next_status(dut, raw, bad):
+def test_a_refused_command_shows_in_the_status_until_the_next_command(dut, raw, bad):
     errors = raw.get("command_errors")
     raw_window(dut, bad, write=True)
-    assert raw_window(dut, "c00000")["rx"] == "282828"
-    assert raw_window(dut, "c00000")["rx"] == "222222"
+    assert raw_window(dut, "c00000")["rx"] == "a8a828"
+    assert raw_window(dut, "c00000")["rx"] == "a8a828", "reads leave the command status"
+    raw_window(dut, "8000", write=True)
+    assert raw_window(dut, "c00000")["rx"] == "a2a222"
     assert raw.get("command_errors") == errors + 1
 
 
@@ -312,9 +333,11 @@ def test_a_transmission_raises_tx_done_after_its_air_time(dut, raw):
                   "02ffff", "83000000"]:
         raw_window(dut, frame, write=True)
     time.sleep(0.2)
-    # TxDone with the command status "TX done" in the status byte, once.
-    assert raw_window(dut, "1200000000")["rx"] == "2c2c000100"
-    assert raw_window(dut, "c00000")["rx"] == "222222"
+    # TxDone, with the command status "TX done" until the next command.
+    assert raw_window(dut, "1200000000")["rx"] == "acac000100"
+    assert raw_window(dut, "c00000")["rx"] == "acac2c"
+    raw_window(dut, "8000", write=True)
+    assert raw_window(dut, "c00000")["rx"] == "a2a222"
     frames = raw.frames()
     assert len(frames) == 1 and frames[0][0] == b"Hello"
     assert frames[0][1]["airtime_us"] == lora_airtime_us(7, 125000, 1, 8, 5)
@@ -331,7 +354,7 @@ def test_reads_are_exact_across_the_clock_range(dut, raw, hz):
     assert buffer["rx"][6:] == "".join(f"{(i * 37 + 5) & 0xFF:02x}" for i in range(24)), buffer
     assert buffer["mismatches"] == 0, buffer
     response = raw_window(dut, "1100000000", hz, count=WINDOWS_PER_CLOCK)
-    assert response["rx"] == "2222010000" and response["mismatches"] == 0, response
+    assert response["rx"] == "a2a2010000" and response["mismatches"] == 0, response
     stats = raw.stats()
     assert stats["dma_faults"] == before and stats["max_clock_hz"] >= hz, stats
 
@@ -353,11 +376,12 @@ def test_a_frame_received_raises_the_receive_irqs_in_order(dut, raw):
     raw_window(dut, "82ffffff", write=True)
     raw.inject(b"hello raw", rssi=-80, snr=6, signal_rssi=-82)
     time.sleep(0.3)
-    # RX mode, "data available", PreambleDetected | HeaderValid | RxDone.
-    assert raw_window(dut, "1200000000")["rx"] == "5454001600"
-    assert raw_window(dut, "13000000")["rx"] == "52520900"
+    # RX mode, "data available" through every read, PreambleDetected |
+    # HeaderValid | RxDone.
+    assert raw_window(dut, "1200000000")["rx"] == "d4d4001600"
+    assert raw_window(dut, "13000000")["rx"] == "d4d40900"
     assert bytes.fromhex(raw_window(dut, "1e0000" + "00" * 9)["rx"])[3:] == b"hello raw"
-    assert raw_window(dut, "1400000000")["rx"] == "5252a018a4"
+    assert raw_window(dut, "1400000000")["rx"] == "d4d4a018a4"
     raw_window(dut, "800000", write=True)
 
 
@@ -365,7 +389,7 @@ def test_a_single_receive_times_out(dut, raw):
     raw_lora(dut, raw)
     raw_window(dut, "82000400", write=True)
     time.sleep(0.3)
-    assert raw_window(dut, "1200000000")["rx"] == "2222020000", "Timeout, back in STBY_RC"
+    assert raw_window(dut, "1200000000")["rx"] == "a2a2020000", "Timeout, back in STBY_RC"
 
 
 def test_channel_activity_detection_sees_a_frame_on_air(dut, raw):
@@ -373,12 +397,12 @@ def test_channel_activity_detection_sees_a_frame_on_air(dut, raw):
     raw_window(dut, "8802160a00000000", write=True)
     raw_window(dut, "c5", write=True)
     time.sleep(0.3)
-    assert raw_window(dut, "1200000000")["rx"] == "2222008000", "CadDone alone with nothing on air"
+    assert raw_window(dut, "1200000000")["rx"] == "a2a2008000", "CadDone alone with nothing on air"
     raw_window(dut, "02ffff", write=True)
     raw.inject(bytes(120))
     raw_window(dut, "c5", write=True)
     time.sleep(0.3)
-    assert raw_window(dut, "1200000000")["rx"] == "2222018000", "CadDone | CadDetected"
+    assert raw_window(dut, "1200000000")["rx"] == "a2a2018000", "CadDone | CadDetected"
 
 
 def test_a_duty_cycled_receiver_hears_a_frame(dut, raw):

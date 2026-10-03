@@ -53,6 +53,9 @@
 #define SX126X_OP_SET_TX_INFINITE_PREAMBLE 0xD2u
 
 // Section 13.5.1: status byte, chip mode in bits 6:4, command status in 3:1.
+// Bit 7, reserved, reads 1 on a real SX1262 on every byte that carries the
+// status, and 0 in the GetStatus response byte.
+#define SX126X_STATUS_RESERVED 0x80u
 #define SX126X_STATUS_MODE_STBY_RC 0x2u
 #define SX126X_STATUS_MODE_STBY_XOSC 0x3u
 #define SX126X_STATUS_MODE_FS 0x4u
@@ -61,7 +64,14 @@
 #define SX126X_STATUS_CMD_OK 0x1u
 #define SX126X_STATUS_CMD_DATA_AVAILABLE 0x2u
 #define SX126X_STATUS_CMD_PROCESSING_ERROR 0x4u
+#define SX126X_STATUS_CMD_EXEC_FAILURE 0x5u
 #define SX126X_STATUS_CMD_TX_DONE 0x6u
+// What MISO carries while the part is asleep or held in reset.
+#define SX126X_STATUS_ABSENT 0xFFu
+
+// ResetStats takes six zero bytes; RadioLib clocks the opcode alone to wake
+// the part, and the part ignores it.
+#define SX126X_RESET_STATS_PARAMS 6u
 
 // Section 13.3.1: IRQ bits.
 #define SX126X_IRQ_TX_DONE 0x0001u
