@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 // An SPI target (slave) that serves an image from hardware. The model arms
-// either a register map, framed the way the part's datasheet says, or a
-// stream of fixed frames; the engine answers every chip-select window
-// without the model. The DUT is the master and sets the clock; the engine
-// publishes the ceiling it was qualified at for the armed image.
+// a register map, framed the way the part's datasheet says, a stream of
+// fixed frames, or a command image for parts whose opcode frames each
+// window; the engine answers every chip-select window without the model.
+// The DUT is the master and sets the clock; the engine publishes the
+// ceiling it was qualified at for the armed image.
 
 #ifndef MCLW_HAL_SPI_TARGET_H
 #define MCLW_HAL_SPI_TARGET_H
@@ -11,9 +12,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "metalclaw/command.h"
 #include "metalclaw/regmap.h"
 #include "metalclaw/stream.h"
 
+struct mclw_gpio;
 struct mclw_spi_target;
 
 // How the part frames a register access, from its datasheet: which
@@ -35,7 +38,8 @@ struct mclw_spi_target_stats {
     // Windows that clocked more than the image could answer.
     uint32_t long_windows;
     uint32_t dma_faults;
-    // Windows served before a pending image rebuild had landed.
+    // Windows served before a pending image rebuild had landed: for a
+    // command image, windows that began while BUSY was high.
     uint32_t stale_windows;
 };
 
@@ -54,6 +58,16 @@ uint8_t mclw_hal_spi_target_mode(const struct mclw_spi_target *t);
 int mclw_hal_spi_target_arm_regmap(struct mclw_spi_target *t, struct mclw_regmap *map,
     const struct mclw_regmap_framing *framing);
 int mclw_hal_spi_target_arm_stream(struct mclw_spi_target *t, struct mclw_stream *stream);
+// A command image, MSB first. `busy` is the part's BUSY output, an open
+// gpio_out of the same owner, or NULL for a part without one. While armed
+// the engine drives it: high within a few PIO cycles of every chip-select
+// release, low only through set_busy(). Each window then reaches the
+// image's on_window on the worker; a window that arrives while BUSY is
+// high is still served, from the image as last published.
+int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_command_image *image,
+    struct mclw_gpio *busy);
+// Thread context, or the worker.
+void mclw_hal_spi_target_set_busy(struct mclw_spi_target *t, bool busy);
 void mclw_hal_spi_target_disarm(struct mclw_spi_target *t);
 
 // The engine's worker poll; a lost chip-select edge is recovered here.
