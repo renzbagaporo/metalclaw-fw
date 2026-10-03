@@ -764,6 +764,7 @@ static bool advance(struct sx126x_state *state, uint64_t now) {
     uint16_t irq = state->irq;
     enum sx126x_mode mode = state->mode;
     bool on_air = f->on_air;
+    bool header = false;
 
     if (f->stage == RX_PREAMBLE && now >= f->preamble_us && !rx_expired(state, f->preamble_us)) {
         raise_irq(state, SX126X_IRQ_PREAMBLE_DETECTED);
@@ -779,7 +780,15 @@ static bool advance(struct sx126x_state *state, uint64_t now) {
             f->stage = RX_IDLE;
         } else {
             if (!f->air.implicit_header) {
+                static const uint8_t no_error[2] = { 0 };
+
                 raise_irq(state, SX126X_IRQ_HEADER_VALID);
+                set_register(state, SX126X_REG_RX_CODING_RATE, (uint8_t)((f->air.cr & 7u) << 4));
+                set_register(state, SX126X_REG_RX_HEADER_CRC,
+                    (uint8_t)(SX126X_RX_HEADER_SET | (f->air.crc ? SX126X_RX_HEADER_CRC_ON : 0u)));
+                mclw_command_set_registers(&state->image, SX126X_REG_RX_HEADER_CRC + 1u, no_error,
+                    sizeof(no_error));
+                header = true;
             }
             state->rx_timer_stopped = true;
             f->stage = RX_PAYLOAD;
@@ -819,7 +828,7 @@ static bool advance(struct sx126x_state *state, uint64_t now) {
             enter(state, MODE_STBY_RC);
         }
     }
-    return irq != state->irq || mode != state->mode || on_air != f->on_air;
+    return header || irq != state->irq || mode != state->mode || on_air != f->on_air;
 }
 
 // On a real SX1262 "data available" and "TX done" survive every read and

@@ -112,6 +112,15 @@
 #define SX126X_IQ_POLARITY_RESET 0x0Du
 #define SX126X_REG_LORA_SYNC_WORD 0x0740u
 #define SX126X_LORA_SYNC_WORD_PRIVATE 0x1424u
+// The last LoRa explicit header received, as RadioLib's
+// getLoRaRxHeaderInfo reads it: the coding rate in bits 6:4 of 0x0749, CRC
+// on in bit 4 of 0x076B. Bits 3:0 of 0x076B and 0x076C..0x076D are the
+// frequency error. Bit 5 of 0x076B read 1 after every frame a real SX1262
+// received on the bench.
+#define SX126X_REG_RX_CODING_RATE 0x0749u
+#define SX126X_REG_RX_HEADER_CRC 0x076Bu
+#define SX126X_RX_HEADER_CRC_ON 0x10u
+#define SX126X_RX_HEADER_SET 0x20u
 #define SX126X_REG_RANDOM 0x0819u
 #define SX126X_RANDOM_LENGTH 4u
 #define SX126X_REG_TX_MODULATION 0x0889u

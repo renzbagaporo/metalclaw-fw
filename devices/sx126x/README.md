@@ -212,6 +212,7 @@ Reset values:
 | `0x06B8..0x06C7` | whitening, CRC seed and polynomial, GFSK sync word | datasheet reset values |
 | `0x0736` | `0x0D` | IQ polarity setup, read-modified-written by both drivers |
 | `0x0740..0x0741` | `0x14 0x24` | LoRa sync word, private |
+| `0x0749`, `0x076B..0x076D` | `0x00` | the last explicit header received: coding rate in `0x0749` bits 6:4, CRC on in `0x076B` bit 4, `0x076B` bit 5 set as on the part, no frequency error |
 | `0x0889` | `0x04` | TX modulation workaround |
 | `0x08AC` | `0x94` | RX gain |
 | `0x08B5` | `0x04` | undocumented; Meshtastic sets bit 0 for its RX fix and every `Calibrate` clears it, as on the part |
