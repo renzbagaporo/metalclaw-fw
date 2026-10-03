@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(metalclaw_dut)
 
-target_sources(app PRIVATE src/main.c src/mailbox.c)
+target_sources(app PRIVATE src/main.c src/mailbox.c src/uart_echo.c)
 
 # The device whose overlay this image carries; "smoke" for none. The ID
 # command reports it so the rig can skip cases the image cannot serve.

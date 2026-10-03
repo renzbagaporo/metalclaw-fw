@@ -20,13 +20,25 @@ CMakeLists.txt      the Zephyr application
 prj.conf            what is switched off, which is nearly everything
 src/mailbox.[ch]    the RAM mailbox
 src/main.c          the banner and the commands below
+src/uart_echo.c     the UART echo, for an image whose devicetree asks for it
 ```
 
 The smoke image binds nothing and needs no overlay. A device that needs
 DUT-side wiring brings its own from `devices/<name>/test/dut/rp2.overlay`,
 which `just build-dut <name>` applies on top of the board: `bmp388` (and the
-`bmp388/spi` variant), `ads7883`, `icm4268x`, `neo_m8n` and `sx126x` (and
-its `sx126x/native` and `sx126x/raw` variants) have one.
+`bmp388/spi` variant), `ads7883`, `icm4268x`, `neo_m8n`, `sx126x` (and
+its `sx126x/native` and `sx126x/raw` variants) and `console_bridge` have one.
+
+## The UART echo
+
+An image whose devicetree has an `echo-uart` alias, with
+`CONFIG_UART_INTERRUPT_DRIVEN` and `CONFIG_RING_BUFFER` on, sends every byte
+that UART receives straight back: the interrupt receives into a 4 KiB ring
+and a thread below `main`'s priority sends it, from boot for as long as the
+image runs. No command starts or stops it, and the
+mailbox is unaffected. The `console_bridge` image puts it on the crossed
+UART0 pair, so whatever the host writes to the harness's bridged serial port
+comes back unchanged at line rate in both directions.
 
 ## The mailbox
 
