@@ -1078,6 +1078,7 @@ static bool nmea_version_valid(uint8_t version) {
         version == NMEA_VERSION_41;
 }
 
+// Every CFG message is acknowledged, a poll after its reply.
 static void handle_cfg(struct neo_m8n_state *state) {
     const uint8_t *p = state->payload;
 
@@ -1085,6 +1086,7 @@ static void handle_cfg(struct neo_m8n_state *state) {
         case UBX_CFG_PRT:
             if (state->len == 0 || (state->len == 1 && p[0] == UBX_CFG_PRT_PORT_UART1)) {
                 send_cfg_prt(state);
+                send_ack(state, true, state->cls, state->id);
             } else if (state->len == UBX_CFG_PRT_LEN && p[0] == UBX_CFG_PRT_PORT_UART1) {
                 uint32_t baud = get_u32(&p[8]);
 
@@ -1101,6 +1103,7 @@ static void handle_cfg(struct neo_m8n_state *state) {
         case UBX_CFG_MSG:
             if (state->len == UBX_CFG_MSG_POLL_LEN) {
                 send_cfg_msg(state, p[0], p[1]);
+                send_ack(state, true, state->cls, state->id);
             } else if (state->len == UBX_CFG_MSG_LEN || state->len == UBX_CFG_MSG_PORTS_LEN) {
                 uint8_t *rate = msg_rate(state, p[0], p[1]);
 
@@ -1126,6 +1129,7 @@ static void handle_cfg(struct neo_m8n_state *state) {
         case UBX_CFG_RATE:
             if (state->len == 0) {
                 send_cfg_rate(state);
+                send_ack(state, true, state->cls, state->id);
             } else if (state->len == UBX_CFG_RATE_LEN) {
                 uint16_t rate = get_u16(&p[0]);
 
@@ -1153,6 +1157,7 @@ static void handle_cfg(struct neo_m8n_state *state) {
         case UBX_CFG_NAV5:
             if (state->len == 0) {
                 send_cfg_nav5(state);
+                send_ack(state, true, state->cls, state->id);
             } else if (state->len == UBX_CFG_NAV5_LEN) {
                 if ((get_u16(&p[0]) & UBX_CFG_NAV5_APPLY_DYN) != 0) {
                     state->dyn_model = p[2];

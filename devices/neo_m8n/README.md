@@ -85,7 +85,8 @@ taken only while its `inProtoMask` bit is set, and sent only while its
 Every UBX frame is `B5 62`, class, id, 16-bit little-endian length, payload
 and the 8-bit Fletcher checksum over class through payload. Frames with a bad
 checksum are dropped without a reply, as the part does. Payloads longer than
-64 bytes are consumed and answered with `ACK-NAK`.
+64 bytes are consumed and answered with `ACK-NAK`. Every `CFG` message is
+acknowledged, a poll with `ACK-ACK` after its reply, as the part does.
 
 | frame | on a poll (empty payload) | on a set |
 | --- | --- | --- |
@@ -174,7 +175,9 @@ with `gnssFixOK` to `GNSS_FIX_STATUS_GNSS_FIX` / `GNSS_FIX_QUALITY_GNSS_SPS`,
 scales latitude and longitude to nanodegrees, `headMot` to millidegrees,
 passes `gSpeed` and `hMSL` through, and reports `pDOP` ×10 as `hdop`. The
 pull API polls `CFG-RATE`, `CFG-NAV5` (`dynModel` 0 maps to
-`GNSS_NAVIGATION_MODE_BALANCED_DYNAMICS`) and `MON-GNSS`.
+`GNSS_NAVIGATION_MODE_BALANCED_DYNAMICS`) and `MON-GNSS`. A poll's script
+ends on the reply; the `ACK-ACK` after it matches nothing the driver waits
+for.
 
 ## The DUT image
 
