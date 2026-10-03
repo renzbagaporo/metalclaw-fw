@@ -657,16 +657,25 @@ const char *mclw_trace_kind_name(enum mclw_trace_kind kind) {
     return "?";
 }
 
+// Between ticks a running clock reads as the last tick plus the real time
+// since, so a model that stamps an event from a callback is not up to a
+// tick (or a busy runtime lock's worth) behind.
 uint64_t mclw_now_us(void) {
     uint32_t state = mclw_hal_critical_enter();
     uint64_t now = clock_us;
+    if (!clock_paused) {
+        now += mclw_hal_time_us() - clock_last_real_us;
+    }
     mclw_hal_critical_exit(state);
     return now;
 }
 
-static void advance(uint64_t delta_us) {
+static void advance(uint64_t delta_us, uint64_t real_us) {
     uint32_t state = mclw_hal_critical_enter();
     clock_us += delta_us;
+    if (!clock_paused) {
+        clock_last_real_us = real_us;
+    }
     uint64_t now = clock_us;
     mclw_hal_critical_exit(state);
     for (size_t i = 0; i < METALCLAW_INSTANCES_MAX; i++) {
@@ -685,8 +694,7 @@ static void clock_tick(void *ctx) {
         return;
     }
     if (!clock_paused) {
-        advance(real - clock_last_real_us);
-        clock_last_real_us = real;
+        advance(real - clock_last_real_us, real);
     }
     mclw_hal_unlock();
 }
@@ -697,21 +705,30 @@ int mclw_advance_us(uint64_t delta_us) {
         mclw_hal_unlock();
         return -EBUSY;
     }
-    advance(delta_us);
+    advance(delta_us, 0);
     mclw_hal_unlock();
     return 0;
 }
 
 void mclw_clock_pause(void) {
     mclw_hal_lock();
-    clock_paused = true;
+    uint32_t state = mclw_hal_critical_enter();
+    if (!clock_paused) {
+        clock_us += mclw_hal_time_us() - clock_last_real_us;
+        clock_paused = true;
+    }
+    mclw_hal_critical_exit(state);
     mclw_hal_unlock();
 }
 
 void mclw_clock_resume(void) {
     mclw_hal_lock();
-    clock_last_real_us = mclw_hal_time_us();
-    clock_paused = false;
+    uint32_t state = mclw_hal_critical_enter();
+    if (clock_paused) {
+        clock_last_real_us = mclw_hal_time_us();
+        clock_paused = false;
+    }
+    mclw_hal_critical_exit(state);
     mclw_hal_unlock();
 }
 
@@ -728,7 +745,7 @@ void MCLW_RAM_FUNC(mclw_trace)(struct mclw_instance *inst, enum mclw_trace_kind 
     uint32_t addr, uint16_t len, int16_t result) {
     uint32_t state = mclw_hal_critical_enter();
     struct mclw_trace_entry *e = &inst->trace[inst->trace_head];
-    e->t_us = clock_us;
+    e->t_us = clock_paused ? clock_us : clock_us + mclw_hal_time_us() - clock_last_real_us;
     e->kind = (uint8_t)kind;
     e->addr = addr;
     e->len = len;
