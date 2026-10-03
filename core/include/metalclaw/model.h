@@ -105,10 +105,15 @@ struct mclw_model_ops {
     // The clock moved. Runs on the worker under the runtime lock, as often
     // as once a millisecond while the clock runs.
     void (*time_advanced)(struct mclw_instance *inst, uint64_t now_us);
-    // A packet arrived on the usb_interface binding `binding`. Runs in the
-    // USB task context under the runtime lock; answer through
-    // mclw_hal_usb_write before returning.
-    void (*usb_rx)(struct mclw_instance *inst, size_t binding, const uint8_t *data, size_t len);
+    // Bytes arrived on the usb_interface binding `binding`. Runs in the USB
+    // task context under the runtime lock. Returns how many it took: a
+    // vendor interface delivers one packet, answered through
+    // mclw_hal_usb_write before returning, and the return is ignored;
+    // a serial function offers what the model did not take again later.
+    size_t (*usb_rx)(struct mclw_instance *inst, size_t binding, const uint8_t *data, size_t len);
+    // The host changed the line coding or control lines of the serial
+    // usb_interface binding `binding`. USB task context, runtime lock.
+    void (*usb_control)(struct mclw_instance *inst, size_t binding);
 };
 
 struct mclw_model {

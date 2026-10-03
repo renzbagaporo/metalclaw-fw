@@ -12,17 +12,23 @@ enum {
     ITF_CDC = 0,
     ITF_CDC_DATA,
     ITF_MSC,
-    ITF_VENDOR_FIRST,
+    ITF_FUNCTION_FIRST,
 };
 
-// The CDC notification endpoint sits above every bulk pair so that vendor
-// interfaces coming and going never move it.
+// Serial functions come first among the attached ones, two interfaces each,
+// so the first one's tty is interface 3 whatever vendor interfaces exist.
+// The CDC notification endpoint sits above the vendor bulk pairs so that
+// vendor interfaces coming and going never move it; the serial functions'
+// endpoints sit above that.
 #define EP_CDC_OUT      0x01
 #define EP_CDC_IN       0x81
 #define EP_MSC_OUT      0x02
 #define EP_MSC_IN       0x82
 #define EP_VENDOR_FIRST 0x03
 #define EP_CDC_NOTIFY   (0x80 | (EP_VENDOR_FIRST + CFG_TUD_VENDOR))
+#define EP_SERIAL_FIRST (EP_VENDOR_FIRST + CFG_TUD_VENDOR + 1)
+#define EP_SERIAL_DATA(n)   (EP_SERIAL_FIRST + (n))
+#define EP_SERIAL_NOTIFY(n) (0x80 | (EP_SERIAL_FIRST + MCLW_USB_SERIAL_MAX + (n)))
 
 enum {
     STR_LANGUAGE = 0,
@@ -31,8 +37,10 @@ enum {
     STR_SERIAL,
     STR_CDC,
     STR_MSC,
-    STR_VENDOR_FIRST,
+    STR_FUNCTION_FIRST,
 };
+
+#define FUNCTION_MAX (MCLW_USB_SERIAL_MAX + CFG_TUD_VENDOR)
 
 static const tusb_desc_device_t device_descriptor = {
     .bLength = sizeof(tusb_desc_device_t),
@@ -51,14 +59,17 @@ static const tusb_desc_device_t device_descriptor = {
     .bNumConfigurations = 1,
 };
 
-#define CONFIG_MAX_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_MSC_DESC_LEN + CFG_TUD_VENDOR * TUD_VENDOR_DESC_LEN)
+#define CONFIG_MAX_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_MSC_DESC_LEN + \
+    MCLW_USB_SERIAL_MAX * TUD_CDC_DESC_LEN + CFG_TUD_VENDOR * TUD_VENDOR_DESC_LEN)
 
 static uint8_t configuration_descriptor[CONFIG_MAX_LEN];
-static const char *vendor_names[CFG_TUD_VENDOR];
-static size_t vendor_count;
+// Interface strings of the attached functions, in descriptor order.
+static const char *function_names[FUNCTION_MAX];
+static size_t function_count;
+static size_t serial_count;
 static char serial[2 * PICO_UNIQUE_BOARD_ID_SIZE_BYTES + 1];
 
-static const char *const strings[STR_VENDOR_FIRST] = {
+static const char *const strings[STR_FUNCTION_FIRST] = {
     [STR_MANUFACTURER] = MICROPY_HW_USB_MANUFACTURER_STRING,
     [STR_PRODUCT] = MICROPY_HW_USB_PRODUCT_FS_STRING,
     [STR_CDC] = MICROPY_HW_USB_CDC_INTERFACE_STRING,
@@ -68,10 +79,14 @@ static const char *const strings[STR_VENDOR_FIRST] = {
 #define STRING_MAX_CHARS 32
 
 bool mclw_usb_descriptors_rebuild(void) {
-    const char *names[CFG_TUD_VENDOR];
-    size_t count = mclw_usb_vendor_layout(names, CFG_TUD_VENDOR);
-    uint8_t itf_count = (uint8_t)(ITF_VENDOR_FIRST + count);
-    uint16_t total = (uint16_t)(TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_MSC_DESC_LEN + count * TUD_VENDOR_DESC_LEN);
+    struct mclw_usb_layout layout;
+    const char *names[FUNCTION_MAX];
+    size_t count = 0;
+
+    mclw_usb_layout_take(&layout);
+    uint8_t itf_count = (uint8_t)(ITF_FUNCTION_FIRST + 2u * layout.serial_count + layout.vendor_count);
+    uint16_t total = (uint16_t)(TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_MSC_DESC_LEN +
+        layout.serial_count * TUD_CDC_DESC_LEN + layout.vendor_count * TUD_VENDOR_DESC_LEN);
     uint8_t staged[CONFIG_MAX_LEN];
 
     const uint8_t head[] = {
@@ -82,23 +97,56 @@ bool mclw_usb_descriptors_rebuild(void) {
     memset(staged, 0, sizeof(staged));
     memcpy(staged, head, sizeof(head));
     size_t at = sizeof(head);
-    for (size_t i = 0; i < count; i++) {
+    for (size_t i = 0; i < layout.serial_count; i++) {
+        const uint8_t cdc[] = {
+            TUD_CDC_DESCRIPTOR((uint8_t)(ITF_FUNCTION_FIRST + 2u * i), (uint8_t)(STR_FUNCTION_FIRST + count),
+                (uint8_t)EP_SERIAL_NOTIFY(i), 8, (uint8_t)EP_SERIAL_DATA(i), (uint8_t)(0x80 | EP_SERIAL_DATA(i)), 64),
+        };
+        memcpy(&staged[at], cdc, sizeof(cdc));
+        at += sizeof(cdc);
+        names[count++] = layout.serial_names[i];
+    }
+    for (size_t i = 0; i < layout.vendor_count; i++) {
         const uint8_t vendor[] = {
-            TUD_VENDOR_DESCRIPTOR((uint8_t)(ITF_VENDOR_FIRST + i), (uint8_t)(STR_VENDOR_FIRST + i),
+            TUD_VENDOR_DESCRIPTOR((uint8_t)(ITF_FUNCTION_FIRST + 2u * layout.serial_count + i),
+                (uint8_t)(STR_FUNCTION_FIRST + count),
                 (uint8_t)(EP_VENDOR_FIRST + i), (uint8_t)(0x80 | (EP_VENDOR_FIRST + i)), 64),
         };
         memcpy(&staged[at], vendor, sizeof(vendor));
         at += sizeof(vendor);
+        names[count++] = layout.vendor_names[i];
     }
 
-    bool changed = count != vendor_count || memcmp(staged, configuration_descriptor, sizeof(staged)) != 0;
+    bool changed = count != function_count || memcmp(staged, configuration_descriptor, sizeof(staged)) != 0;
     for (size_t i = 0; i < count && !changed; i++) {
-        changed = strcmp(names[i], vendor_names[i]) != 0;
+        changed = strcmp(names[i], function_names[i]) != 0;
     }
     memcpy(configuration_descriptor, staged, sizeof(staged));
-    memcpy(vendor_names, names, count * sizeof(names[0]));
-    vendor_count = count;
+    memcpy(function_names, names, count * sizeof(names[0]));
+    function_count = count;
+    serial_count = layout.serial_count;
     return changed;
+}
+
+bool mclw_usb_descriptors_match(const struct mclw_usb_layout *layout) {
+    const char *names[FUNCTION_MAX];
+    size_t count = 0;
+
+    for (size_t i = 0; i < layout->serial_count; i++) {
+        names[count++] = layout->serial_names[i];
+    }
+    for (size_t i = 0; i < layout->vendor_count; i++) {
+        names[count++] = layout->vendor_names[i];
+    }
+    if (count != function_count || layout->serial_count != serial_count) {
+        return false;
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (strcmp(names[i], function_names[i]) != 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 const char *mclw_hal_usb_serial(void) {
@@ -129,10 +177,10 @@ const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     } else {
         if (index == STR_SERIAL) {
             str = mclw_hal_usb_serial();
-        } else if (index < STR_VENDOR_FIRST) {
+        } else if (index < STR_FUNCTION_FIRST) {
             str = strings[index];
-        } else if ((size_t)(index - STR_VENDOR_FIRST) < vendor_count) {
-            str = vendor_names[index - STR_VENDOR_FIRST];
+        } else if ((size_t)(index - STR_FUNCTION_FIRST) < function_count) {
+            str = function_names[index - STR_FUNCTION_FIRST];
         } else {
             return NULL;
         }

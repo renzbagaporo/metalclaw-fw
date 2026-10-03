@@ -48,7 +48,7 @@ static int64_t reenum_alarm_cb(alarm_id_t id, void *user) {
     (void)id;
     (void)user;
     reenum_alarm = 0;
-    mp_sched_schedule_node(&usb_task_node, usb_task_callback);
+    mclw_usb_schedule();
     return 0;
 }
 
@@ -100,6 +100,7 @@ void mclw_usb_task(void) {
     if (tud_inited()) {
         tud_task_ext(0, false);
     }
+    mclw_usb_serial_pump();
 }
 
 static void usb_task_callback(mp_sched_node_t *node) {
@@ -107,11 +108,15 @@ static void usb_task_callback(mp_sched_node_t *node) {
     mclw_usb_task();
 }
 
+void mclw_usb_schedule(void) {
+    mp_sched_schedule_node(&usb_task_node, usb_task_callback);
+}
+
 void tud_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr) {
     (void)rhport;
     (void)eventid;
     (void)in_isr;
-    mp_sched_schedule_node(&usb_task_node, usb_task_callback);
+    mclw_usb_schedule();
 }
 
 void tud_cdc_rx_cb(uint8_t itf) {

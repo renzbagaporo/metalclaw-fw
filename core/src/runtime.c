@@ -150,22 +150,36 @@ static void release_arena(const struct mclw_instance *inst) {
     }
 }
 
-struct usb_rx_context {
+struct usb_context {
     struct mclw_instance *inst;
     size_t binding;
 };
 
-static void usb_rx_trampoline(struct mclw_usb_interface *itf, const uint8_t *data, size_t len, void *ctx) {
+// Bytes for an instance that is not attached, or has no usb_rx, are taken
+// and dropped so the host is never held off by nobody.
+static size_t usb_rx_trampoline(struct mclw_usb_interface *itf, const uint8_t *data, size_t len, void *ctx) {
     (void)itf;
-    struct usb_rx_context *c = ctx;
+    struct usb_context *c = ctx;
+    size_t taken = len;
     mclw_hal_lock();
     if (c->inst->attached && c->inst->model->ops->usb_rx != NULL) {
-        c->inst->model->ops->usb_rx(c->inst, c->binding, data, len);
+        taken = c->inst->model->ops->usb_rx(c->inst, c->binding, data, len);
+    }
+    mclw_hal_unlock();
+    return taken < len ? taken : len;
+}
+
+static void usb_control_trampoline(struct mclw_usb_interface *itf, void *ctx) {
+    (void)itf;
+    struct usb_context *c = ctx;
+    mclw_hal_lock();
+    if (c->inst->attached && c->inst->model->ops->usb_control != NULL) {
+        c->inst->model->ops->usb_control(c->inst, c->binding);
     }
     mclw_hal_unlock();
 }
 
-static struct usb_rx_context usb_contexts[METALCLAW_INSTANCES_MAX][MCLW_INSTANCE_BINDINGS_MAX];
+static struct usb_context usb_contexts[METALCLAW_INSTANCES_MAX][MCLW_INSTANCE_BINDINGS_MAX];
 
 static int resolve_binding(struct mclw_instance *inst, size_t index, const struct mclw_binding_desc *desc,
     const struct mclw_binding_request *req, struct mclw_binding *out) {
@@ -178,10 +192,10 @@ static int resolve_binding(struct mclw_instance *inst, size_t index, const struc
         if (desc->usb == NULL) {
             return -EINVAL;
         }
-        struct usb_rx_context *ctx = &usb_contexts[inst - instances][index];
+        struct usb_context *ctx = &usb_contexts[inst - instances][index];
         ctx->inst = inst;
         ctx->binding = index;
-        out->usb = mclw_hal_usb_open(desc->usb, usb_rx_trampoline, ctx, inst, &err);
+        out->usb = mclw_hal_usb_open(desc->usb, usb_rx_trampoline, usb_control_trampoline, ctx, inst, &err);
         if (out->usb == NULL) {
             return err;
         }

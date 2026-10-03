@@ -81,6 +81,7 @@ static const struct mclw_property_desc probe_properties[] = {
 
 static const struct mclw_usb_interface_desc dap_interface = {
     .name = "CMSIS-DAP v2",
+    .function = MCLW_USB_VENDOR,
 };
 
 static const struct mclw_binding_desc probe_bindings[] = {
@@ -157,18 +158,19 @@ static int probe_set(struct mclw_instance *inst, size_t property,
     }
 }
 
-static void probe_usb_rx(struct mclw_instance *inst, size_t binding, const uint8_t *data,
+static size_t probe_usb_rx(struct mclw_instance *inst, size_t binding, const uint8_t *data,
     size_t len) {
     struct swd_probe_state *state = inst->state;
     size_t response_length;
 
     if (binding != (size_t)BINDING_DAP || state->usb == NULL) {
-        return;
+        return len;
     }
     response_length = mclw_dap_process(&state->dap, data, len);
     if (response_length != 0u) {
         (void)mclw_hal_usb_write(state->usb, state->dap.response, response_length);
     }
+    return len;
 }
 
 static const struct mclw_model_ops probe_ops = {
@@ -183,6 +185,7 @@ static const struct mclw_model_ops probe_ops = {
     .write_region = NULL,
     .time_advanced = NULL,
     .usb_rx = probe_usb_rx,
+    .usb_control = NULL,
 };
 
 const struct mclw_model mclw_model_swd_probe = {

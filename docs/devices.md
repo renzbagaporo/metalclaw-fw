@@ -36,8 +36,10 @@ an ops table:
   `swd_wire` takes a tuple `(swclk, swdio[, nreset])`; `i2c_target` takes a
   tuple `(sda, scl, address)`; `spi_target` takes `(sck, mosi, miso, cs)`;
   `uart` takes `(tx, rx)`; `usb_interface` takes no keyword, the runtime
-  allocates it from the descriptor the model carries and delivers packets to
-  the model's `usb_rx` op.
+  allocates it from the descriptor the model carries (a vendor interface or
+  a serial port, and its interface string) and delivers what the host sends
+  to the model's `usb_rx` op, and a serial port's line coding and control
+  line changes to its `usb_control` op.
   An `spi_target` binding carries the part's datasheet facts (the SPI modes
   it supports, the default, bit order) and a `uart` binding its default baud
   and format; the runtime opens the engine with them and `schema()` shows
@@ -46,7 +48,8 @@ an ops table:
 - **state_size**: bytes of zeroed state the runtime hands the model.
 - **ops**: `init` and `deinit` are required; `reset`, `get`, `set`,
   `inject_fault`, `clear_faults`, `read_region`, `write_region`,
-  `time_advanced`, `usb_rx` are optional and report `ENOTSUP` when absent.
+  `time_advanced`, `usb_rx`, `usb_control` are optional and report
+  `ENOTSUP` when absent.
 - **config**: the model's own constant data, for one source that defines
   several models (`icm4268x` picks its `WHO_AM_I` from it). The runtime never
   reads it.
@@ -107,7 +110,7 @@ enabled on core 1, so MicroPython's atomic sections never delay one.
 | Model entry point | Runs on | Holds |
 | --- | --- | --- |
 | `get`, `set`, `reset`, regions, faults | core 0, the script's thread | the runtime lock |
-| `usb_rx` | core 0, the USB task | the runtime lock |
+| `usb_rx`, `usb_control` | core 0, the USB task | the runtime lock |
 | `time_advanced` | the worker | the runtime lock |
 | `uart` `on_rx` | the worker | the runtime lock |
 | `command` `on_window` | the worker | the runtime lock |
@@ -206,8 +209,10 @@ port exists.
   14 instruction words shared by every PIO UART on that block, DMA both
   ways, 8 data bits, no parity, one or two stop bits, two at once at most.
   Its receive ring holds 1 KiB, about 90 ms at 115200 baud.
-- `usb.h`: a vendor bulk interface on the composite device, with a receive
-  callback and a write; see [usb.md](usb.md).
+- `usb.h`: a function on the composite device, a vendor bulk interface or
+  a CDC ACM serial port, with a receive callback that says how much it
+  took, a control callback for a serial port's line coding and lines, and
+  a write; see [usb.md](usb.md).
 - `console.h`: the channel the harness's own REPL runs over; the port owns
   the transport.
 
