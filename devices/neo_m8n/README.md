@@ -47,7 +47,7 @@ gnss.detach()
 | `satellites` | u32 | rw | | 0 .. 32 | `NAV-PVT.numSV` |
 | `fix` | u32 | rw | | 0 .. 5 | `NAV-PVT.fixType`; 0 is no fix, 3 a 3D fix; any fix sets `gnssFixOK` and the `valid` bits |
 | `pdop` | u32 | rw | 0.01 | | `NAV-PVT.pDOP`; the driver reports it as `hdop` ×10 |
-| `time` | i32[6] | rw | | | UTC year, month, day, hour, minute, second |
+| `time` | i32[6] | rw | | | UTC year, month, day, hour, minute, second; a set is the time the next fix carries, and from that fix on it runs with the simulation clock |
 | `baud` | u32 | rw | baud | 4800 .. 921600 | the rate the port listens at; a `CFG-PRT` from the DUT moves it too |
 | `rate_ms` | u32 | ro | ms | | `measRate` as the DUT left it with `CFG-RATE` |
 | `nav_pvt_rate` | u32 | ro | | | the `NAV-PVT` output rate the DUT set with `CFG-MSG`; 0 until it does |
@@ -57,8 +57,8 @@ gnss.detach()
 | `fixes` | u32 | ro | | | `NAV-PVT` frames sent |
 
 At power-on there is no fix: position, speed and heading are zero, `fix` is
-0, `pdop` 2.50, the time is 2015-01-01 00:00:00, and the port is at 9600
-baud with `NAV-PVT` output off, as on the real part. `reset()` returns to
+0, `pdop` 2.50, the first fix carries 2015-01-01 00:00:00, and the port is at
+9600 baud with `NAV-PVT` output off, as on the real part. `reset()` returns to
 that state, including the baud rate; `factory` changes nothing further.
 There are no regions and no faults.
 
@@ -85,10 +85,11 @@ the old rate; the engine's `set_baud` drains the transmit queue first.
 
 `NAV-PVT` (01 07, 92 bytes) goes out from `time_advanced`: when the
 simulation clock reaches the next fix interval (`rate_ms`), the receiver is
-running and `nav_pvt_rate` is non-zero, one frame is sent and the next
-interval is scheduled from then. A jump of several intervals in one
-`advance_us()` produces one frame, not several. `iTOW` counts `fixes ×
-rate_ms`. Nothing is sent unsolicited before the DUT enables the message,
+running and `nav_pvt_rate` is non-zero, one frame is sent. Fixes fall on a
+grid of `rate_ms` from the first, so the UTC they carry stays on whole
+intervals; a jump of several intervals in one `advance_us()` produces one
+frame, not several, and the grid restarts from it. The UTC fields and
+`nano` are the fix's own time. `iTOW` counts `fixes × rate_ms`. Nothing is sent unsolicited before the DUT enables the message,
 which also keeps Zephyr's UBX layer safe: it dereferences a script that does
 not exist yet if a frame arrives before its first poll.
 

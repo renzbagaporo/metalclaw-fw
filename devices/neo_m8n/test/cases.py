@@ -139,13 +139,15 @@ def test_no_fix_is_reported_as_no_fix(dut, receiver):
     assert result["fix_quality"] == FIX_QUALITY_INVALID
 
 
+# Fixes fall on a grid whose phase is wherever the clock stood when it was
+# paused, so a half interval may or may not hold one; two halves hold one.
 def test_one_fix_per_interval(dut, receiver):
     receiver.set(fix=3)
     receiver.advance(FIX_RATE_MS)
     before = gnss(dut)["fixes"]
     bytes_before = receiver.stats()["bytes_tx"]
     receiver.advance(FIX_RATE_MS // 2)
-    assert gnss(dut)["fixes"] == before
+    assert gnss(dut)["fixes"] in (before, before + 1)
     receiver.advance(FIX_RATE_MS // 2)
     assert gnss(dut)["fixes"] == before + 1
     receiver.advance(FIX_RATE_MS * 5)

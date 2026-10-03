@@ -60,7 +60,13 @@ struct neo_m8n_state {
     uint8_t satellites;
     uint8_t fix;
     uint16_t pdop;
-    int32_t time[6];
+    // UTC in ms since 1970. A set waits in utc_set_ms for the next fix,
+    // which anchors it to that epoch's simulation time.
+    int64_t utc_set_ms;
+    int64_t utc_anchor_ms;
+    uint64_t utc_anchor_us;
+    bool utc_pending;
+    int64_t epoch_utc_ms;
     uint32_t baud;
     uint16_t rate_ms;
     uint16_t nav_rate;
@@ -268,6 +274,63 @@ static uint32_t get_u32(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
+static int64_t floor_div(int64_t a, int64_t b) {
+    return a / b - ((a % b != 0 && (a < 0) != (b < 0)) ? 1 : 0);
+}
+
+// Proleptic Gregorian calendar, days relative to 1970-01-01 (H. Hinnant,
+// "chrono-compatible low-level date algorithms").
+static int64_t days_from_civil(int64_t year, int64_t month, int64_t day) {
+    int64_t m0 = month - 1;
+    int64_t y = year + floor_div(m0, 12);
+    int64_t m = m0 - floor_div(m0, 12) * 12 + 1;
+
+    y -= m <= 2 ? 1 : 0;
+    int64_t era = floor_div(y, 400);
+    int64_t yoe = y - era * 400;
+    int64_t doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + day - 1;
+    int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+// Fields: year, month, day, hour, minute, second, millisecond.
+static void civil_from_ms(int64_t utc_ms, int32_t fields[7]) {
+    int64_t days = floor_div(utc_ms, 86400000);
+    int64_t ms = utc_ms - days * 86400000;
+    int64_t z = days + 719468;
+    int64_t era = floor_div(z, 146097);
+    int64_t doe = z - era * 146097;
+    int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    int64_t mp = (5 * doy + 2) / 153;
+    int64_t month = mp < 10 ? mp + 3 : mp - 9;
+
+    fields[0] = (int32_t)(yoe + era * 400 + (month <= 2 ? 1 : 0));
+    fields[1] = (int32_t)month;
+    fields[2] = (int32_t)(doy - (153 * mp + 2) / 5 + 1);
+    fields[3] = (int32_t)(ms / 3600000);
+    fields[4] = (int32_t)(ms / 60000 % 60);
+    fields[5] = (int32_t)(ms / 1000 % 60);
+    fields[6] = (int32_t)(ms % 1000);
+}
+
+static int64_t ms_from_civil(const int64_t fields[6]) {
+    int64_t days = days_from_civil(fields[0], fields[1], fields[2]);
+
+    return (((days * 24 + fields[3]) * 60 + fields[4]) * 60 + fields[5]) * 1000;
+}
+
+// The UTC of an epoch at simulation time t_us. A pending set takes effect
+// here: the first fix after it carries exactly the time set.
+static int64_t utc_at_epoch(struct neo_m8n_state *state, uint64_t t_us) {
+    if (state->utc_pending) {
+        state->utc_anchor_ms = state->utc_set_ms;
+        state->utc_anchor_us = t_us;
+        state->utc_pending = false;
+    }
+    return state->utc_anchor_ms + (int64_t)((t_us - state->utc_anchor_us) / 1000u);
+}
+
 // Frames `payload` as UBX in state->frame and queues it. The checksum is
 // 8-bit Fletcher over class, id, length and payload.
 static void send_frame(struct neo_m8n_state *state, uint8_t cls, uint8_t id, const uint8_t *payload, uint16_t len) {
@@ -361,20 +424,23 @@ static void send_nav_pvt(struct neo_m8n_state *state) {
     uint8_t p[UBX_NAV_PVT_LEN];
     uint8_t valid = 0;
     uint8_t flags = 0;
+    int32_t utc[7];
 
     memset(p, 0, sizeof(p));
     if (state->fix != UBX_NAV_PVT_FIX_NONE) {
         valid = UBX_NAV_PVT_VALID_DATE | UBX_NAV_PVT_VALID_TIME | UBX_NAV_PVT_VALID_FULLY_RESOLVED;
         flags = UBX_NAV_PVT_FLAGS_GNSS_FIX_OK;
     }
+    civil_from_ms(state->epoch_utc_ms, utc);
     put_u32(&p[0], (uint32_t)(state->fixes * (uint32_t)state->rate_ms));
-    put_u16(&p[4], (uint16_t)state->time[0]);
-    p[6] = (uint8_t)state->time[1];
-    p[7] = (uint8_t)state->time[2];
-    p[8] = (uint8_t)state->time[3];
-    p[9] = (uint8_t)state->time[4];
-    p[10] = (uint8_t)state->time[5];
+    put_u16(&p[4], (uint16_t)utc[0]);
+    p[6] = (uint8_t)utc[1];
+    p[7] = (uint8_t)utc[2];
+    p[8] = (uint8_t)utc[3];
+    p[9] = (uint8_t)utc[4];
+    p[10] = (uint8_t)utc[5];
     p[11] = valid;
+    put_u32(&p[16], (uint32_t)(utc[6] * 1000000));
     p[20] = state->fix;
     p[21] = flags;
     p[23] = state->satellites;
@@ -572,10 +638,8 @@ static void power_on(struct neo_m8n_state *state) {
     state->satellites = 0;
     state->fix = UBX_NAV_PVT_FIX_NONE;
     state->pdop = NEO_M8N_DEFAULT_PDOP;
-    memset(state->time, 0, sizeof(state->time));
-    state->time[0] = 2015;
-    state->time[1] = 1;
-    state->time[2] = 1;
+    state->utc_set_ms = ms_from_civil((const int64_t[6]){ 2015, 1, 1, 0, 0, 0 });
+    state->utc_pending = true;
     state->rate_ms = NEO_M8N_DEFAULT_RATE_MS;
     state->nav_rate = NEO_M8N_DEFAULT_NAV_RATE;
     state->time_ref = NEO_M8N_DEFAULT_TIME_REF;
@@ -642,11 +706,16 @@ static int neo_m8n_get(struct mclw_instance *inst, size_t property, struct mclw_
         case PROP_PDOP:
             out->v[0] = state->pdop;
             return 0;
-        case PROP_TIME:
+        case PROP_TIME: {
+            int32_t utc[7];
+
+            civil_from_ms(state->utc_pending ? state->utc_set_ms
+                : state->utc_anchor_ms + (int64_t)((mclw_now_us() - state->utc_anchor_us) / 1000u), utc);
             for (size_t i = 0; i < 6; i++) {
-                out->v[i] = state->time[i];
+                out->v[i] = utc[i];
             }
             return 0;
+        }
         case PROP_BAUD:
             out->v[0] = state->baud;
             return 0;
@@ -701,11 +770,16 @@ static int neo_m8n_set(struct mclw_instance *inst, size_t property, const struct
         case PROP_PDOP:
             state->pdop = (uint16_t)in->v[0];
             return 0;
-        case PROP_TIME:
+        case PROP_TIME: {
+            int64_t fields[6];
+
             for (size_t i = 0; i < 6; i++) {
-                state->time[i] = (int32_t)in->v[i];
+                fields[i] = in->v[i];
             }
+            state->utc_set_ms = ms_from_civil(fields);
+            state->utc_pending = true;
             return 0;
+        }
         case PROP_BAUD:
             apply_baud(state, (uint32_t)in->v[0]);
             return state->baud == (uint32_t)in->v[0] ? 0 : -EIO;
@@ -714,16 +788,26 @@ static int neo_m8n_set(struct mclw_instance *inst, size_t property, const struct
     }
 }
 
-// One NAV-PVT per fix interval while the receiver runs and the DUT asked
-// for the message; a jump of several intervals still produces one frame.
+// One epoch per fix interval, on a grid from the first so the UTC it
+// carries stays whole; a jump of several intervals still produces one
+// epoch, and the grid restarts from it.
 static void neo_m8n_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
     struct neo_m8n_state *state = inst->state;
+    uint64_t rate_us = (uint64_t)state->rate_ms * 1000u;
+    uint64_t epoch_us = now_us;
 
     if (now_us < state->next_fix_us) {
         return;
     }
-    state->next_fix_us = now_us + (uint64_t)state->rate_ms * 1000u;
-    if (state->running && state->nav_pvt_rate != 0) {
+    if (state->next_fix_us != 0 && now_us - state->next_fix_us < rate_us) {
+        epoch_us = state->next_fix_us;
+    }
+    state->next_fix_us = epoch_us + rate_us;
+    if (!state->running) {
+        return;
+    }
+    state->epoch_utc_ms = utc_at_epoch(state, epoch_us);
+    if (state->nav_pvt_rate != 0) {
         send_nav_pvt(state);
     }
 }
