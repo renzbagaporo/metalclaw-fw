@@ -118,6 +118,11 @@
 #define SX126X_TX_MODULATION_RESET 0x04u
 #define SX126X_REG_RX_GAIN 0x08ACu
 #define SX126X_RX_GAIN_RESET 0x94u
+// Undocumented. Meshtastic sets bit 0 for its RX fix; on a real SX1262 it
+// reads 0x04 and every Calibrate clears bit 0 again.
+#define SX126X_REG_RX_PATCH 0x08B5u
+#define SX126X_RX_PATCH_RESET 0x04u
+#define SX126X_RX_PATCH_CALIBRATE_CLEARS 0x01u
 #define SX126X_REG_TX_CLAMP 0x08D8u
 #define SX126X_TX_CLAMP_RESET 0xC8u
 #define SX126X_REG_OCP 0x08E7u

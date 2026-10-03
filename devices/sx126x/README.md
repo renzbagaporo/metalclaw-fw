@@ -214,6 +214,7 @@ Reset values:
 | `0x0740..0x0741` | `0x14 0x24` | LoRa sync word, private |
 | `0x0889` | `0x04` | TX modulation workaround |
 | `0x08AC` | `0x94` | RX gain |
+| `0x08B5` | `0x04` | undocumented; Meshtastic sets bit 0 for its RX fix and every `Calibrate` clears it, as on the part |
 | `0x08D8` | `0xC8` | TX clamp workaround |
 | `0x08E7` | per model | over-current protection; `SetPaConfig` sets it for the PA chosen |
 | `0x0911..0x0912` | `0x05` | XTA/XTB trim; `SetDio3AsTcxoCtrl` sets `0x2F` |

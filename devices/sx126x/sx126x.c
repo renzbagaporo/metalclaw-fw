@@ -606,6 +606,7 @@ static void power_on(struct sx126x_state *state) {
     set_register(state, SX126X_REG_LORA_SYNC_WORD + 1u, (uint8_t)SX126X_LORA_SYNC_WORD_PRIVATE);
     set_register(state, SX126X_REG_TX_MODULATION, SX126X_TX_MODULATION_RESET);
     set_register(state, SX126X_REG_RX_GAIN, SX126X_RX_GAIN_RESET);
+    set_register(state, SX126X_REG_RX_PATCH, SX126X_RX_PATCH_RESET);
     set_register(state, SX126X_REG_TX_CLAMP, SX126X_TX_CLAMP_RESET);
     set_register(state, SX126X_REG_OCP, state->config->ocp_reset);
     set_register(state, SX126X_REG_XTA_TRIM, SX126X_XTAL_TRIM_RESET);
@@ -1028,8 +1029,15 @@ static bool execute(struct sx126x_state *state, uint8_t op, const uint8_t *p, si
             }
             state->fallback = p[0] == 0x40u ? MODE_FS : (p[0] == 0x30u ? MODE_STBY_XOSC : MODE_STBY_RC);
             return true;
-        case SX126X_OP_SET_REGULATOR_MODE:
         case SX126X_OP_CALIBRATE:
+            if (!params(n, 1)) {
+                return false;
+            }
+            set_register(state, SX126X_REG_RX_PATCH,
+                (uint8_t)(mclw_command_get_register(&state->image, SX126X_REG_RX_PATCH) &
+                    ~SX126X_RX_PATCH_CALIBRATE_CLEARS));
+            return true;
+        case SX126X_OP_SET_REGULATOR_MODE:
         case SX126X_OP_SET_LORA_SYMB_NUM_TIMEOUT:
             return params(n, 1);
         case SX126X_OP_CALIBRATE_IMAGE:
