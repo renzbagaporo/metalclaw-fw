@@ -149,7 +149,8 @@ port exists.
   in RAM.
 - `pins.h`: pin ownership. Claims are per owner; a board may name pins that
   no device may ever claim with `METALCLAW_RESERVED_PINS`.
-- `gpio.h`: one pin driven or sampled by a device.
+- `gpio.h`: one pin driven or sampled by a device. An input also latches a
+  fall, so a pulse that comes and goes between two reads is still seen.
 - `swd.h`: the SWD wire: transfers, bit sequences, pin control, clock. On
   rp2 it is a PIO program; every wait is bounded and a timeout resyncs the
   state machine.

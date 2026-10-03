@@ -46,6 +46,7 @@ struct mclw_gpio *mclw_hal_gpio_open(uint8_t pin, bool output, enum mclw_gpio_pu
         gpio_set_dir(pin, GPIO_OUT);
     } else {
         gpio_set_dir(pin, GPIO_IN);
+        gpio_acknowledge_irq(pin, GPIO_IRQ_EDGE_FALL);
     }
     return g;
 }
@@ -67,6 +68,20 @@ void mclw_hal_gpio_write(struct mclw_gpio *g, bool level) {
 
 bool mclw_hal_gpio_read(const struct mclw_gpio *g) {
     return gpio_get(g->pin);
+}
+
+// The bank's raw edge latch holds a fall whether or not any interrupt is
+// enabled for the pin. MicroPython's GPIO interrupt handler acknowledges
+// every pin's latches when a Pin.irq fires, so with one in use a fall can
+// still go unseen.
+bool mclw_hal_gpio_fell(struct mclw_gpio *g) {
+    uint32_t events = io_bank0_hw->intr[g->pin / 8u] >> (4u * (g->pin % 8u));
+
+    if ((events & GPIO_IRQ_EDGE_FALL) == 0u) {
+        return false;
+    }
+    gpio_acknowledge_irq(g->pin, GPIO_IRQ_EDGE_FALL);
+    return true;
 }
 
 uint8_t mclw_hal_gpio_pin(const struct mclw_gpio *g) {

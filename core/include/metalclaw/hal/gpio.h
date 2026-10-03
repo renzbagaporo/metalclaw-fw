@@ -24,6 +24,9 @@ void mclw_hal_gpio_close(struct mclw_gpio *gpio);
 
 void mclw_hal_gpio_write(struct mclw_gpio *gpio, bool level);
 bool mclw_hal_gpio_read(const struct mclw_gpio *gpio);
+// Whether an input went low since the last call or since it was opened,
+// however briefly: a pulse between two reads is not lost.
+bool mclw_hal_gpio_fell(struct mclw_gpio *gpio);
 uint8_t mclw_hal_gpio_pin(const struct mclw_gpio *gpio);
 
 #endif
