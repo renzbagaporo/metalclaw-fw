@@ -92,8 +92,9 @@ are in [test/rig/dut/README.md](../test/rig/dut/README.md). The commands are
 per Zephyr subsystem, not per part: `SENSOR <alias> <channel>...` fetches
 through the sensor API, `SPI <alias> [hz] [bytes] [count] [gap_us]` clocks
 master windows, `RAW` clocks a window of given bytes (repeated, for a burst),
-`GNSS` reads the GNSS API and `LORA` configures, sends and receives through
-the LoRa API; what a value means is the case's business. A device package
+`PULSE` holds a reset line active for a while, `GNSS` reads the GNSS API and
+`LORA` configures, sends and receives through the LoRa API; what a value
+means is the case's business. A device package
 adds a devicetree overlay and a Kconfig fragment under
 `devices/<name>/test/dut/rp2.{overlay,conf}` so that Zephyr's real driver for
 that part exercises the simulated one; `just build-dut <name>` applies them and

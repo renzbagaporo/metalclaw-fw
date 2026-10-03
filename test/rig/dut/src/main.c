@@ -12,6 +12,9 @@
 #if defined(CONFIG_SPI)
 #include <zephyr/drivers/spi.h>
 #endif
+#if defined(CONFIG_GPIO)
+#include <zephyr/drivers/gpio.h>
+#endif
 #if defined(CONFIG_GNSS)
 #include <zephyr/drivers/gnss.h>
 #endif
@@ -774,6 +777,52 @@ static void emit_raw(const char *args)
 #endif
 
 /*
+ * `PULSE <us>`: holds the `reset` alias's line active for `us` microseconds,
+ * as a host resets a part through its reset pin. The image drives the line
+ * inactive from boot.
+ */
+#if defined(CONFIG_GPIO) && DT_NODE_EXISTS(DT_ALIAS(reset))
+static const struct gpio_dt_spec pulse_line = GPIO_DT_SPEC_GET(DT_ALIAS(reset), gpios);
+
+static void pulse_init(void)
+{
+	(void)gpio_pin_configure_dt(&pulse_line, GPIO_OUTPUT_INACTIVE);
+}
+
+static void emit_pulse(const char *args)
+{
+	char *end;
+	unsigned long us = strtoul(args, &end, 10);
+	int rc = end == args ? -EINVAL : gpio_pin_set_dt(&pulse_line, 1);
+
+	if (rc == 0) {
+		k_busy_wait((uint32_t)us);
+		rc = gpio_pin_set_dt(&pulse_line, 0);
+	}
+	if (rc != 0) {
+		snprintf(result_line, sizeof(result_line),
+			"MCLW-HIL/1 {\"test\":\"test_pulse\",\"status\":\"error\",\"errno\":%d}\r\n", -rc);
+	} else {
+		snprintf(result_line, sizeof(result_line),
+			"MCLW-HIL/1 {\"test\":\"test_pulse\",\"status\":\"ok\",\"us\":%lu}\r\n", us);
+	}
+	mclw_dut_mailbox_write(result_line);
+}
+#else
+static void pulse_init(void)
+{
+}
+
+static void emit_pulse(const char *args)
+{
+	(void)args;
+	snprintf(result_line, sizeof(result_line),
+		"MCLW-HIL/1 {\"test\":\"test_pulse\",\"status\":\"error\",\"detail\":\"no reset line in this image\"}\r\n");
+	mclw_dut_mailbox_write(result_line);
+}
+#endif
+
+/*
  * `GNSS`: the last fix Zephyr's GNSS driver published for the `gnss` alias,
  * in the API's units, and how many it has published since boot. `GNSS RATE`,
  * `GNSS NAV` and `GNSS SYSTEMS` go to the driver's pull API, which polls the
@@ -876,6 +925,8 @@ static void dispatch(const char *command)
 		emit_spi(command + 4);
 	} else if (strncmp(command, "RAW ", 4) == 0) {
 		emit_raw(command + 4);
+	} else if (strncmp(command, "PULSE ", 6) == 0) {
+		emit_pulse(command + 6);
 	} else if (strncmp(command, "LORA ", 5) == 0) {
 		emit_lora(command + 5);
 	} else if (strcmp(command, "GNSS") == 0) {
@@ -895,6 +946,7 @@ int main(void)
 	}
 	boot_count++;
 	mclw_dut_mailbox_init();
+	pulse_init();
 	emit_identity("test_boot");
 	while (true) {
 		if (mclw_dut_mailbox_poll(command_line, sizeof(command_line))) {
