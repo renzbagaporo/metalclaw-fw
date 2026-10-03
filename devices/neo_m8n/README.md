@@ -217,9 +217,10 @@ its build date, so a scenario sets `time` to a current date. With a GPS
 update interval over 10 s it puts the part to sleep between fixes with
 `RXM-PMREQ` and wakes it with a 0xFF byte.
 
-## The DUT image
+## The DUT images
 
-Two images, the same driver on either of the DUT's UARTs.
+Three images: Zephyr's u-blox driver on either of the DUT's UARTs, and its
+generic NMEA driver on UART1.
 `test/dut/rp2.overlay` puts `uart0` on GP0/GP1 at `current-speed` 115200
 with a `u-blox,m8` node aliased `gnss`, `initial-baudrate` 9600 and
 `fix-rate` 1000 ms, and removes the console from that UART. The two rates
@@ -235,13 +236,18 @@ the driver's baud negotiation runs on that engine:
 gnss = metalclaw.attach("neo_m8n", "gnss", uart=(9, 8))
 ```
 
+`test/dut/nmea/` puts a `gnss-nmea-generic` node aliased `gnss` on the same
+`uart1` pins at 9600 baud. That driver sends nothing; it reads GGA and RMC
+and publishes a fix when both carry the same UTC (a UTC of 00:00:00.000 it
+takes for none), so it sees the receiver exactly as the part starts up.
+
 The DUT command is `GNSS`: the last fix the driver published, in the GNSS
 API's units, and how many it has published since boot. `GNSS RATE`,
-`GNSS NAV` and `GNSS SYSTEMS` go through the driver's pull API, which polls
-the receiver.
+`GNSS NAV` and `GNSS SYSTEMS` go through the u-blox driver's pull API,
+which polls the receiver.
 
 ```sh
-just build-dut neo_m8n          # or neo_m8n/uart1
+just build-dut neo_m8n          # or neo_m8n/uart1, neo_m8n/nmea
 METALCLAW_HARNESS_SERIAL=<serial> METALCLAW_ARM_TOOLCHAIN_DIR=<dir> \
 METALCLAW_DUT_DEVICE=neo_m8n just test hardware
 ```
@@ -258,6 +264,14 @@ five-second jump sends one; the pull API returns the fix rate, navigation
 mode and systems the model publishes; and with the part moved to 38400 from
 the harness the driver does not come up, while a `reset()` back to 9600 and
 a DUT reset bring it back with the fix flowing.
+
+On `neo_m8n/nmea` the cases attach on `(9, 8)` and check the power-up port
+setting (9600 baud, UBX, NMEA and RTCM in, UBX and NMEA out, all six
+sentences every epoch, NMEA 4.0, GPS and GLONASS); four injected fixes come
+back through the generic driver within the sentences' resolution (84
+nanodegrees, 50 mm, 0.01°), with satellites, HDOP and UTC exact; a
+time-only fix is published as no fix and no fix publishes nothing; and with
+the clock running a fix reaches the DUT every second with nothing dropped.
 
 ## Not modelled
 

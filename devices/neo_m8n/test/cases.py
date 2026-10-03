@@ -5,9 +5,12 @@ import time
 import pytest
 
 NAME = "gnss"
-# The DUT's UART0 on the crossed pair, or its UART1 on pins only the
-# harness's PIO UART can serve.
+# Zephyr's u-blox driver on the DUT's UART0 on the crossed pair, or on its
+# UART1 on pins only the harness's PIO UART can serve.
 IMAGES = {"neo_m8n": "uart", "neo_m8n/uart1": "uart1"}
+# Zephyr's generic NMEA driver on UART1, reading what the part sends from
+# power-up.
+NMEA_IMAGES = {"neo_m8n/nmea": "uart1"}
 
 CURRENT_SPEED = 115200
 INITIAL_BAUD = 9600
@@ -32,8 +35,8 @@ FIXES = [
 ]
 
 
-def attach(fixture, image):
-    uart = fixture[IMAGES[image]]
+def attach(fixture, uart_name):
+    uart = fixture[uart_name]
     pins = (uart["tx"], uart["rx"])
     return f"""import metalclaw
 for instance in metalclaw.instances():
@@ -84,7 +87,7 @@ def receiver(harness, dut, fixture):
     image = dut.image_name()
     if image not in IMAGES:
         pytest.skip(f"the DUT image is not built for neo_m8n ({image})")
-    harness.run(attach(fixture, image))
+    harness.run(attach(fixture, IMAGES[image]))
     r = Receiver(harness)
     r.pause()
     dut.reset()
@@ -193,3 +196,112 @@ def test_the_driver_only_comes_up_at_the_initial_baud(dut, receiver):
     result = gnss(dut)
     assert result["fixes"] == 1
     assert result["latitude_ndeg"] == 10000000000
+
+
+# NMEA as the part sends it from power-up, read by Zephyr's gnss-nmea-generic
+# driver: it publishes a fix when a GGA and an RMC carry the same UTC, and
+# takes a UTC of 00:00:00.000 for none, so no epoch here falls on midnight.
+NMEA_FIXES = [
+    (473977420, -1223321500, 52000, 1500, 9000000, 9, (2026, 9, 13, 5, 42, 7)),
+    (-338688200, 1512092900, -3000, 0, 0, 4, (2026, 1, 31, 23, 59, 50)),
+    (900000000, 1800000000, 8848860, 250000, 35999999, 32, (2027, 1, 1, 0, 0, 1)),
+    (0, 0, 0, 0, 27000000, 12, (2000, 2, 29, 12, 30, 0)),
+]
+NMEA_HDOP = 150
+NMEA_STEP_S = 0.6
+
+
+@pytest.fixture(scope="module")
+def nmea_receiver(harness, dut, fixture):
+    image = dut.image_name()
+    if image not in NMEA_IMAGES:
+        pytest.skip(f"the DUT image does not read NMEA ({image})")
+    harness.run(attach(fixture, NMEA_IMAGES[image]))
+    r = Receiver(harness)
+    r.pause()
+    dut.reset()
+    dut.ping()
+    yield r
+    r.resume()
+
+
+def nmea_step(receiver):
+    # One epoch with the clock paused: RMC, VTG and GGA leave at once and
+    # take about 200 ms at 9600 baud.
+    receiver.advance(FIX_RATE_MS)
+    time.sleep(NMEA_STEP_S)
+
+
+def test_nmea_is_on_from_power_up(nmea_receiver):
+    assert nmea_receiver.get("baud") == INITIAL_BAUD
+    assert nmea_receiver.get("protocols") == (7, 3)
+    assert nmea_receiver.get("nmea_rates") == (1, 1, 1, 1, 1, 1)
+    assert nmea_receiver.get("nmea_version") == 0x40
+    assert nmea_receiver.get("gnss") == SYSTEM_GPS | SYSTEM_GLONASS
+    assert nmea_receiver.get("nav_pvt_rate") == 0
+
+
+@pytest.mark.parametrize("latitude,longitude,altitude,speed,heading,satellites,utc", NMEA_FIXES)
+def test_the_dut_reads_the_injected_fix_from_nmea(dut, nmea_receiver, latitude, longitude, altitude, speed,
+                                                  heading, satellites, utc):
+    nmea_receiver.set(latitude=latitude, longitude=longitude, altitude=altitude, speed=speed,
+                      heading=heading, satellites=satellites, fix=3, hdop=NMEA_HDOP, time=utc)
+    before = gnss(dut)["fixes"]
+    nmea_step(nmea_receiver)
+    result = gnss(dut)
+    assert result["fixes"] == before + 1
+    assert result["fix_status"] == FIX_STATUS_GNSS_FIX
+    assert result["fix_quality"] == FIX_QUALITY_GNSS_SPS
+    # Minutes to 1e-5 in the sentence: within 84 nanodegrees.
+    assert abs(result["latitude_ndeg"] - latitude * 100) <= 84
+    assert abs(result["longitude_ndeg"] - longitude * 100) <= 84
+    # Altitude to 0.1 m.
+    assert abs(result["altitude_mm"] - altitude) <= 50
+    # Knots to 0.001; Zephyr's knot is 9 ppm off.
+    assert abs(result["speed_mmps"] - speed) <= 1 + speed // 50000
+    # Course to 0.01 degree, 360.00 written as 0.00.
+    assert result["bearing_mdeg"] == (heading + 500) // 1000 % 36000 * 10
+    assert result["satellites"] == satellites
+    assert result["hdop"] == NMEA_HDOP * 10
+    year, month, day, hour, minute, second = utc
+    assert result["utc"] == [year % 100, month, day, hour, minute, second * 1000]
+
+
+def test_time_without_a_position_is_no_fix(dut, nmea_receiver):
+    nmea_receiver.set(fix=5, time=(2026, 10, 3, 10, 0, 0))
+    before = gnss(dut)["fixes"]
+    nmea_step(nmea_receiver)
+    result = gnss(dut)
+    assert result["fixes"] == before + 1
+    assert result["fix_status"] == FIX_STATUS_NO_FIX
+    # No fix at all leaves the time out too: the driver has nothing to match.
+    nmea_receiver.set(fix=0)
+    nmea_step(nmea_receiver)
+    assert gnss(dut)["fixes"] == before + 1
+
+
+def test_nmea_streams_every_second_without_dropping(dut, nmea_receiver):
+    nmea_receiver.set(latitude=100000000, longitude=200000000, satellites=12, fix=3,
+                      time=(2026, 10, 3, 10, 0, 0))
+    nmea_receiver.resume()
+    try:
+        time.sleep(1.5)
+        dropped = nmea_receiver.get("dropped")
+        sentences = nmea_receiver.get("sentences")
+        # The fix count is sampled somewhere inside each command, which takes
+        # a good fraction of a second; the window is bounded by both.
+        t0 = time.monotonic()
+        before = gnss(dut)["fixes"]
+        t1 = time.monotonic()
+        time.sleep(3.0)
+        t2 = time.monotonic()
+        after = gnss(dut)["fixes"]
+        t3 = time.monotonic()
+        assert nmea_receiver.get("dropped") == dropped
+        # RMC, VTG, GGA, two GSA, two GPGSV, two GLGSV, GLL every second.
+        assert nmea_receiver.get("sentences") - sentences >= 2 * 10
+    finally:
+        nmea_receiver.pause()
+    assert int(t2 - t1) - 1 <= after - before <= int(t3 - t0) + 1
+    assert nmea_receiver.stats()["bytes_tx"] > 0
+    assert gnss(dut)["latitude_ndeg"] == 10000000000

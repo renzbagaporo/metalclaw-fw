@@ -101,10 +101,10 @@ builds `build/dut/<name>/`. A variant lives one level down,
 `test/dut/<variant>/rp2.{overlay,conf}`, is built with
 `just build-dut <name>/<variant>` and names itself `<name>/<variant>`.
 Images exist for `bmp388` (I2C) and `bmp388/spi`, `ads7883`, `icm4268x`,
-`neo_m8n` (UART0) and `neo_m8n/uart1`, `sx126x` (Zephyr's loramac-node
-driver), `sx126x/native` (its native driver) and `sx126x/raw` (a bare SPI
-device for byte-level cases), and `console_bridge`, whose image echoes its
-console UART.
+`neo_m8n` (UART0), `neo_m8n/uart1` and `neo_m8n/nmea` (Zephyr's generic NMEA
+driver on UART1), `sx126x` (Zephyr's loramac-node driver), `sx126x/native`
+(its native driver) and `sx126x/raw` (a bare SPI device for byte-level
+cases), and `console_bridge`, whose image echoes its console UART.
 
 The overlays follow the `fixture` description above: the SPI bus is
 GP18/GP19/GP16 with one GPIO chip select per part (the PL022's own chip
