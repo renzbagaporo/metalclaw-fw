@@ -108,7 +108,8 @@ void mclw_command_read_buffer(const struct mclw_command_image *image, uint8_t of
     size_t len);
 
 // Hands the edits so far to the engine: at once if no window is open,
-// otherwise when the open one ends. Thread context.
+// otherwise after the open one, before its on_window. Under the runtime
+// lock.
 void mclw_command_publish(struct mclw_command_image *image);
 
 #endif

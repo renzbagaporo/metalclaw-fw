@@ -10,8 +10,10 @@
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "hardware/pio.h"
+#include "hardware/regs/dreq.h"
 #include "pico/time.h"
 
+#include "metalclaw/hal/gpio.h"
 #include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/platform.h"
 #include "metalclaw/hal/spi_target.h"
@@ -27,7 +29,7 @@
 #define SPI_REGMAP_WRAP_TARGET 12u
 #define SPI_REGMAP_WRAP_TOP 10u
 #define SPI_REGMAP_ENTRY 14u
-#define SPI_MONITOR_ENTRY 29u
+#define SPI_MONITOR_ENTRY 28u
 #define SPI_MONITOR_WRAP_TOP 31u
 #define SPI_REST_LEAD 6u
 #define SPI_REST_SAMPLE 7u
@@ -63,12 +65,113 @@ enum spi_image {
     SPI_IMAGE_NONE,
     SPI_IMAGE_REGMAP,
     SPI_IMAGE_STREAM,
+    SPI_IMAGE_COMMAND,
 };
 
 struct spi_descriptor {
     uint32_t count;
     uint32_t source;
 };
+
+// A command image is served by a DMA program, not by the CPU. The stream
+// state machine shifts every MOSI byte into its RX FIFO and every MISO byte
+// out of its TX FIFO. The loader channel L copies 16-byte control blocks,
+// one at a time, into the worker channel W, which chains back to L when the
+// block is done. The blocks read the opcode, offset or address bytes from
+// the RX FIFO and patch them into the low bytes of later blocks and of
+// address templates (SRAM honours byte writes, DMA registers do not), which
+// is how a table lookup and an address composition happen without the CPU.
+// The data channel D streams the answer into the TX FIFO.
+//
+//   prologue  2 status bytes out; opcode -> &optab[op] -> jump -> L
+//   optab[op] picks a list: write, response, buffer read, register read
+//   pagetab   maps address bits 15..8 to the page's address bits 15..8
+//
+// A chain trigger fires before the last write of the finished block has
+// landed (measured on the bench). So the jump to a list writes L's
+// READ_ADDR through its trigger alias instead of chaining, and a block
+// that W patches is never the very next one L loads: a spacer block sits
+// between them, or the patch is written SPI_COMMAND_STEP_REPEAT times so
+// the first write has landed. Without these, about one window in a
+// thousand loaded a block from a stale address.
+//
+// A response read runs six blocks between the opcode's last bit and its
+// first data byte reaching the TX FIFO, which must happen within the one
+// byte time the status byte gives: about 600 ns, measured as a clean pass
+// at 12.5 MHz and a failure at 15 MHz. That sets the qualified clock.
+//
+// The structure is one 2 KiB table slot; the register pages are two more,
+// adjacent (see command_layout).
+struct spi_cb {
+    uint32_t read;
+    uint32_t write;
+    uint32_t count;
+    uint32_t ctrl;
+};
+
+// DMA AL1 order: CTRL, READ_ADDR, WRITE_ADDR, TRANS_COUNT_TRIG.
+struct spi_dblock {
+    uint32_t ctrl;
+    uint32_t read;
+    uint32_t write;
+    uint32_t count;
+};
+
+enum {
+    SPI_LIST_WRITE = 0,
+    SPI_LIST_RESPONSE = 3,
+    SPI_LIST_BUFFER = 8,
+    SPI_LIST_REGISTER = 13,
+    SPI_LIST_CBS = 21,
+};
+
+enum {
+    SPI_PROLOGUE_STATUS,
+    SPI_PROLOGUE_OPCODE,
+    SPI_PROLOGUE_SPACER,
+    SPI_PROLOGUE_LOOKUP,
+    SPI_PROLOGUE_JUMP,
+    SPI_PROLOGUE_CBS,
+};
+
+enum {
+    SPI_DBLOCK_WRITE,
+    SPI_DBLOCK_RESPONSE,
+    SPI_DBLOCK_BUFFER,
+    SPI_DBLOCK_REGISTER,
+    SPI_DBLOCKS,
+};
+
+#define SPI_COMMAND_PAGE_SLOTS (2 * MCLW_COMMAND_PAGES_MAX + 2)
+#define SPI_COMMAND_NO_OPCODE 0xffu
+#define SPI_COMMAND_STATUS_RUN 300u
+#define SPI_COMMAND_DATA_RUN 256u
+#define SPI_COMMAND_CLOCK_HZ 8000000u
+#define SPI_COMMAND_STEP_REPEAT 4u
+
+struct spi_command_block {
+    uint8_t optab[256];
+    uint8_t resptab[256];
+    uint8_t pagetab[256];
+    // List heads must sit within 256 bytes of `lists`: the jump template
+    // takes the head's low byte from optab.
+    struct spi_cb lists[SPI_LIST_CBS];
+    struct spi_cb prologue[SPI_PROLOGUE_CBS];
+    struct spi_dblock dblock[SPI_DBLOCKS];
+    uint32_t status;
+    uint32_t jump;
+    uint32_t scratch;
+    uint8_t unused[0x500 - 0x4ec];
+    uint8_t responses[MCLW_COMMAND_RESPONSES_MAX][MCLW_COMMAND_RESPONSE_MAX];
+    uint8_t unused2[0x600 - 0x580];
+    // Two copies, so a read from any offset runs on without wrapping.
+    uint8_t buffer[2 * MCLW_COMMAND_BUFFER_SIZE];
+};
+
+_Static_assert(sizeof(struct spi_command_block) == 2048u, "command block is one table slot");
+_Static_assert(offsetof(struct spi_command_block, lists) % 256u == 0u, "list base is page aligned");
+_Static_assert(offsetof(struct spi_command_block, buffer) % 256u == 0u, "buffer is page aligned");
+_Static_assert(SPI_LIST_REGISTER * sizeof(struct spi_cb) < 255u, "list heads fit a byte");
 
 struct spi_bus {
     uint8_t sck;
@@ -107,6 +210,16 @@ struct mclw_spi_target {
     struct mclw_regmap *map;
     struct mclw_regmap_framing framing;
     struct mclw_stream *stream;
+    struct mclw_command_image *command;
+    int8_t busy_pin;
+    volatile bool busy;
+    bool window_busy;
+    volatile bool shadow_pending;
+    volatile bool record_full;
+    uint8_t page_slot[MCLW_COMMAND_PAGES_MAX];
+    uint16_t record_len;
+    bool record_busy;
+    struct mclw_work record_work;
 
     uint8_t banks;
     uint8_t table[MCLW_REGMAP_BANKS_MAX];
@@ -124,6 +237,8 @@ struct mclw_spi_target {
 
     uint8_t tx_buf[SPI_BUFFER_BYTES];
     uint8_t capture[SPI_BUFFER_BYTES];
+    uint8_t record[MCLW_COMMAND_WINDOW_MAX + 1u];
+    uint8_t delivered[MCLW_COMMAND_WINDOW_MAX + 1u];
 
     struct mclw_spi_target_stats stats;
 };
@@ -140,8 +255,15 @@ static inline __attribute__((always_inline)) void sm_enable(uint sm, bool enable
 static struct spi_bus spi_bus;
 static struct mclw_spi_target targets[SPI_TARGET_COUNT];
 
-static struct spi_descriptor table_pool[SPI_TABLE_SLOTS][MCLW_REGMAP_BANK_SIZE]
-    __attribute__((aligned(SPI_TABLE_ALIGN)));
+union spi_table {
+    struct spi_descriptor descriptors[MCLW_REGMAP_BANK_SIZE];
+    struct spi_command_block command;
+};
+
+_Static_assert(SPI_COMMAND_PAGE_SLOTS * MCLW_COMMAND_PAGE_SIZE == 2 * sizeof(union spi_table),
+    "the page slots fill two table slots");
+
+static union spi_table table_pool[SPI_TABLE_SLOTS] __attribute__((aligned(SPI_TABLE_ALIGN)));
 
 static const uint8_t wait_slots[] = { 6u, 7u, 18u, 19u };
 
@@ -194,9 +316,11 @@ static void encode_program(struct spi_bus *bus, uint8_t sck, uint8_t cls) {
     p[25] = bus->program_dummy;
     p[26] = (uint16_t)pio_encode_out(pio_pins, 1u);
     p[27] = (uint16_t)pio_encode_jmp(5u);
-    p[28] = (uint16_t)pio_encode_nop();
-    p[29] = (uint16_t)pio_encode_wait_pin(false, 0u);
-    p[30] = (uint16_t)pio_encode_wait_pin(true, 0u);
+    // The monitor raises BUSY for a command image on its own SET pin; a
+    // monitor with no SET pin configured skips it.
+    p[28] = (uint16_t)pio_encode_wait_pin(false, 0u);
+    p[29] = (uint16_t)pio_encode_wait_pin(true, 0u);
+    p[30] = (uint16_t)pio_encode_set(pio_pins, 1u);
     p[31] = (uint16_t)pio_encode_irq_set(true, 0u);
 
     bus->program.instructions = bus->program_words;
@@ -364,7 +488,7 @@ static void __not_in_flash_func(quiesce)(const struct mclw_spi_target *t) {
     }
 }
 
-static void configure_sm(struct mclw_spi_target *t, bool regmap) {
+static void configure_sm(struct mclw_spi_target *t, enum spi_image image) {
     const struct spi_bus *bus = t->bus;
     pio_sm_config c = pio_get_default_sm_config();
 
@@ -372,14 +496,16 @@ static void configure_sm(struct mclw_spi_target *t, bool regmap) {
     sm_config_set_set_pins(&c, bus->miso, 1u);
     sm_config_set_in_pins(&c, bus->mosi);
     sm_config_set_jmp_pin(&c, t->cs);
-    if (regmap) {
+    if (image == SPI_IMAGE_REGMAP) {
         sm_config_set_out_shift(&c, false, false, 8u);
         sm_config_set_in_shift(&c, false, false, 32u);
         sm_config_set_wrap(&c, bus->program_offset + SPI_REGMAP_WRAP_TARGET,
             bus->program_offset + SPI_REGMAP_WRAP_TOP);
         pio_sm_init(SPI_PIO, t->sm, bus->program_offset + SPI_REGMAP_ENTRY, &c);
     } else {
-        sm_config_set_out_shift(&c, true, false, 8u);
+        // A command image is MSB first in the image; a stream frame is
+        // bit-reversed into tx_buf instead.
+        sm_config_set_out_shift(&c, image != SPI_IMAGE_COMMAND, false, 8u);
         sm_config_set_in_shift(&c, false, true, 8u);
         sm_config_set_wrap(&c, bus->program_offset + SPI_STREAM_WRAP_TARGET,
             bus->program_offset + SPI_STREAM_WRAP_TOP);
@@ -436,7 +562,7 @@ static void __not_in_flash_func(regmap_prepare)(struct mclw_spi_target *t, bool 
         bank = 0;
     }
     t->bank = bank;
-    table = table_pool[t->table[bank]];
+    table = table_pool[t->table[bank]].descriptors;
 
     sm_enable(t->sm, false);
     stop_dma(t);
@@ -547,11 +673,351 @@ static void __not_in_flash_func(stream_prepare)(struct mclw_spi_target *t, bool 
     sm_enable(t->sm, true);
 }
 
+static struct spi_command_block *command_block(const struct mclw_spi_target *t) {
+    return &table_pool[t->table[0]].command;
+}
+
+static uint8_t (*command_pages(const struct mclw_spi_target *t))[MCLW_COMMAND_PAGE_SIZE] {
+    return (uint8_t (*)[MCLW_COMMAND_PAGE_SIZE])(void *)&table_pool[t->table[1]];
+}
+
+static uint32_t command_ctrl(uint channel, uint chain_to, enum dma_channel_transfer_size size, bool read_increment,
+    bool write_increment, uint dreq) {
+    dma_channel_config c = dma_channel_get_default_config(channel);
+
+    channel_config_set_transfer_data_size(&c, size);
+    channel_config_set_read_increment(&c, read_increment);
+    channel_config_set_write_increment(&c, write_increment);
+    channel_config_set_dreq(&c, dreq);
+    channel_config_set_chain_to(&c, chain_to);
+    channel_config_set_high_priority(&c, true);
+    channel_config_set_irq_quiet(&c, true);
+    return channel_config_get_ctrl_value(&c);
+}
+
+static uint32_t address_of(const volatile void *p) {
+    return (uint32_t)(uintptr_t)p;
+}
+
+// The engine's copy of what the model published. Called with no window open.
+static uint8_t __not_in_flash_func(command_shadow)(struct mclw_spi_target *t) {
+    struct mclw_command_image *image = t->command;
+    struct spi_command_block *b = command_block(t);
+    uint8_t dirty = image->dirty;
+
+    image->dirty = 0;
+    if ((dirty & MCLW_COMMAND_DIRTY_STATUS) != 0u) {
+        b->status = image->status * 0x01010101u;
+    }
+    if ((dirty & MCLW_COMMAND_DIRTY_RESPONSES) != 0u) {
+        for (uint8_t i = 0; i < image->response_count; i++) {
+            memcpy(b->responses[i], image->responses[i].bytes, MCLW_COMMAND_RESPONSE_MAX);
+        }
+    }
+    if ((dirty & MCLW_COMMAND_DIRTY_PAGES) != 0u) {
+        for (uint8_t i = 0; i < image->page_count; i++) {
+            memcpy(command_pages(t)[t->page_slot[i]], image->pages[i], MCLW_COMMAND_PAGE_SIZE);
+        }
+    }
+    if ((dirty & MCLW_COMMAND_DIRTY_BUFFER) != 0u) {
+        memcpy(b->buffer, image->buffer, MCLW_COMMAND_BUFFER_SIZE);
+        memcpy(b->buffer + MCLW_COMMAND_BUFFER_SIZE, image->buffer, MCLW_COMMAND_BUFFER_SIZE);
+    }
+    t->shadow_pending = false;
+    return dirty;
+}
+
+// A register read runs on from its page's slot into the next one, as the
+// part's address runs on into the next page, so the slot after a page must
+// hold the page after it. Held pages sit in runs of consecutive numbers,
+// each run after a zero slot and the last one before another. An unheld
+// page maps to the zero slot before the run its successor starts, or else
+// to slot 0, which zero slot 1 follows.
+static void command_layout(struct mclw_spi_target *t, uint8_t *pagetab) {
+    const struct mclw_command_image *image = t->command;
+    uint8_t (*pages)[MCLW_COMMAND_PAGE_SIZE] = command_pages(t);
+    uint8_t next = 1;
+    int previous = -2;
+
+    memset(pagetab, (int)((address_of(pages[0]) >> 8) & 0xffu), 256u);
+    for (int page = 0; page < 256; page++) {
+        for (uint8_t i = 0; i < image->page_count; i++) {
+            if (image->page_number[i] != page) {
+                continue;
+            }
+            if (page != previous + 1) {
+                if (page > 0) {
+                    pagetab[page - 1] = (uint8_t)((address_of(pages[next]) >> 8) & 0xffu);
+                }
+                next++;
+            }
+            t->page_slot[i] = next;
+            pagetab[page] = (uint8_t)((address_of(pages[next]) >> 8) & 0xffu);
+            next++;
+            previous = page;
+        }
+    }
+}
+
+static void command_build(struct mclw_spi_target *t) {
+    const struct mclw_command_image *image = t->command;
+    struct spi_command_block *b = command_block(t);
+    struct spi_cb *l = b->lists;
+    struct spi_cb *p = b->prologue;
+    uint8_t (*pages)[MCLW_COMMAND_PAGE_SIZE] = command_pages(t);
+    uint L = (uint)t->loader_dma;
+    uint W = (uint)t->rx_dma;
+    uint D = (uint)t->tx_dma;
+    uint rx_dreq = pio_get_dreq(SPI_PIO, t->sm, false);
+    uint tx_dreq = pio_get_dreq(SPI_PIO, t->sm, true);
+    uint32_t rxf = address_of(&SPI_PIO->rxf[t->sm]);
+    uint32_t txf = address_of(tx_fifo_msb(t));
+    uint32_t d_al1 = address_of(&dma_hw->ch[D].al1_ctrl);
+    uint32_t rx_byte = command_ctrl(W, L, DMA_SIZE_8, false, false, rx_dreq);
+    uint32_t tx_status = command_ctrl(W, L, DMA_SIZE_8, false, false, tx_dreq);
+    uint32_t copy_byte = command_ctrl(W, L, DMA_SIZE_8, false, false, DREQ_FORCE);
+    uint32_t copy_word = command_ctrl(W, L, DMA_SIZE_32, false, false, DREQ_FORCE);
+    uint32_t jump = command_ctrl(W, W, DMA_SIZE_32, false, false, DREQ_FORCE);
+    uint32_t load_d = command_ctrl(W, L, DMA_SIZE_32, true, true, DREQ_FORCE);
+    uint32_t drain = command_ctrl(W, L, DMA_SIZE_8, false, true, rx_dreq);
+    uint32_t page_high = address_of(pages) & 0xffff0000u;
+
+    memset(b, 0, sizeof(*b));
+    memset(pages, 0, SPI_COMMAND_PAGE_SLOTS * MCLW_COMMAND_PAGE_SIZE);
+
+    memset(b->optab, (int)(SPI_LIST_WRITE * sizeof(struct spi_cb)), sizeof(b->optab));
+    for (uint8_t i = 0; i < image->response_count; i++) {
+        b->optab[image->responses[i].opcode] = (uint8_t)(SPI_LIST_RESPONSE * sizeof(struct spi_cb));
+        b->resptab[image->responses[i].opcode] = (uint8_t)(i * MCLW_COMMAND_RESPONSE_MAX);
+    }
+    b->optab[image->read_buffer_opcode] = (uint8_t)(SPI_LIST_BUFFER * sizeof(struct spi_cb));
+    b->optab[image->read_register_opcode] = (uint8_t)(SPI_LIST_REGISTER * sizeof(struct spi_cb));
+    command_layout(t, b->pagetab);
+
+    b->dblock[SPI_DBLOCK_WRITE] = (struct spi_dblock){
+        command_ctrl(D, D, DMA_SIZE_8, false, false, tx_dreq), address_of(&b->status), txf, SPI_COMMAND_STATUS_RUN };
+    b->dblock[SPI_DBLOCK_RESPONSE] = (struct spi_dblock){
+        command_ctrl(D, D, DMA_SIZE_8, true, false, tx_dreq), address_of(b->responses), txf,
+        MCLW_COMMAND_RESPONSE_MAX };
+    b->dblock[SPI_DBLOCK_BUFFER] = (struct spi_dblock){
+        command_ctrl(D, D, DMA_SIZE_8, true, false, tx_dreq), address_of(b->buffer), txf, SPI_COMMAND_DATA_RUN };
+    b->dblock[SPI_DBLOCK_REGISTER] = (struct spi_dblock){
+        command_ctrl(D, D, DMA_SIZE_8, true, false, tx_dreq), page_high, txf, SPI_COMMAND_DATA_RUN };
+    b->jump = address_of(b->lists) | SPI_COMMAND_NO_OPCODE;
+
+    struct spi_cb spacer = { address_of(&b->status), address_of(&b->scratch), 1u, copy_word };
+    struct spi_cb drain_rest = { rxf, address_of(t->capture), MCLW_COMMAND_WINDOW_MAX, drain };
+    uint32_t opcode = address_of(&p[SPI_PROLOGUE_LOOKUP].read);
+
+    p[SPI_PROLOGUE_STATUS] = (struct spi_cb){ address_of(&b->status), txf, 2u, tx_status };
+    p[SPI_PROLOGUE_OPCODE] = (struct spi_cb){ rxf, opcode, 1u, rx_byte };
+    p[SPI_PROLOGUE_SPACER] = spacer;
+    p[SPI_PROLOGUE_LOOKUP] = (struct spi_cb){
+        address_of(b->optab), address_of(&b->jump), 1u, copy_byte };
+    p[SPI_PROLOGUE_JUMP] = (struct spi_cb){
+        address_of(&b->jump), address_of(&dma_hw->ch[L].al3_read_addr_trig), 1u, jump };
+
+    l[SPI_LIST_WRITE + 0] = (struct spi_cb){ address_of(&b->dblock[SPI_DBLOCK_WRITE]), d_al1, 4u, load_d };
+    l[SPI_LIST_WRITE + 1] = drain_rest;
+
+    l[SPI_LIST_RESPONSE + 0] = (struct spi_cb){
+        opcode, address_of(&l[SPI_LIST_RESPONSE + 1].read), SPI_COMMAND_STEP_REPEAT, copy_byte };
+    l[SPI_LIST_RESPONSE + 1] = (struct spi_cb){
+        address_of(b->resptab), address_of(&b->dblock[SPI_DBLOCK_RESPONSE].read), 1u, copy_byte };
+    l[SPI_LIST_RESPONSE + 2] = (struct spi_cb){ address_of(&b->dblock[SPI_DBLOCK_RESPONSE]), d_al1, 4u, load_d };
+    l[SPI_LIST_RESPONSE + 3] = drain_rest;
+
+    l[SPI_LIST_BUFFER + 0] = (struct spi_cb){ address_of(&b->status), txf, 1u, tx_status };
+    l[SPI_LIST_BUFFER + 1] = (struct spi_cb){ rxf, address_of(&b->dblock[SPI_DBLOCK_BUFFER].read), 1u, rx_byte };
+    l[SPI_LIST_BUFFER + 2] = (struct spi_cb){ address_of(&b->dblock[SPI_DBLOCK_BUFFER]), d_al1, 4u, load_d };
+    l[SPI_LIST_BUFFER + 3] = drain_rest;
+
+    l[SPI_LIST_REGISTER + 0] = (struct spi_cb){ address_of(&b->status), txf, 2u, tx_status };
+    l[SPI_LIST_REGISTER + 1] = (struct spi_cb){ rxf, address_of(&l[SPI_LIST_REGISTER + 3].read), 1u, rx_byte };
+    l[SPI_LIST_REGISTER + 2] = spacer;
+    l[SPI_LIST_REGISTER + 3] = (struct spi_cb){
+        address_of(b->pagetab), address_of(&b->dblock[SPI_DBLOCK_REGISTER].read) + 1u, 1u, copy_byte };
+    l[SPI_LIST_REGISTER + 4] = (struct spi_cb){ rxf, address_of(&b->dblock[SPI_DBLOCK_REGISTER].read), 1u, rx_byte };
+    l[SPI_LIST_REGISTER + 5] = (struct spi_cb){ address_of(&b->dblock[SPI_DBLOCK_REGISTER]), d_al1, 4u, load_d };
+    l[SPI_LIST_REGISTER + 6] = drain_rest;
+
+    t->command->dirty = 0xffu;
+    (void)command_shadow(t);
+}
+
+static void __not_in_flash_func(command_prepare)(struct mclw_spi_target *t) {
+    struct spi_command_block *b = command_block(t);
+    dma_channel_config c = dma_channel_get_default_config((uint)t->loader_dma);
+
+    pio_sm_set_enabled(SPI_PIO, t->sm, false);
+    stop_dma(t);
+    set_autoshift(t, false, true, 8u, 8u);
+    pio_sm_clear_fifos(SPI_PIO, t->sm);
+    pio_sm_restart(SPI_PIO, t->sm);
+    pio_sm_exec(SPI_PIO, t->sm, pio_encode_mov(pio_isr, pio_null));
+    pio_sm_exec(SPI_PIO, t->sm, pio_encode_out(pio_null, 32u));
+    miso_release(t);
+    *(volatile uint8_t *)&b->jump = SPI_COMMAND_NO_OPCODE;
+
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
+    channel_config_set_read_increment(&c, true);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_ring(&c, true, 4u);
+    channel_config_set_high_priority(&c, true);
+    channel_config_set_irq_quiet(&c, true);
+    __compiler_memory_barrier();
+    dma_channel_configure((uint)t->loader_dma, &c, &dma_hw->ch[t->rx_dma].read_addr, b->prologue, 4u, true);
+
+    set_autoshift(t, true, true, 8u, 8u);
+    pio_sm_exec(SPI_PIO, t->sm, pio_encode_jmp(t->bus->program_offset + SPI_STREAM_ENTRY));
+    t->window_open = false;
+    t->frame_pending = false;
+    t->wait_idle = false;
+    t->command_taken = false;
+    t->release_polls = 0;
+    pio_sm_set_enabled(SPI_PIO, t->sm, true);
+}
+
+// How many control blocks of the list at `head` the loader has fetched.
+static uint32_t __not_in_flash_func(command_loaded)(const struct mclw_spi_target *t, uint32_t head) {
+    uint32_t start = address_of(&command_block(t)->lists[head]);
+    uint32_t at = dma_channel_hw_addr((uint)t->loader_dma)->read_addr;
+
+    return at > start ? (at - start) / sizeof(struct spi_cb) : 0u;
+}
+
+static void __not_in_flash_func(command_finalize)(struct mclw_spi_target *t) {
+    const volatile struct spi_command_block *b = command_block(t);
+    uint8_t list;
+    uint32_t remaining;
+    uint16_t len = 0;
+    bool fault;
+
+    quiesce(t);
+    list = *(const volatile uint8_t *)&b->jump;
+    remaining = dma_channel_hw_addr((uint)t->rx_dma)->transfer_count;
+    fault = dma_faulted(t);
+    stop_dma(t);
+    if (fault) {
+        t->stats.dma_faults++;
+    }
+    if (t->window_busy || t->record_full) {
+        t->stats.stale_windows++;
+    }
+    // The window before is still waiting for the worker, BUSY high since its
+    // release: the part ignores this one, and the one it was busy with is
+    // kept for delivery.
+    if (t->record_full) {
+        return;
+    }
+    if (list == SPI_COMMAND_NO_OPCODE) {
+        t->stats.short_windows++;
+    } else {
+        uint32_t head = list / sizeof(struct spi_cb);
+        uint32_t loaded = command_loaded(t, head);
+
+        t->record[len++] = *(const volatile uint8_t *)&b->prologue[SPI_PROLOGUE_LOOKUP].read;
+        if (head == SPI_LIST_WRITE && loaded >= 2u) {
+            uint32_t params = remaining <= MCLW_COMMAND_WINDOW_MAX ?
+                MCLW_COMMAND_WINDOW_MAX - remaining : 0u;
+
+            if (loaded > 2u) {
+                params = MCLW_COMMAND_WINDOW_MAX;
+                t->stats.long_windows++;
+            }
+            memcpy(&t->record[len], t->capture, params);
+            len = (uint16_t)(len + params);
+        } else if (head == SPI_LIST_BUFFER && loaded >= 3u) {
+            t->record[len++] = *(const volatile uint8_t *)&b->dblock[SPI_DBLOCK_BUFFER].read;
+        } else if (head == SPI_LIST_REGISTER && loaded >= 3u) {
+            t->record[len++] = *(const volatile uint8_t *)&b->lists[SPI_LIST_REGISTER + 3].read;
+            if (loaded >= 6u) {
+                t->record[len++] = *(const volatile uint8_t *)&b->dblock[SPI_DBLOCK_REGISTER].read;
+            }
+        }
+        t->stats.transactions++;
+        t->stats.bytes += len;
+    }
+    t->record_len = len;
+    t->record_busy = t->window_busy;
+    t->record_full = true;
+    mclw_hal_work_post(&t->record_work);
+}
+
+// Whether the state machine is still waiting for chip select, with no
+// window begun since the last release.
+static bool command_idle(const struct mclw_spi_target *t) {
+    uint8_t pc = (uint8_t)(pio_sm_get_pc(SPI_PIO, t->sm) - t->bus->program_offset);
+
+    return pc < SPI_STREAM_ACTIVE_ENTRY && gpio_get(t->cs) &&
+        *(volatile uint8_t *)&command_block(t)->jump == SPI_COMMAND_NO_OPCODE;
+}
+
+static void command_notify(struct mclw_command_image *image, void *ctx) {
+    struct mclw_spi_target *t = ctx;
+    uint32_t state = mclw_hal_critical_enter();
+
+    if (t->image == SPI_IMAGE_COMMAND) {
+        if (!command_idle(t)) {
+            t->shadow_pending = true;
+        } else if ((command_shadow(t) & MCLW_COMMAND_DIRTY_STATUS) != 0u && command_idle(t)) {
+            // Between windows the state machine holds the first status byte
+            // in its OSR and the second in the TX FIFO, both copied at the
+            // last release, before the model ran. Both are replaced and the
+            // machine re-enters at the top, where it waits for a fresh
+            // chip-select assertion. A window the host began during the
+            // copy is not cut: it keeps the old status, and its release
+            // loads the new one.
+            pio_sm_clear_fifos(SPI_PIO, t->sm);
+            pio_sm_put(SPI_PIO, t->sm, (uint32_t)image->status << 24);
+            pio_sm_put(SPI_PIO, t->sm, (uint32_t)image->status << 24);
+            pio_sm_exec(SPI_PIO, t->sm, pio_encode_out(pio_null, 32u));
+            pio_sm_exec(SPI_PIO, t->sm, pio_encode_jmp(t->bus->program_offset + SPI_STREAM_ENTRY));
+        }
+    }
+    mclw_hal_critical_exit(state);
+}
+
+static void command_deliver(struct mclw_work *work) {
+    struct mclw_spi_target *t = work->ctx;
+    struct mclw_command_image *image;
+    uint32_t state;
+    uint16_t len;
+    bool busy;
+
+    if (!t->record_full) {
+        return;
+    }
+    if (!mclw_hal_try_lock()) {
+        mclw_hal_work_post(work);
+        return;
+    }
+    state = mclw_hal_critical_enter();
+    image = t->image == SPI_IMAGE_COMMAND ? t->command : NULL;
+    len = t->record_len;
+    busy = t->record_busy;
+    memcpy(t->delivered, t->record, len);
+    t->record_full = false;
+    mclw_hal_critical_exit(state);
+    // A publish made while this window was open is copied here, under the
+    // runtime lock, and not at release: core 0 may be editing the image
+    // then. BUSY, still high, keeps the host out until it is.
+    if (image != NULL && t->shadow_pending) {
+        command_notify(image, t);
+    }
+    if (image != NULL && image->on_window != NULL) {
+        image->on_window(image, t->delivered, len, busy, image->on_window_ctx);
+    }
+    mclw_hal_unlock();
+}
+
 static void __not_in_flash_func(prepare)(struct mclw_spi_target *t, bool join) {
     if (t->image == SPI_IMAGE_REGMAP) {
         regmap_prepare(t, join);
     } else if (t->image == SPI_IMAGE_STREAM) {
         stream_prepare(t, join);
+    } else if (t->image == SPI_IMAGE_COMMAND) {
+        command_prepare(t);
     }
 }
 
@@ -574,7 +1040,7 @@ static void __not_in_flash_func(service_command)(struct mclw_spi_target *t) {
 }
 
 static bool __not_in_flash_func(command_byte)(const struct mclw_spi_target *t, uint8_t *out) {
-    uintptr_t base = (uintptr_t)table_pool[t->table[t->bank]];
+    uintptr_t base = (uintptr_t)table_pool[t->table[t->bank]].descriptors;
     uintptr_t loaded;
     uintptr_t descriptor;
 
@@ -711,8 +1177,10 @@ static void __not_in_flash_func(finalize)(struct mclw_spi_target *t) {
     miso_release(t);
     if (t->image == SPI_IMAGE_REGMAP) {
         regmap_finalize(t);
-    } else {
+    } else if (t->image == SPI_IMAGE_STREAM) {
         stream_finalize(t);
+    } else {
+        command_finalize(t);
     }
     prepare(t, true);
     t->last_release_us = time_us_32();
@@ -727,7 +1195,9 @@ static bool __not_in_flash_func(window_evidence)(const struct mclw_spi_target *t
     if (t->image == SPI_IMAGE_STREAM) {
         return dma_channel_hw_addr((uint)t->rx_dma)->transfer_count != SPI_BUFFER_BYTES;
     }
-    return false;
+    // Every release is a window, even a bare chip-select pulse: hosts wake
+    // a sleeping part with one.
+    return t->image == SPI_IMAGE_COMMAND;
 }
 
 static void __not_in_flash_func(spi_target_dma_handler)(void) {
@@ -764,6 +1234,10 @@ static void __not_in_flash_func(spi_target_release_handler)(void) {
         pio_interrupt_clear(SPI_PIO, t->monitor_sm);
         if (t->image == SPI_IMAGE_NONE) {
             continue;
+        }
+        if (t->image == SPI_IMAGE_COMMAND) {
+            t->window_busy = t->busy;
+            t->busy = t->busy || t->busy_pin >= 0;
         }
         if (t->wait_idle) {
             t->wait_idle = false;
@@ -885,11 +1359,36 @@ static bool claim_tables(struct mclw_spi_target *t, uint8_t banks) {
     return true;
 }
 
+// The command image's block and, for its pages, two adjacent slots within
+// one 64 KiB region: the register list composes a page's address from its
+// bits 15..8.
+static bool claim_command_tables(struct mclw_spi_target *t) {
+    uint8_t *table_owner = t->bus->table_owner;
+    uint8_t tag = (uint8_t)((t - targets) + 1);
+
+    for (uint8_t i = 0; i + 1u < SPI_TABLE_SLOTS; i++) {
+        if (table_owner[i] != 0u || table_owner[i + 1u] != 0u ||
+            (address_of(&table_pool[i]) >> 16) != (address_of(&table_pool[i + 2u]) - 1u) >> 16) {
+            continue;
+        }
+        table_owner[i] = tag;
+        table_owner[i + 1u] = tag;
+        if (!claim_tables(t, 1u)) {
+            return false;
+        }
+        t->table[1] = i;
+        t->table[2] = (uint8_t)(i + 1u);
+        t->banks = 3;
+        return true;
+    }
+    return false;
+}
+
 static void build_tables(struct mclw_spi_target *t) {
     const struct mclw_regmap *map = t->map;
 
     for (uint8_t b = 0; b < t->banks; b++) {
-        struct spi_descriptor *table = table_pool[t->table[b]];
+        struct spi_descriptor *table = table_pool[t->table[b]].descriptors;
         const uint8_t *base = map->value[b];
 
         for (uint32_t command = 0; command < SPI_BANK_BYTES; command++) {
@@ -1073,6 +1572,12 @@ struct mclw_spi_target *mclw_hal_spi_target_open(uint8_t sck, uint8_t mosi, uint
     t->image = SPI_IMAGE_NONE;
     t->map = NULL;
     t->stream = NULL;
+    t->command = NULL;
+    t->busy_pin = -1;
+    t->busy = false;
+    t->record_full = false;
+    t->shadow_pending = false;
+    t->record_work = (struct mclw_work){ .fn = command_deliver, .ctx = t, .pending = false, .next = NULL };
     t->banks = 0;
     t->bank = 0;
     t->window_open = false;
@@ -1154,10 +1659,23 @@ void mclw_hal_spi_target_disarm(struct mclw_spi_target *t) {
             t->stream->notify = NULL;
             t->stream->notify_ctx = NULL;
         }
+        if (t->command != NULL) {
+            t->command->notify = NULL;
+            t->command->notify_ctx = NULL;
+        }
+        if (t->busy_pin >= 0) {
+            pio_sm_set_set_pins(SPI_PIO, t->monitor_sm, 0u, 0u);
+            gpio_set_function((uint)t->busy_pin, GPIO_FUNC_SIO);
+            t->busy_pin = -1;
+        }
         release_tables(t);
         t->image = SPI_IMAGE_NONE;
         t->map = NULL;
         t->stream = NULL;
+        t->command = NULL;
+        t->busy = false;
+        t->record_full = false;
+        t->shadow_pending = false;
     }
     mclw_hal_critical_exit(state);
 }
@@ -1274,7 +1792,7 @@ int mclw_hal_spi_target_arm_regmap(struct mclw_spi_target *t, struct mclw_regmap
     if (dummy != t->bus->program_dummy) {
         program_patch_dummy(t->bus, dummy);
     }
-    configure_sm(t, true);
+    configure_sm(t, SPI_IMAGE_REGMAP);
     pio_interrupt_clear(SPI_PIO, t->monitor_sm);
     regmap_prepare(t, false);
     mclw_hal_critical_exit(state);
@@ -1300,7 +1818,7 @@ int mclw_hal_spi_target_arm_stream(struct mclw_spi_target *t,
     memset(&t->stats, 0, sizeof(t->stats));
     s->notify = stream_notify;
     s->notify_ctx = t;
-    configure_sm(t, false);
+    configure_sm(t, SPI_IMAGE_STREAM);
     memset(t->tx_buf, wire_byte(t, s->filler), sizeof(t->tx_buf));
     {
         dma_channel_config c = dma_channel_get_default_config((uint)t->tx_dma);
@@ -1319,11 +1837,74 @@ int mclw_hal_spi_target_arm_stream(struct mclw_spi_target *t,
     return 0;
 }
 
+int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_command_image *image,
+    struct mclw_gpio *busy) {
+    uint32_t state;
+
+    if (t == NULL || t->owner == NULL || image == NULL) {
+        return -EINVAL;
+    }
+    if (!t->msb_first) {
+        return -ENOTSUP;
+    }
+    if (image->page_count > MCLW_COMMAND_PAGES_MAX ||
+        image->response_count > MCLW_COMMAND_RESPONSES_MAX) {
+        return -EINVAL;
+    }
+    mclw_hal_spi_target_disarm(t);
+    state = mclw_hal_critical_enter();
+    if (!claim_command_tables(t)) {
+        mclw_hal_critical_exit(state);
+        return -ENOMEM;
+    }
+    t->command = image;
+    t->image = SPI_IMAGE_COMMAND;
+    t->record_full = false;
+    t->shadow_pending = false;
+    memset(&t->stats, 0, sizeof(t->stats));
+    command_build(t);
+    if (busy != NULL) {
+        uint8_t pin = mclw_hal_gpio_pin(busy);
+
+        t->busy_pin = (int8_t)pin;
+        pio_sm_exec(SPI_PIO, t->monitor_sm, pio_encode_nop());
+        pio_sm_set_set_pins(SPI_PIO, t->monitor_sm, pin, 1u);
+        pio_sm_exec(SPI_PIO, t->monitor_sm, pio_encode_set(pio_pins, 1u));
+        pio_sm_exec(SPI_PIO, t->monitor_sm, pio_encode_set(pio_pindirs, 1u));
+        pio_gpio_init(SPI_PIO, pin);
+        t->busy = true;
+    }
+    image->notify = command_notify;
+    image->notify_ctx = t;
+    configure_sm(t, SPI_IMAGE_COMMAND);
+    pio_interrupt_clear(SPI_PIO, t->monitor_sm);
+    command_prepare(t);
+    mclw_hal_critical_exit(state);
+    return 0;
+}
+
+void mclw_hal_spi_target_set_busy(struct mclw_spi_target *t, bool busy) {
+    uint32_t state;
+
+    if (t == NULL || t->owner == NULL) {
+        return;
+    }
+    state = mclw_hal_critical_enter();
+    if (t->image == SPI_IMAGE_COMMAND && t->busy_pin >= 0) {
+        pio_sm_exec(SPI_PIO, t->monitor_sm, pio_encode_set(pio_pins, busy ? 1u : 0u));
+        t->busy = busy;
+    }
+    mclw_hal_critical_exit(state);
+}
+
 void mclw_hal_spi_target_poll(void) {
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
         struct mclw_spi_target *t = &targets[i];
 
-        if (t->owner == NULL || t->image == SPI_IMAGE_NONE) {
+        // A command window is only ever closed by the release monitor: it
+        // must be closed exactly once, and the BUSY line it raises is the
+        // host's guarantee that nothing else happens in between.
+        if (t->owner == NULL || t->image == SPI_IMAGE_NONE || t->image == SPI_IMAGE_COMMAND) {
             continue;
         }
         if (t->wait_idle) {
@@ -1400,6 +1981,8 @@ uint32_t mclw_hal_spi_target_max_clock_hz(const struct mclw_spi_target *t) {
             return SPI_REGMAP_CLOCK_HZ;
         case SPI_IMAGE_STREAM:
             return SPI_STREAM_CLOCK_HZ;
+        case SPI_IMAGE_COMMAND:
+            return SPI_COMMAND_CLOCK_HZ;
         case SPI_IMAGE_NONE:
         default:
             return 0u;
