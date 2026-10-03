@@ -15,20 +15,30 @@
 #define UBX_PAYLOAD_MAX 64
 
 #define UBX_CLASS_NAV 0x01
+#define UBX_CLASS_RXM 0x02
 #define UBX_CLASS_ACK 0x05
 #define UBX_CLASS_CFG 0x06
 #define UBX_CLASS_MON 0x0a
 #define UBX_CLASS_NMEA 0xf0
 
 #define UBX_NAV_PVT 0x07
+#define UBX_RXM_PMREQ 0x41
 #define UBX_ACK_NAK 0x00
 #define UBX_ACK_ACK 0x01
 #define UBX_CFG_PRT 0x00
 #define UBX_CFG_MSG 0x01
+#define UBX_CFG_INF 0x02
 #define UBX_CFG_RST 0x04
 #define UBX_CFG_RATE 0x08
+#define UBX_CFG_CFG 0x09
+#define UBX_CFG_RXM 0x11
 #define UBX_CFG_NMEA 0x17
+#define UBX_CFG_NAVX5 0x23
 #define UBX_CFG_NAV5 0x24
+#define UBX_CFG_ITFM 0x39
+#define UBX_CFG_PM2 0x3b
+#define UBX_CFG_GNSS 0x3e
+#define UBX_CFG_PMS 0x86
 #define UBX_MON_VER 0x04
 #define UBX_MON_GNSS 0x28
 
@@ -39,16 +49,32 @@
 #define UBX_CFG_MSG_LEN 3
 #define UBX_CFG_MSG_PORTS_LEN 8
 #define UBX_CFG_MSG_PORT_UART1 1
+#define UBX_CFG_INF_BLOCK_LEN 10
 #define UBX_CFG_RST_LEN 4
 #define UBX_CFG_RST_STOP 0x08
 #define UBX_CFG_RST_START 0x09
 #define UBX_CFG_RATE_LEN 6
+#define UBX_CFG_CFG_LEN 12
+#define UBX_CFG_CFG_DEVICE_LEN 13
+#define UBX_CFG_RXM_LEN 2
 #define UBX_CFG_NMEA_V0_SHORT_LEN 4
 #define UBX_CFG_NMEA_V0_LEN 12
 #define UBX_CFG_NMEA_V1_LEN 20
+#define UBX_CFG_NAVX5_LEN 40
 #define UBX_CFG_NAV5_LEN 36
 #define UBX_CFG_NAV5_APPLY_DYN 0x0001
+#define UBX_CFG_ITFM_LEN 8
+#define UBX_CFG_PM2_LEN 44
+#define UBX_CFG_GNSS_HEADER_LEN 4
+#define UBX_CFG_GNSS_BLOCK_LEN 8
+#define UBX_CFG_GNSS_ENABLE 0x01
+#define UBX_CFG_PMS_LEN 8
+#define UBX_RXM_PMREQ_V0_LEN 8
+#define UBX_RXM_PMREQ_V1_LEN 16
+#define UBX_RXM_PMREQ_BACKUP 0x02
+#define UBX_RXM_PMREQ_WAKE_UARTRX 0x08
 #define UBX_MON_VER_LEN 40
+#define UBX_MON_VER_EXTENSION_LEN 30
 #define UBX_MON_GNSS_LEN 8
 #define UBX_NAV_PVT_LEN 92
 
@@ -70,6 +96,12 @@
 #define UBX_GNSS_GLONASS 0x02
 #define UBX_GNSS_BEIDOU 0x04
 #define UBX_GNSS_GALILEO 0x08
+
+// CFG-GNSS gnssId.
+#define UBX_GNSS_ID_GPS 0
+#define UBX_GNSS_ID_GALILEO 2
+#define UBX_GNSS_ID_BEIDOU 3
+#define UBX_GNSS_ID_GLONASS 6
 
 // NMEA message ids, the UBX class 0xF0 ids CFG-MSG addresses them by.
 #define NMEA_GGA 0

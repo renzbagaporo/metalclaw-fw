@@ -39,6 +39,8 @@ enum {
     PROP_NMEA_VERSION,
     PROP_SENTENCES,
     PROP_DROPPED,
+    PROP_GNSS,
+    PROP_BACKUP,
 };
 
 enum {
@@ -110,6 +112,11 @@ struct neo_m8n_state {
     uint8_t gnss;
     uint8_t dyn_model;
     bool running;
+    // Software backup after RXM-PMREQ: silent until backup_until_us (0 for
+    // never) or, if allowed, until anything arrives on the port.
+    bool backup;
+    bool backup_rx_wake;
+    uint64_t backup_until_us;
     uint32_t resets;
     uint32_t fixes;
     uint32_t sentences;
@@ -345,6 +352,34 @@ static const struct mclw_property_desc neo_m8n_properties[] = {
         .min = 0,
         .max = UINT32_MAX,
     },
+    {
+        .name = "gnss",
+        .type = MCLW_TYPE_U32,
+        .count = 1,
+        .access = MCLW_ACCESS_RO,
+        .unit = NULL,
+        .min = 0,
+        .max = 255,
+    },
+    {
+        .name = "backup",
+        .type = MCLW_TYPE_BOOL,
+        .count = 1,
+        .access = MCLW_ACCESS_RO,
+        .unit = NULL,
+        .min = 0,
+        .max = 1,
+    },
+};
+
+// MON-VER's extension strings, as a NEO-M8N running ROM 3.01 reports them.
+// Meshtastic reads the protocol version from PROTVER.
+static const char neo_m8n_extensions[][UBX_MON_VER_EXTENSION_LEN] = {
+    "FWVER=SPG 3.01",
+    "PROTVER=18.00",
+    "GPS;GLO;GAL;BDS",
+    "SBAS;IMES;QZSS",
+    "GNSS OTP=GPS;GLO",
 };
 
 static const struct mclw_binding_desc neo_m8n_bindings[] = {
@@ -490,11 +525,12 @@ static void send_ack(struct neo_m8n_state *state, bool ack, uint8_t cls, uint8_t
 }
 
 static void send_mon_ver(struct neo_m8n_state *state) {
-    uint8_t payload[UBX_MON_VER_LEN];
+    uint8_t payload[UBX_MON_VER_LEN + sizeof(neo_m8n_extensions)];
 
     memset(payload, 0, sizeof(payload));
     memcpy(payload, NEO_M8N_SW_VERSION, sizeof(NEO_M8N_SW_VERSION));
     memcpy(&payload[30], NEO_M8N_HW_VERSION, sizeof(NEO_M8N_HW_VERSION));
+    memcpy(&payload[UBX_MON_VER_LEN], neo_m8n_extensions, sizeof(neo_m8n_extensions));
     send_frame(state, UBX_CLASS_MON, UBX_MON_VER, payload, sizeof(payload));
 }
 
@@ -1078,6 +1114,95 @@ static bool nmea_version_valid(uint8_t version) {
         version == NMEA_VERSION_41;
 }
 
+// CFG messages the part takes that change nothing the model shows: the set
+// is acknowledged, the poll is not modelled.
+static bool cfg_accepted(uint8_t id, uint16_t len) {
+    switch (id) {
+        case UBX_CFG_INF:
+            return len != 0 && len % UBX_CFG_INF_BLOCK_LEN == 0;
+        case UBX_CFG_CFG:
+            return len == UBX_CFG_CFG_LEN || len == UBX_CFG_CFG_DEVICE_LEN;
+        case UBX_CFG_RXM:
+            return len == UBX_CFG_RXM_LEN;
+        case UBX_CFG_NAVX5:
+            return len == UBX_CFG_NAVX5_LEN;
+        case UBX_CFG_ITFM:
+            return len == UBX_CFG_ITFM_LEN;
+        case UBX_CFG_PM2:
+            return len == UBX_CFG_PM2_LEN;
+        case UBX_CFG_PMS:
+            return len == UBX_CFG_PMS_LEN;
+        default:
+            return false;
+    }
+}
+
+// CFG-GNSS: msgVer 0, then one 8-byte block per system, gnssId first and
+// bit 0 of the flags word enabling it. SBAS, QZSS and IMES change nothing
+// here.
+static bool cfg_gnss(struct neo_m8n_state *state, const uint8_t *p, uint16_t len) {
+    static const struct {
+        uint8_t id;
+        uint8_t mask;
+    } systems[] = {
+        { UBX_GNSS_ID_GPS, UBX_GNSS_GPS },
+        { UBX_GNSS_ID_GLONASS, UBX_GNSS_GLONASS },
+        { UBX_GNSS_ID_BEIDOU, UBX_GNSS_BEIDOU },
+        { UBX_GNSS_ID_GALILEO, UBX_GNSS_GALILEO },
+    };
+    uint8_t gnss = state->gnss;
+
+    if (len < UBX_CFG_GNSS_HEADER_LEN || p[0] != 0 || len != UBX_CFG_GNSS_HEADER_LEN + UBX_CFG_GNSS_BLOCK_LEN * p[3]) {
+        return false;
+    }
+    for (const uint8_t *b = &p[UBX_CFG_GNSS_HEADER_LEN]; b < p + len; b += UBX_CFG_GNSS_BLOCK_LEN) {
+        for (size_t i = 0; i < sizeof(systems) / sizeof(systems[0]); i++) {
+            if (b[0] != systems[i].id) {
+                continue;
+            }
+            if ((get_u32(&b[4]) & UBX_CFG_GNSS_ENABLE) != 0) {
+                gnss |= systems[i].mask;
+            } else {
+                gnss &= (uint8_t)~systems[i].mask;
+            }
+        }
+    }
+    state->gnss = gnss;
+    return true;
+}
+
+static void enter_backup(struct neo_m8n_state *state, uint32_t duration_ms, bool rx_wake) {
+    state->backup = true;
+    state->backup_rx_wake = rx_wake;
+    state->backup_until_us = duration_ms == 0 ? 0 : mclw_now_us() + (uint64_t)duration_ms * 1000u;
+    nmea_drop_pending(state);
+    mclw_trace(mclw_instance_from_state(state), MCLW_TRACE_STATE, 1, 0, 0);
+}
+
+// Waking is a restart that keeps the configuration: the first fix comes one
+// interval later.
+static void leave_backup(struct neo_m8n_state *state, uint64_t now_us) {
+    state->backup = false;
+    state->parse = PARSE_SYNC_1;
+    state->line_len = 0;
+    state->next_fix_us = now_us + (uint64_t)state->rate_ms * 1000u;
+    mclw_trace(mclw_instance_from_state(state), MCLW_TRACE_STATE, 0, 0, 0);
+}
+
+// RXM-PMREQ, 8 bytes (duration, flags) or 16 (version 0, duration, flags,
+// wakeupSources). Only a backup request does anything; the part sends no
+// acknowledgement either way. Version 0 wakes on UART activity, as
+// Meshtastic relies on when it sends 0xFF.
+static void handle_pmreq(struct neo_m8n_state *state) {
+    const uint8_t *p = state->payload;
+
+    if (state->len == UBX_RXM_PMREQ_V0_LEN && (get_u32(&p[4]) & UBX_RXM_PMREQ_BACKUP) != 0) {
+        enter_backup(state, get_u32(&p[0]), true);
+    } else if (state->len == UBX_RXM_PMREQ_V1_LEN && p[0] == 0 && (get_u32(&p[8]) & UBX_RXM_PMREQ_BACKUP) != 0) {
+        enter_backup(state, get_u32(&p[4]), (get_u32(&p[12]) & UBX_RXM_PMREQ_WAKE_UARTRX) != 0);
+    }
+}
+
 // Every CFG message is acknowledged, a poll after its reply.
 static void handle_cfg(struct neo_m8n_state *state) {
     const uint8_t *p = state->payload;
@@ -1154,6 +1279,9 @@ static void handle_cfg(struct neo_m8n_state *state) {
                 send_ack(state, false, state->cls, state->id);
             }
             break;
+        case UBX_CFG_GNSS:
+            send_ack(state, cfg_gnss(state, p, state->len), state->cls, state->id);
+            break;
         case UBX_CFG_NAV5:
             if (state->len == 0) {
                 send_cfg_nav5(state);
@@ -1168,7 +1296,7 @@ static void handle_cfg(struct neo_m8n_state *state) {
             }
             break;
         default:
-            send_ack(state, false, state->cls, state->id);
+            send_ack(state, cfg_accepted(state->id, state->len), state->cls, state->id);
             break;
     }
 }
@@ -1181,6 +1309,13 @@ static void handle_frame(struct neo_m8n_state *state) {
     switch (state->cls) {
         case UBX_CLASS_CFG:
             handle_cfg(state);
+            break;
+        case UBX_CLASS_RXM:
+            if (state->id == UBX_RXM_PMREQ) {
+                handle_pmreq(state);
+            } else {
+                send_ack(state, false, state->cls, state->id);
+            }
             break;
         case UBX_CLASS_MON:
             if (state->id == UBX_MON_VER) {
@@ -1380,6 +1515,13 @@ static void on_rx(struct mclw_uart *uart, const uint8_t *bytes, size_t len, void
     struct neo_m8n_state *state = ctx;
 
     (void)uart;
+    if (state->backup) {
+        // The bytes that wake the part are lost.
+        if (state->backup_rx_wake && len != 0) {
+            leave_backup(state, mclw_now_us());
+        }
+        return;
+    }
     for (size_t i = 0; i < len; i++) {
         rx_byte(state, bytes[i]);
     }
@@ -1409,6 +1551,7 @@ static void power_on(struct neo_m8n_state *state) {
     state->gnss = NEO_M8N_DEFAULT_GNSS;
     state->dyn_model = NEO_M8N_DEFAULT_DYN_MODEL;
     state->running = true;
+    state->backup = false;
     state->resets = 0;
     state->fixes = 0;
     state->sentences = 0;
@@ -1534,6 +1677,12 @@ static int neo_m8n_get(struct mclw_instance *inst, size_t property, struct mclw_
         case PROP_DROPPED:
             out->v[0] = state->dropped;
             return 0;
+        case PROP_GNSS:
+            out->v[0] = state->gnss;
+            return 0;
+        case PROP_BACKUP:
+            out->v[0] = state->backup ? 1 : 0;
+            return 0;
         default:
             return -EINVAL;
     }
@@ -1600,6 +1749,12 @@ static void neo_m8n_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
     uint64_t rate_us = (uint64_t)state->rate_ms * 1000u;
     uint64_t epoch_us = now_us;
 
+    if (state->backup) {
+        if (state->backup_until_us != 0 && now_us >= state->backup_until_us) {
+            leave_backup(state, now_us);
+        }
+        return;
+    }
     if (now_us >= state->next_fix_us) {
         if (state->next_fix_us != 0 && now_us - state->next_fix_us < rate_us) {
             epoch_us = state->next_fix_us;

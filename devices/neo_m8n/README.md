@@ -5,8 +5,9 @@
 A u-blox NEO-M8N GNSS receiver on UART. Like the part, it starts up
 sending NMEA 0183 at 9600 baud, and it speaks the UBX protocol the part's
 receiver description specifies, so the board under test can read it as a
-plain NMEA receiver or bind Zephyr's in-tree `u-blox,m8` GNSS driver to it
-and receive position fixes through the GNSS API. The host sets a position,
+plain NMEA receiver, bind Zephyr's in-tree `u-blox,m8` GNSS driver to it and
+receive position fixes through the GNSS API, or run Meshtastic, which finds
+it as a u-blox 8 and configures it. The host sets a position,
 velocity, fix state and UTC time; every fix interval of the simulation clock
 the model reports that fix in the NMEA sentences enabled and, once the DUT
 asks for it, in a `NAV-PVT`.
@@ -64,7 +65,9 @@ gnss.detach()
 | `nmea_rates` | u32[6] | ro | | | UART1's output rate of GGA, GLL, GSA, GSV, RMC, VTG, in epochs; 0 is off |
 | `nmea_version` | u32 | ro | | | `CFG-NMEA.nmeaVersion`: 0x40 is 4.0, 0x41 4.10 |
 | `sentences` | u32 | ro | | | NMEA sentences sent |
-| `dropped` | u32 | ro | | | NMEA sentences an epoch had not sent when the next began, or when NMEA output was turned off |
+| `dropped` | u32 | ro | | | NMEA sentences an epoch had not sent when the next began, or when NMEA output was turned off or the part went to backup |
+| `gnss` | u32 | ro | | | the enabled GNSS as `MON-GNSS` reports them (bit 0 GPS, 1 GLONASS, 2 BeiDou, 3 Galileo), as `CFG-GNSS` left them |
+| `backup` | bool | ro | | | in software backup after `RXM-PMREQ` |
 
 At power-on there is no fix: position, speed and heading are zero, `fix` is
 0, `pdop` 2.50, `hdop` 1.50, `vdop` 2.00, and the first fix carries
@@ -90,18 +93,33 @@ acknowledged, a poll with `ACK-ACK` after its reply, as the part does.
 
 | frame | on a poll (empty payload) | on a set |
 | --- | --- | --- |
-| `MON-VER` (0A 04) | 40-byte reply: `ROM CORE 3.01 (107888)`, hardware `00080000` | — |
-| `MON-GNSS` (0A 28) | GPS, GLONASS, BeiDou and Galileo supported; GPS and GLONASS enabled; two at once | — |
+| `MON-VER` (0A 04) | 190-byte reply: `ROM CORE 3.01 (107888)`, hardware `00080000`, and the extensions `FWVER=SPG 3.01`, `PROTVER=18.00`, `GPS;GLO;GAL;BDS`, `SBAS;IMES;QZSS`, `GNSS OTP=GPS;GLO` | — |
+| `MON-GNSS` (0A 28) | GPS, GLONASS, BeiDou and Galileo supported; enabled as `gnss`; two at once | — |
 | `CFG-PRT` (06 00) | UART1, also with `portID` 1: 8N1, the current baud and protocol masks | UART1: `ACK-ACK`, the protocol masks apply, then the port moves to the payload's baud rate; another port `ACK-NAK` |
 | `CFG-MSG` (06 01) | with class and id (2 bytes): the 8-byte form, UART1's rate, 0 on the other ports; empty `ACK-NAK` | 3 bytes (this port) or 8 (per port, UART1's taken): `ACK-ACK`; rates for `NAV-PVT` and the six NMEA messages are kept, any other message is accepted and ignored |
 | `CFG-RST` (06 04) | — | no acknowledgement, as on the part; `resetMode` 0x08 stops the receiver, 0x09 starts it |
 | `CFG-RATE` (06 08) | `measRate`, `navRate`, `timeRef` | `ACK-ACK` and the new `measRate`; below 25 ms `ACK-NAK` |
+| `CFG-INF` (06 02) | `ACK-NAK` | one or more 10-byte blocks: `ACK-ACK`, no effect |
+| `CFG-CFG` (06 09) | `ACK-NAK` | 12 or 13 bytes: `ACK-ACK`; nothing is saved, `reset()` restores the defaults |
+| `CFG-RXM` (06 11) | `ACK-NAK` | 2 bytes: `ACK-ACK`, no effect |
 | `CFG-NMEA` (06 17) | `ACK-NAK` | 4, 12 or 20 bytes with `nmeaVersion` 0x21, 0x23, 0x40 or 0x41: `ACK-ACK`; another version `ACK-NAK` |
+| `CFG-NAVX5` (06 23) | `ACK-NAK` | 40 bytes: `ACK-ACK`, no effect |
 | `CFG-NAV5` (06 24) | `dynModel` and `fixMode` auto | `ACK-ACK`; `dynModel` taken when its apply bit is set |
+| `CFG-ITFM` (06 39) | `ACK-NAK` | 8 bytes: `ACK-ACK`, no effect |
+| `CFG-PM2` (06 3B) | `ACK-NAK` | 44 bytes: `ACK-ACK`, no effect |
+| `CFG-GNSS` (06 3E) | `ACK-NAK` | `msgVer` 0 and 4 + 8 × `numConfigBlocks` bytes: `ACK-ACK`, and each GPS, GLONASS, BeiDou or Galileo block enables or disables that system; otherwise `ACK-NAK` |
+| `CFG-PMS` (06 86) | `ACK-NAK` | 8 bytes: `ACK-ACK`, no effect |
+| `RXM-PMREQ` (02 41) | — | no acknowledgement, as on the part; with the `backup` flag, software backup for `duration` ms (0: until woken) |
 | anything else | `ACK-NAK` | `ACK-NAK` |
 
 The baud switch after `CFG-PRT` happens once the acknowledgement has left at
 the old rate; the engine's `set_baud` drains the transmit queue first.
+
+In software backup the part sends nothing and takes no command. It wakes
+when `duration` has passed on the simulation clock, or when anything
+arrives on the port: the 8-byte request always allows that, the 16-byte one
+when `wakeupSources` has `uartrx`. The bytes that wake it are lost. Waking
+keeps the configuration and the next fix comes one interval later.
 
 The only NMEA input taken is `$PUBX,40,<msg>,<ddc>,<uart1>,<uart2>,<usb>,<spi>,0`
 with a valid checksum, which sets the UART1 rate of GGA, GLL, GSA, GSV, RMC
@@ -179,6 +197,26 @@ pull API polls `CFG-RATE`, `CFG-NAV5` (`dynModel` 0 maps to
 ends on the reply; the `ACK-ACK` after it matches nothing the driver waits
 for.
 
+## Meshtastic
+
+Meshtastic 2.7.26 (`src/gps/GPS.cpp`) probes at 9600 baud first. It sends
+`$PCAS03`, three `$PUBX,40` turning GLL, GSV and VTG off (the model takes
+them), `$CFGMSG`, `$PDTINFO`, `$PCAS06`, `$PAIR`, `$PQTMVERNO` and `$PMTK`
+commands meant for other makers' parts, which the model ignores, and finds
+none of the answers it looks for in the NMEA. Then it polls
+`CFG-RATE` and needs the `ACK-ACK` after the reply, and polls `MON-VER`:
+hardware `00080000` makes it a u-blox 8 and `PROTVER=18.00` protocol 18.
+Its setup then sends `CFG-GNSS` (GPS, SBAS, Galileo, QZSS, GLONASS), `CFG-INF`
+(NMEA notices off), `CFG-ITFM`, `CFG-NAVX5` version 2, `CFG-RATE` 1 Hz, six
+8-byte `CFG-MSG` leaving GGA and RMC on, `CFG-PMS`, `CFG-PM2`, `CFG-NMEA`
+for 4.10, and `CFG-CFG` saving everything, and the model acknowledges each.
+From there it reads GGA and RMC through TinyGPS++: a GGA quality of 1 to 5,
+fresh location, time and date, and a non-zero HDOP make a position. It
+publishes one only once it has also taken the time, which it refuses before
+its build date, so a scenario sets `time` to a current date. With a GPS
+update interval over 10 s it puts the part to sleep between fixes with
+`RXM-PMREQ` and wakes it with a 0xFF byte.
+
 ## The DUT image
 
 Two images, the same driver on either of the DUT's UARTs.
@@ -226,6 +264,9 @@ a DUT reset bring it back with the fix flowing.
 `NAV-SAT` and real satellite data, NMEA sentences other than the six, NMEA
 `TXT` (the start-up banner and errors), `PUBX` other than 40 and every other
 NMEA input, `CFG-NMEA` fields other than the version, the ports other than
-UART1, `CFG-VALSET`/`VALGET`, the `navBbrMask` of `CFG-RST`, the reset pin,
+UART1, polls of the `CFG` messages taken without effect and of `CFG-GNSS`
+and `CFG-NMEA`, saving with `CFG-CFG`, the power modes `CFG-PMS`, `CFG-PM2`
+and `CFG-RXM` select, the time a real wake from backup or a `CFG-GNSS`
+change takes to reacquire, `CFG-VALSET`/`VALGET`, the `navBbrMask` of `CFG-RST`, the reset pin,
 time pulse, and any message the drivers do not use. `valid` and `gnssFixOK`
 follow `fix` alone.
