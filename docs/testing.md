@@ -43,7 +43,10 @@ PING. If any of that fails, no case runs.
 
 `harness.run(code)` executes Python on the harness's raw REPL and returns
 what it printed. `dut.command(line)` sends one mailbox command and returns the
-parsed result; `dut.reset()` resets the DUT through the probe;
+parsed result; a command that blocks the DUT while the harness has to act
+(a radio receive waiting for a frame the case injects) is sent with
+`dut.start(line)` and collected with `dut.finish(sequence)`;
+`dut.reset()` resets the DUT through the probe;
 `dut.probe.read_words(addr, n)` reads DUT memory without halting it.
 
 `fixture` is the platform's description of the wiring: which pin carries
@@ -56,7 +59,8 @@ platform it is
  "i2c": {"sda": 4, "scl": 5, "address": {"bmp388": 0x76}},
  "uart": {"tx": 0, "rx": 1},
  "spi": {"sck": 18, "mosi": 19, "miso": 16,
-         "cs": {"ads7883": 21, "icm4268x": 17, "bmp388": 22}}}
+         "cs": {"ads7883": 21, "icm4268x": 17, "bmp388": 22, "sx126x": 21}},
+ "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6}}}
 ```
 
 and the platform attaches its own probe on `fixture["swd"]`.
@@ -82,16 +86,18 @@ without halting the core. The record layout, the protocol and the commands
 are in [test/rig/dut/README.md](../test/rig/dut/README.md). The commands are
 per Zephyr subsystem, not per part: `SENSOR <alias> <channel>...` fetches
 through the sensor API, `SPI <alias> [hz] [bytes] [count] [gap_us]` clocks
-master windows, `RAW` clocks one window of given bytes and `GNSS` reads the
-GNSS API; what a value means is the case's business. A device package
+master windows, `RAW` clocks a window of given bytes (repeated, for a burst),
+`GNSS` reads the GNSS API and `LORA` configures, sends and receives through
+the LoRa API; what a value means is the case's business. A device package
 adds a devicetree overlay and a Kconfig fragment under
 `devices/<name>/test/dut/rp2.{overlay,conf}` so that Zephyr's real driver for
 that part exercises the simulated one; `just build-dut <name>` applies them and
 builds `build/dut/<name>/`. A variant lives one level down,
 `test/dut/<variant>/rp2.{overlay,conf}`, is built with
 `just build-dut <name>/<variant>` and names itself `<name>/<variant>`.
-Images exist for `bmp388` (I2C) and `bmp388/spi`, `ads7883`, `icm4268x` and
-`neo_m8n`.
+Images exist for `bmp388` (I2C) and `bmp388/spi`, `ads7883`, `icm4268x`,
+`neo_m8n`, and `sx126x` (Zephyr's loramac-node driver), `sx126x/native` (its
+native driver) and `sx126x/raw` (a bare SPI device for byte-level cases).
 
 The overlays follow the `fixture` description above: the SPI bus is
 GP18/GP19/GP16 with one GPIO chip select per part (the PL022's own chip
@@ -100,7 +106,8 @@ crossed UART pair is GP0/GP1. The rig's burst cases leave 20 µs between
 windows, above the engine's re-arm time.
 
 The workspace is created from `test/rig/dut/west.yml`, which pins Zephyr
-v4.4.0 and the five modules the board needs. `METALCLAW_ZEPHYR_WORKSPACE`
+v4.4.0, the five modules the board needs and `loramac-node`, which the
+`sx126x` image's driver is built from. `METALCLAW_ZEPHYR_WORKSPACE`
 moves it; `METALCLAW_ZEPHYR_REFERENCE` names local clones to borrow objects
 from so nothing is downloaded twice. The Zephyr SDK is expected at
 `ZEPHYR_SDK_INSTALL_DIR`, default `~/zephyr-sdk-1.0.1`.

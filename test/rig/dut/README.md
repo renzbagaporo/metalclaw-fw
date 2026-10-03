@@ -25,7 +25,8 @@ src/main.c          the banner and the commands below
 The smoke image binds nothing and needs no overlay. A device that needs
 DUT-side wiring brings its own from `devices/<name>/test/dut/rp2.overlay`,
 which `just build-dut <name>` applies on top of the board: `bmp388` (and the
-`bmp388/spi` variant), `ads7883`, `icm4268x` and `neo_m8n` have one.
+`bmp388/spi` variant), `ads7883`, `icm4268x`, `neo_m8n` and `sx126x` (and
+its `sx126x/native` and `sx126x/raw` variants) have one.
 
 ## The mailbox
 
@@ -113,14 +114,23 @@ means is the case's business, not the image's.
 | `ID` | the boot line's fields, with `"test":"test_id"` |
 | `SENSOR <alias> <channel>... [count=N]` | one fetch through the sensor API, each named channel as a JSON array of micro-units from `sensor_value_to_micro`; with a count, `N` fetches, the first reported and `mismatches` counting the later ones that differed |
 | `SPI <alias> [hz] [bytes] [count] [gap_us]` | `count` chip-select windows of `bytes` bytes through the SPI API at `hz` (0 for the node's own clock), `gap_us` apart: the first `frame` as hex and `mismatches` counting the later windows that differed |
-| `RAW <hex> [w]` | one window on the `raw` alias clocking the given bytes; `w` makes it a write-only transfer; replies `rx` |
+| `RAW <hex> [w] [hz] [n=<count>] [gap=<us>]` | a window on the `raw` alias clocking the given bytes (at most 32); `w` makes it a write-only transfer, `hz` overrides the node's clock; with a count the window repeats `gap` microseconds apart; replies `rx` (the first window), `count` and `mismatches` (later windows whose reply differed) |
+| `LORA CONFIG [key=value]...` | `lora_config()` on the `lora0` alias; keys `freq` (Hz), `bw` (kHz), `sf`, `cr` (5 to 8 for 4/5 to 4/8), `power` (dBm), `preamble`, `tx`, `iq`, `public`, `crc` (0 or 1); a key left out keeps its last value; replies the whole configuration and `errno` |
+| `LORA SEND <hex>\|pattern=<len>` | `lora_send()` of the bytes, or of `len` bytes with byte `i` = `i * 7 + 1`; replies `len`, `errno` and `elapsed_ms` |
+| `LORA RECV <timeout_ms>` | `lora_recv()`; replies `len`, `rssi`, `snr` and `data` (hex, the first 200 bytes), or `errno` (11 for a timeout, 5 for a CRC error) |
+| `LORA AIRTIME <len>` | `lora_airtime()` for the last configuration, in `airtime_ms` |
 | `GNSS [RATE\|NAV\|SYSTEMS]` | the `gnss` alias: the last fix the driver published and how many, or one of the driver's pull calls |
 | anything else | `{"test":"test_command","status":"error","detail":"unknown command"}` |
 
 `SENSOR` knows the aliases `barometer` and `imu` and the channels `press`,
 `ambient_temp`, `accel_xyz`, `gyro_xyz` and `die_temp`; `SPI` knows the alias
 `adc`. Each is one line of a table in `src/main.c`, compiled in only when the
-image's devicetree has that alias.
+image's devicetree has that alias. `RAW`, `GNSS` and `LORA` each serve one
+alias, `raw`, `gnss` and `lora0`.
+
+`LORA RECV` blocks the DUT, mailbox included, until a frame arrives or the
+timeout passes; a case that has to put the frame on the air meanwhile sends
+it with `dut.start()` and collects the result with `dut.finish()`.
 
 A command naming an alias the image was not built with answers
 `"status":"error"` with a `detail`; one whose device did not initialise
