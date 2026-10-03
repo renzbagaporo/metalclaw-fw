@@ -12,7 +12,8 @@ the board's console UART;
 [`bmp388`](../devices/bmp388/README.md), a Bosch barometer on I2C or SPI;
 [`ads7883`](../devices/ads7883/README.md), a Texas Instruments ADC on SPI;
 [`icm4268x`](../devices/icm4268x/README.md), TDK InvenSense IMUs on SPI;
-[`neo_m8n`](../devices/neo_m8n/README.md), a u-blox GNSS receiver on UART;
+[`neo_m8n`](../devices/neo_m8n/README.md), a u-blox GNSS receiver on UART that
+streams NMEA and speaks UBX;
 and [`sx126x`](../devices/sx126x/README.md), Semtech LoRa transceivers on
 SPI with their BUSY, DIO1 and NRESET lines and a simulated air side.
 

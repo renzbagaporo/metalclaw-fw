@@ -51,7 +51,7 @@ the byte path.
 >>> imu = metalclaw.attach("icm42688", "imu", spi=(18, 19, 16, 17))
 >>> imu.accel = (2048, 0, 0)
 >>> gnss = metalclaw.attach("neo_m8n", "gnss", uart=(0, 1))
->>> gnss.set(latitude=473977420, longitude=-1223321500, fix=3)   # a NAV-PVT every second from here on
+>>> gnss.set(latitude=473977420, longitude=-1223321500, fix=3)   # in its NMEA every second from here on
 >>> radio = metalclaw.attach("sx1262", "radio", spi=(18, 19, 16, 21), busy=7, dio1=20, nreset=6)
 >>> radio.write_region("rx", 0, b"hello")                # a frame on the air for the DUT
 >>> metalclaw.pause(); metalclaw.advance_us(1000000)   # or step the clock by hand
