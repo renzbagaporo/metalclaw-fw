@@ -15,8 +15,8 @@ re-enumerates, once, after the changes settle.
 | Field | Value |
 | --- | --- |
 | VID:PID | `2FE3:0204` |
-| Manufacturer | `MetalClaw` |
-| Product | per board, e.g. `MetalClaw Pico` |
+| Manufacturer | `Metalclaw` |
+| Product | `Metalclaw`, unless a board overrides it |
 | Serial | the RP2040 unique id, 16 uppercase hex digits |
 
 ## Interfaces
@@ -32,7 +32,7 @@ sits above them so their coming and going never moves it. The interface
 string is the device's to choose; `swd_probe` uses `CMSIS-DAP v2`, which is
 what probe-rs matches on.
 
-On Linux the REPL appears as `/dev/serial/by-id/usb-MetalClaw_<product>_<serial>-if00`
+On Linux the REPL appears as `/dev/serial/by-id/usb-Metalclaw_<product>_<serial>-if00`
 and the volume as a raw FAT block device with no partition table.
 
 ## How it is wired into MicroPython

@@ -2,7 +2,7 @@
 
 # swd_probe
 
-A CMSIS-DAP v2 debug probe. It is a device in the MetalClaw sense: the DUT
+A CMSIS-DAP v2 debug probe. It is a device in the Metalclaw sense: the DUT
 finds it on the other side of the SWD pins, and a user names it in `attach()`.
 Attaching it claims the SWD wire and adds a vendor bulk interface to the
 harness's USB device; a host debugger then drives the DUT through it.
@@ -66,7 +66,7 @@ probe-rs list
 probe-rs info --probe 2fe3:0204:<serial>
 ```
 
-`DAP_Info` reports vendor `MetalClaw`, product `MetalClaw`, the USB serial,
+`DAP_Info` reports vendor `Metalclaw`, product `Metalclaw`, the USB serial,
 the firmware version string, SWD-only capabilities, a 64-byte packet size and
 one packet in flight. Target and board strings are reported empty: the probe
 does not know what is on the other end of the wire.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-// Included by every MetalClaw rp2 board's mpconfigboard.h. Board files add
+// Included by every Metalclaw rp2 board's mpconfigboard.h. Board files add
 // only their identity on top of this.
 
 #ifndef METALCLAW_PORT_RP2_H
@@ -16,17 +16,17 @@
 // Still needed with USBDEV off: selects _boot_fat.py and pins the FatFS
 // sector size to the flash sector so upstream's msc_disk.c compiles.
 #define MICROPY_HW_USB_MSC                      (1)
-#define MICROPY_HW_USB_MSC_INQUIRY_VENDOR_STRING    "MetalClw"
-#define MICROPY_HW_USB_MSC_INQUIRY_PRODUCT_STRING   "MetalClaw Volume"
+#define MICROPY_HW_USB_MSC_INQUIRY_VENDOR_STRING    "Generic"
+#define MICROPY_HW_USB_MSC_INQUIRY_PRODUCT_STRING   "Metalclaw Volume"
 #define MICROPY_HW_USB_MSC_INQUIRY_REVISION_STRING  "1.00"
 
 #define MICROPY_HW_USB_VID                      (0x2FE3)
 #define MICROPY_HW_USB_PID                      (0x0204)
-#define MICROPY_HW_USB_MANUFACTURER_STRING      "MetalClaw"
+#define MICROPY_HW_USB_MANUFACTURER_STRING      "Metalclaw"
 #ifndef MICROPY_HW_USB_PRODUCT_FS_STRING
-#define MICROPY_HW_USB_PRODUCT_FS_STRING        "MetalClaw"
+#define MICROPY_HW_USB_PRODUCT_FS_STRING        "Metalclaw"
 #endif
-#define MICROPY_HW_USB_CDC_INTERFACE_STRING     "MetalClaw REPL"
+#define MICROPY_HW_USB_CDC_INTERFACE_STRING     "Metalclaw REPL"
 #define MICROPY_HW_USB_MSC_INTERFACE_STRING     "METALCLAW"
 
 // The REPL is a builtin dupterm stream over the owned CDC interface.

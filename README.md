@@ -2,10 +2,10 @@
 
 # metalclaw-fw
 
-**Firmware for MetalClaw, a scriptable hardware harness for embedded
+**Firmware for Metalclaw, a scriptable hardware harness for embedded
 development.**
 
-MetalClaw is a small board that sits between a host PC and a target board. It
+Metalclaw is a small board that sits between a host PC and a target board. It
 debugs the target, feeds it stimulus, simulates the peripherals the target
 expects to find on its buses, and observes what the target does back.
 
@@ -18,7 +18,7 @@ which pins they use, what state they start in.
 ## Firmware
 
 A MicroPython v1.28.0 image for the Pico 1 that owns its USB device. It
-enumerates as `2FE3:0204 MetalClaw` with a CDC REPL and an MSC volume, is
+enumerates as `2FE3:0204 Metalclaw` with a CDC REPL and an MSC volume, is
 brought up once at boot, and stays enumerated across MicroPython soft resets.
 
 The `metalclaw` module is the generic device API: a model registry, a runtime
@@ -54,7 +54,7 @@ the byte path.
 
 ```sh
 $ probe-rs list
-[0]: MetalClaw Pico -- 2fe3:0204:E6612483CB313225 (CMSIS-DAP)
+[0]: Metalclaw -- 2fe3:0204:E6612483CB313225 (CMSIS-DAP)
 $ probe-rs info --probe 2fe3:0204:E6612483CB313225 --protocol swd
 ```
 

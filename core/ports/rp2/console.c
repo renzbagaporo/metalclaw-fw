@@ -51,7 +51,7 @@ static const mp_stream_p_t console_stream_p = {
 
 static MP_DEFINE_CONST_OBJ_TYPE(
     console_type,
-    MP_QSTR_MetalClawConsole,
+    MP_QSTR_MetalclawConsole,
     MP_TYPE_FLAG_NONE,
     protocol, &console_stream_p
     );

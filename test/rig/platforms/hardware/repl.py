@@ -9,7 +9,7 @@ import serial
 
 class Repl:
     def __init__(self, serial_number: str):
-        pattern = f"/dev/serial/by-id/usb-MetalClaw_*_{serial_number}-if00"
+        pattern = f"/dev/serial/by-id/usb-Metalclaw_*_{serial_number}-if00"
         ports = glob.glob(pattern)
         if len(ports) != 1:
             raise RuntimeError(f"expected one port matching {pattern}, found {ports}")

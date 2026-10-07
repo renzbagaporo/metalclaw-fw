@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# No-warnings policy. MetalClaw sources get METALCLAW_STRICT_C_OPTIONS per
+# No-warnings policy. Metalclaw sources get METALCLAW_STRICT_C_OPTIONS per
 # source file. Third-party code gets METALCLAW_THIRD_PARTY_C_OPTIONS through
 # the firmware target: the same set minus what MicroPython, pico-sdk and
 # TinyUSB cannot meet (measured on v1.28.0 / 2.2.0: -Wmissing-prototypes,

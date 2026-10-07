@@ -8,7 +8,7 @@ just build      # build/rp2/<board>/firmware.uf2 and firmware.elf
 ```
 
 The firmware is upstream MicroPython v1.28.0's `ports/rp2`, built unpatched
-with `BOARD_DIR` pointing at a MetalClaw board and `USER_C_MODULES` pointing at
+with `BOARD_DIR` pointing at a Metalclaw board and `USER_C_MODULES` pointing at
 `core/micropython/micropython.cmake`. That file adds `core/` as a
 subdirectory, which builds the harness core (runtime, image helpers, the
 generated registry, every device) as one static library, `metalclaw_core`,
@@ -36,7 +36,7 @@ includes `metalclaw_port.h`.
 Nothing may warn. MicroPython and pico-sdk already build with `-Wall -Werror`.
 On top of that, `core/cmake/strict.cmake` defines two sets:
 
-- `METALCLAW_STRICT_C_OPTIONS`, applied per source file to MetalClaw's own
+- `METALCLAW_STRICT_C_OPTIONS`, applied per source file to Metalclaw's own
   code.
 - `METALCLAW_THIRD_PARTY_C_OPTIONS`, applied to the whole firmware target, so
   MicroPython, pico-sdk, and TinyUSB build with it too. It is the strict set

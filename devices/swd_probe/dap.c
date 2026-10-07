@@ -61,8 +61,8 @@
 #define DAP_RESET_TARGET_US 2000u
 #define DAP_SWJ_PINS_WAIT_MAX_US 3000000u
 
-static const char probe_vendor[] = "MetalClaw";
-static const char probe_product[] = "MetalClaw";
+static const char probe_vendor[] = "Metalclaw";
+static const char probe_product[] = "Metalclaw";
 
 static void note_error(struct metalclaw_dap *dap, uint8_t request, uint16_t seq, int16_t result) {
     dap->errors++;

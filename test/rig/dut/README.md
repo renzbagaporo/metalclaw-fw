@@ -4,7 +4,7 @@
 
 The board under test the rig uses to judge the harness: a Zephyr application
 for the Raspberry Pi Pico 2 (`rpi_pico2/rp2350a/m33`, the in-tree board with
-no MetalClaw changes), built with `just build-dut [<name>]` into
+no Metalclaw changes), built with `just build-dut [<name>]` into
 `build/dut/<name>/zephyr/zephyr.elf`, `<name>` being the device the image was
 built for or `smoke` for none.
 

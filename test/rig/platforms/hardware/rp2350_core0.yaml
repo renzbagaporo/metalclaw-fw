@@ -65,7 +65,7 @@
 # Never add --connect-under-reset on fixture 1: it has never been tested there.
 # A post-flash debugger-port mailbox PING, not a reset mechanism, establishes
 # that the selected image is running.
-name: RP235x_MetalClaw_Core0
+name: RP235x_Metalclaw_Core0
 manufacturer:
   id: 0x3b
   cc: 0x4
