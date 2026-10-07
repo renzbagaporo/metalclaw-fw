@@ -83,5 +83,6 @@ node is never touched by this code.
 - `_thread` is disabled: core 1 is the engine worker. TinyUSB is only called
   from core 0's thread context.
 - The MSC volume has no coherency with the device-side mount; see above.
-- No MS OS 2.0 descriptors yet, so Windows needs a driver for later vendor
-  interfaces. Not relevant while only CDC and MSC exist.
+- No MS OS 2.0 descriptors yet, so Windows binds no driver to a vendor
+  interface: the `swd_probe` CMSIS-DAP v2 interface needs WinUSB bound to it
+  by hand before probe-rs can use it.

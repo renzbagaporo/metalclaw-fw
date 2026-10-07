@@ -24,7 +24,6 @@ names the probe-rs executable when it is not on `PATH`.
 
 - `test/cases/` for the harness as a whole.
 - `devices/<name>/test/cases.py` (or `cases/`) for one device.
-- `client/test/cases.py` for the client, when it exists.
 
 A case is a pytest function taking `harness`, `dut`, `probe` or `fixture`:
 

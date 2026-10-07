@@ -1,8 +1,9 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIT -->
 
-# MetalClaw
+# metalclaw-fw
 
-**A scriptable hardware harness for embedded development.**
+**Firmware for MetalClaw, a scriptable hardware harness for embedded
+development.**
 
 MetalClaw is a small board that sits between a host PC and a target board. It
 debugs the target, feeds it stimulus, simulates the peripherals the target
@@ -14,7 +15,7 @@ debug probe; the engines' interrupts and their worker run on the other
 core. MicroPython owns what changes between fixtures: which devices exist,
 which pins they use, what state they start in.
 
-## What exists today
+## Firmware
 
 A MicroPython v1.28.0 image for the Pico 1 that owns its USB device. It
 enumerates as `2FE3:0204 MetalClaw` with a CDC REPL and an MSC volume, is
@@ -25,7 +26,10 @@ with instances, a simulation clock that runs with real time unless paused,
 faults and trace, and one `Instance` type whose attributes come from each
 model's own descriptors.
 
-Five devices exist. The SWD debug probe: attaching it adds a CMSIS-DAP v2
+## Devices
+
+Five device packages exist, and `icm4268x` defines two models, so
+`models()` lists six. The SWD debug probe: attaching it adds a CMSIS-DAP v2
 interface to the USB device, and `probe-rs` then drives the board under test
 through the harness. And four simulated parts the board under test's own
 Zephyr drivers read as the real thing: a BMP388 barometer on I²C or SPI, an
@@ -50,20 +54,25 @@ the byte path.
 
 ```sh
 $ probe-rs list
-[0]: MetalClaw Pico 1 -- 2fe3:0204:E6612483CB313225 (CMSIS-DAP)
+[0]: MetalClaw Pico -- 2fe3:0204:E6612483CB313225 (CMSIS-DAP)
 $ probe-rs info --probe 2fe3:0204:E6612483CB313225 --protocol swd
 ```
 
 See [docs/devices.md](docs/devices.md) for the model contract and
 [devices/swd_probe](devices/swd_probe/README.md) for the probe.
 
-The rig in `test/rig/` flashes a Zephyr fixture image onto the board under
-test through that probe, talks to it over a RAM mailbox, and runs every case
-in the tree on real hardware. Each device has an image with Zephyr's driver
-for that part; the cases compare what the driver read with what was
-injected:
+## Testing on hardware
+
+The board under test is a Raspberry Pi Pico 2 running Zephyr, wired to the
+harness as [docs/testing.md](docs/testing.md) describes. The rig in
+`test/rig/` flashes a Zephyr fixture image onto it through that probe, talks
+to it over a RAM mailbox, and runs every case in the tree on real hardware.
+Each device has an image with Zephyr's driver for that part; the cases
+compare what the driver read with what was injected:
 
 ```sh
+just setup-rig                                    # .venv with pytest and pyserial
+just setup-dut                                    # Zephyr workspace in ../.zephyr-workspace
 just build-dut icm4268x
 METALCLAW_DUT_DEVICE=icm4268x METALCLAW_HARNESS_SERIAL=<serial> just test hardware
 ```
@@ -88,6 +97,14 @@ docs/                         devices.md, testing.md, usb.md, building.md
 justfile                      setup and build recipes
 ```
 
+## Requirements
+
+- `just`, `git`, `curl`, `make`, `cmake`, Python 3 and a host C compiler.
+  `just setup` fetches the pinned submodules and ARM toolchain.
+- A J-Link to flash over SWD, optional: the bootloader route needs none.
+- For the hardware tests: probe-rs 0.30, Ninja, and the Zephyr SDK 1.0.1
+  at `ZEPHYR_SDK_INSTALL_DIR` (default `~/zephyr-sdk-1.0.1`).
+
 ## Building and flashing
 
 ```sh
@@ -99,9 +116,14 @@ tools/flash_rp2.sh build/rp2/<board>/firmware.elf # over J-Link
 See [docs/building.md](docs/building.md) for boards, flags, and the
 bootloader route without a J-Link.
 
+## Documentation
+
+[docs/](docs/README.md) covers the device model and runtime, testing, the USB
+device, and building. Each device's README covers that part.
+
 ## License
 
-MetalClaw is dual-licensed under your choice of either the
+metalclaw-fw is dual-licensed under your choice of either the
 [Apache License 2.0](LICENSE-APACHE) or the [MIT License](LICENSE-MIT).
 
 SPDX-License-Identifier: `Apache-2.0 OR MIT`
