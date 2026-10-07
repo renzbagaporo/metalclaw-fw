@@ -7,10 +7,10 @@
 
 #include <string.h>
 
-struct mclw_debug_port_command mclw_debug_port_command __aligned(4);
-struct mclw_debug_port_result mclw_debug_port_result __aligned(4);
+struct mclw_dut_mailbox_command mclw_dut_mailbox_command __aligned(4);
+struct mclw_dut_mailbox_result mclw_dut_mailbox_result __aligned(4);
 
-static char result_line[MCLW_DEBUG_PORT_RESULT_CAPACITY];
+static char result_line[MCLW_DUT_MAILBOX_RESULT_CAPACITY];
 static size_t result_used;
 static uint32_t command_seen;
 
@@ -18,26 +18,26 @@ static void initialise_header(uint32_t *magic0, uint32_t *magic1, uint32_t *vers
 	uint32_t *capacity, uint32_t magic1_value, uint32_t capacity_value)
 {
 	*capacity = capacity_value;
-	*version = MCLW_DEBUG_PORT_VERSION;
+	*version = MCLW_DUT_MAILBOX_VERSION;
 	barrier_dmem_fence_full();
 	*magic1 = magic1_value;
 	barrier_dmem_fence_full();
-	*magic0 = MCLW_DEBUG_PORT_MAGIC0;
+	*magic0 = MCLW_DUT_MAILBOX_MAGIC0;
 }
 
-void mclw_debug_port_init(void)
+void mclw_dut_mailbox_init(void)
 {
-	memset(&mclw_debug_port_command, 0, sizeof(mclw_debug_port_command));
-	memset(&mclw_debug_port_result, 0, sizeof(mclw_debug_port_result));
+	memset(&mclw_dut_mailbox_command, 0, sizeof(mclw_dut_mailbox_command));
+	memset(&mclw_dut_mailbox_result, 0, sizeof(mclw_dut_mailbox_result));
 	result_used = 0U;
 	command_seen = 0U;
 	barrier_dmem_fence_full();
-	initialise_header(&mclw_debug_port_command.magic0, &mclw_debug_port_command.magic1,
-		&mclw_debug_port_command.version, &mclw_debug_port_command.capacity,
-		MCLW_DEBUG_PORT_COMMAND_MAGIC1, MCLW_DEBUG_PORT_COMMAND_CAPACITY);
-	initialise_header(&mclw_debug_port_result.magic0, &mclw_debug_port_result.magic1,
-		&mclw_debug_port_result.version, &mclw_debug_port_result.capacity,
-		MCLW_DEBUG_PORT_RESULT_MAGIC1, MCLW_DEBUG_PORT_RESULT_CAPACITY);
+	initialise_header(&mclw_dut_mailbox_command.magic0, &mclw_dut_mailbox_command.magic1,
+		&mclw_dut_mailbox_command.version, &mclw_dut_mailbox_command.capacity,
+		MCLW_DUT_MAILBOX_COMMAND_MAGIC1, MCLW_DUT_MAILBOX_COMMAND_CAPACITY);
+	initialise_header(&mclw_dut_mailbox_result.magic0, &mclw_dut_mailbox_result.magic1,
+		&mclw_dut_mailbox_result.version, &mclw_dut_mailbox_result.capacity,
+		MCLW_DUT_MAILBOX_RESULT_MAGIC1, MCLW_DUT_MAILBOX_RESULT_CAPACITY);
 }
 
 /*
@@ -48,19 +48,19 @@ void mclw_debug_port_init(void)
  */
 static void publish_result(void)
 {
-	uint32_t next = mclw_debug_port_result.sequence_begin + 1U;
+	uint32_t next = mclw_dut_mailbox_result.sequence_begin + 1U;
 
-	mclw_debug_port_result.sequence_end = next;
+	mclw_dut_mailbox_result.sequence_end = next;
 	barrier_dmem_fence_full();
-	memcpy(mclw_debug_port_result.payload, result_line, result_used);
-	memset(mclw_debug_port_result.payload + result_used, 0,
-		MCLW_DEBUG_PORT_RESULT_CAPACITY - result_used);
-	mclw_debug_port_result.length = (uint32_t)result_used;
+	memcpy(mclw_dut_mailbox_result.payload, result_line, result_used);
+	memset(mclw_dut_mailbox_result.payload + result_used, 0,
+		MCLW_DUT_MAILBOX_RESULT_CAPACITY - result_used);
+	mclw_dut_mailbox_result.length = (uint32_t)result_used;
 	barrier_dmem_fence_full();
-	mclw_debug_port_result.sequence_begin = next;
+	mclw_dut_mailbox_result.sequence_begin = next;
 }
 
-void mclw_debug_port_write(const char *text)
+void mclw_dut_mailbox_write(const char *text)
 {
 	if (text == NULL) {
 		return;
@@ -76,28 +76,28 @@ void mclw_debug_port_write(const char *text)
 	}
 }
 
-bool mclw_debug_port_poll(char *command, size_t capacity)
+bool mclw_dut_mailbox_poll(char *command, size_t capacity)
 {
 	uint32_t begin;
 	uint32_t end;
 	uint32_t length;
 
 	if (command == NULL || capacity == 0U ||
-		mclw_debug_port_command.magic0 != MCLW_DEBUG_PORT_MAGIC0 ||
-		mclw_debug_port_command.magic1 != MCLW_DEBUG_PORT_COMMAND_MAGIC1 ||
-		mclw_debug_port_command.version != MCLW_DEBUG_PORT_VERSION ||
-		mclw_debug_port_command.capacity != MCLW_DEBUG_PORT_COMMAND_CAPACITY) {
+		mclw_dut_mailbox_command.magic0 != MCLW_DUT_MAILBOX_MAGIC0 ||
+		mclw_dut_mailbox_command.magic1 != MCLW_DUT_MAILBOX_COMMAND_MAGIC1 ||
+		mclw_dut_mailbox_command.version != MCLW_DUT_MAILBOX_VERSION ||
+		mclw_dut_mailbox_command.capacity != MCLW_DUT_MAILBOX_COMMAND_CAPACITY) {
 		return false;
 	}
-	begin = mclw_debug_port_command.sequence_begin;
+	begin = mclw_dut_mailbox_command.sequence_begin;
 	barrier_dmem_fence_full();
-	length = mclw_debug_port_command.length;
-	if (length == 0U || length > MCLW_DEBUG_PORT_COMMAND_CAPACITY || length >= capacity) {
+	length = mclw_dut_mailbox_command.length;
+	if (length == 0U || length > MCLW_DUT_MAILBOX_COMMAND_CAPACITY || length >= capacity) {
 		return false;
 	}
-	memcpy(command, mclw_debug_port_command.payload, length);
+	memcpy(command, mclw_dut_mailbox_command.payload, length);
 	barrier_dmem_fence_full();
-	end = mclw_debug_port_command.sequence_end;
+	end = mclw_dut_mailbox_command.sequence_end;
 	if (begin == 0U || begin != end || begin == command_seen) {
 		return false;
 	}

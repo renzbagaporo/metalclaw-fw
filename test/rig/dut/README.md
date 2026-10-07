@@ -31,10 +31,10 @@ which `just build-dut <name>` applies on top of the board: `bmp388` (and the
 
 Two records in RAM, one per direction, each a fixed size the host knows in
 advance. The host resolves their addresses by symbol name from the ELF
-(`mclw_debug_port_command`, `mclw_debug_port_result`) and moves them with
+(`mclw_dut_mailbox_command`, `mclw_dut_mailbox_result`) and moves them with
 whole-record `read b32` / `write b32` accesses.
 
-`mclw_debug_port_command`, 128 bytes, host to DUT:
+`mclw_dut_mailbox_command`, 128 bytes, host to DUT:
 
 | offset | size | field | value |
 | --- | --- | --- | --- |
@@ -47,7 +47,7 @@ whole-record `read b32` / `write b32` accesses.
 | 0x18 | 100 | `payload` | ASCII, no terminator, no newline |
 | 0x7c | 4 | `sequence_end` | equal to `sequence_begin` |
 
-`mclw_debug_port_result`, 512 bytes, DUT to host:
+`mclw_dut_mailbox_result`, 512 bytes, DUT to host:
 
 | offset | size | field | value |
 | --- | --- | --- | --- |
@@ -62,7 +62,7 @@ whole-record `read b32` / `write b32` accesses.
 
 Both records are zeroed at boot and their headers written afterwards, `magic0`
 last. A reader that sees a header which is not exactly the four words above is
-looking at a target that has not finished `mclw_debug_port_init()` yet, not at a
+looking at a target that has not finished `mclw_dut_mailbox_init()` yet, not at a
 protocol error.
 
 ### Sequence rules

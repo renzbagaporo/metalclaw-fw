@@ -10,8 +10,8 @@ from pathlib import Path
 
 from test.rig.platforms.hardware.probe import ProbeError
 
-COMMAND_SYMBOL = "mclw_debug_port_command"
-RESULT_SYMBOL = "mclw_debug_port_result"
+COMMAND_SYMBOL = "mclw_dut_mailbox_command"
+RESULT_SYMBOL = "mclw_dut_mailbox_result"
 MAGIC0 = 0x574C434D
 COMMAND_MAGIC1 = 0x31444D43
 RESULT_MAGIC1 = 0x31534552

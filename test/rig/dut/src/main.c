@@ -32,7 +32,7 @@
 
 #define RESULT_LINE_MAX 512U
 #define RESULT_BODY_MAX (RESULT_LINE_MAX - 4U)
-#define COMMAND_MAX (MCLW_DEBUG_PORT_COMMAND_CAPACITY + 1U)
+#define COMMAND_MAX (MCLW_DUT_MAILBOX_COMMAND_CAPACITY + 1U)
 #define POLL_INTERVAL_MS 1
 
 static char result_line[RESULT_LINE_MAX];
@@ -48,7 +48,7 @@ static void emit_identity(const char *test)
 		"MCLW-HIL/1 {\"test\":\"%s\",\"status\":\"ok\",\"image\":\"%s\","
 		"\"revision\":\"%s\",\"build\":\"%s\",\"boots\":%u}\r\n",
 		test, IMAGE_NAME, IMAGE_REVISION, IMAGE_BUILD, (unsigned int)boot_count);
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 
 static void emit_ping(void)
@@ -56,7 +56,7 @@ static void emit_ping(void)
 	snprintf(result_line, sizeof(result_line),
 		"MCLW-HIL/1 {\"test\":\"test_ping\",\"status\":\"ok\",\"image\":\"%s\"}\r\n",
 		IMAGE_NAME);
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 
 static void emit_unknown(void)
@@ -64,7 +64,7 @@ static void emit_unknown(void)
 	snprintf(result_line, sizeof(result_line),
 		"MCLW-HIL/1 {\"test\":\"test_command\",\"status\":\"error\","
 		"\"detail\":\"unknown command\"}\r\n");
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 
 #if defined(CONFIG_SENSOR) || defined(CONFIG_SPI)
@@ -121,7 +121,7 @@ static void emit_error(const char *test, const char *detail)
 	snprintf(result_line, sizeof(result_line),
 		"MCLW-HIL/1 {\"test\":\"%s\",\"status\":\"error\",\"detail\":\"%s\"}\r\n",
 		test, detail);
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 #endif
 
@@ -268,7 +268,7 @@ static void emit_sensor(const char *args)
 		snprintf(result_line, sizeof(result_line),
 			"MCLW-HIL/1 {\"test\":\"test_sensor\",\"status\":\"error\",\"errno\":%d,"
 			"\"init_res\":%u}\r\n", -rc, (unsigned int)dev->state->init_res);
-		mclw_debug_port_write(result_line);
+		mclw_dut_mailbox_write(result_line);
 		return;
 	}
 	used = append(result_line, RESULT_BODY_MAX, 0,
@@ -284,7 +284,7 @@ static void emit_sensor(const char *args)
 		used = append(result_line, RESULT_BODY_MAX, used, "]");
 	}
 	append(result_line, sizeof(result_line), used, "}\r\n");
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 #else
 static void emit_sensor(const char *args)
@@ -292,7 +292,7 @@ static void emit_sensor(const char *args)
 	(void)args;
 	snprintf(result_line, sizeof(result_line),
 		"MCLW-HIL/1 {\"test\":\"test_sensor\",\"status\":\"error\",\"detail\":\"no sensor in this image\"}\r\n");
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 #endif
 
@@ -397,7 +397,7 @@ static void emit_spi(const char *args)
 	if (rc != 0) {
 		snprintf(result_line, sizeof(result_line),
 			"MCLW-HIL/1 {\"test\":\"test_spi\",\"status\":\"error\",\"errno\":%d}\r\n", -rc);
-		mclw_debug_port_write(result_line);
+		mclw_dut_mailbox_write(result_line);
 		return;
 	}
 	used = append(result_line, RESULT_BODY_MAX, 0,
@@ -408,7 +408,7 @@ static void emit_spi(const char *args)
 		used = append(result_line, RESULT_BODY_MAX, used, "%02x", first[i]);
 	}
 	append(result_line, sizeof(result_line), used, "\"}\r\n");
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 #else
 static void emit_spi(const char *args)
@@ -416,7 +416,7 @@ static void emit_spi(const char *args)
 	(void)args;
 	snprintf(result_line, sizeof(result_line),
 		"MCLW-HIL/1 {\"test\":\"test_spi\",\"status\":\"error\",\"detail\":\"no spi in this image\"}\r\n");
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 #endif
 
@@ -509,7 +509,7 @@ static void emit_raw(const char *args)
 		snprintf(result_line, sizeof(result_line),
 			"MCLW-HIL/1 {\"test\":\"test_raw\",\"status\":\"ok\",\"rx\":\"%s\"}\r\n", rx_hex);
 	}
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 #else
 static void emit_raw(const char *args)
@@ -517,7 +517,7 @@ static void emit_raw(const char *args)
 	(void)args;
 	snprintf(result_line, sizeof(result_line),
 		"MCLW-HIL/1 {\"test\":\"test_raw\",\"status\":\"error\",\"detail\":\"no raw spi device in this image\"}\r\n");
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 #endif
 
@@ -596,7 +596,7 @@ static void emit_gnss(const char *args)
 			(unsigned int)g->utc.month_day, (unsigned int)g->utc.hour,
 			(unsigned int)g->utc.minute, (unsigned int)g->utc.millisecond);
 	}
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 #else
 static void emit_gnss(const char *args)
@@ -604,7 +604,7 @@ static void emit_gnss(const char *args)
 	(void)args;
 	snprintf(result_line, sizeof(result_line),
 		"MCLW-HIL/1 {\"test\":\"test_gnss\",\"status\":\"error\",\"detail\":\"no gnss in this image\"}\r\n");
-	mclw_debug_port_write(result_line);
+	mclw_dut_mailbox_write(result_line);
 }
 #endif
 
@@ -640,10 +640,10 @@ int main(void)
 		boot_count = 0;
 	}
 	boot_count++;
-	mclw_debug_port_init();
+	mclw_dut_mailbox_init();
 	emit_identity("test_boot");
 	while (true) {
-		if (mclw_debug_port_poll(command_line, sizeof(command_line))) {
+		if (mclw_dut_mailbox_poll(command_line, sizeof(command_line))) {
 			trim(command_line);
 			dispatch(command_line);
 		}
