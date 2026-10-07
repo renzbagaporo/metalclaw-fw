@@ -4,37 +4,37 @@
 // runtime lock, never per byte and never from an interrupt, so a model may
 // parse, touch its state, and answer with send() from inside the callback.
 
-#ifndef METALCLAW_HAL_UART_H
-#define METALCLAW_HAL_UART_H
+#ifndef MCLW_HAL_UART_H
+#define MCLW_HAL_UART_H
 
 #include <stddef.h>
 #include <stdint.h>
 
 #include "metalclaw/bus.h"
 
-struct metalclaw_uart;
+struct mclw_uart;
 
-struct metalclaw_uart_stats {
+struct mclw_uart_stats {
     uint32_t bytes_rx;
     uint32_t bytes_tx;
     uint32_t overruns;
     uint32_t frame_errors;
 };
 
-typedef void (*metalclaw_uart_rx_t)(struct metalclaw_uart *uart, const uint8_t *bytes, size_t len, void *ctx);
+typedef void (*mclw_uart_rx_t)(struct mclw_uart *uart, const uint8_t *bytes, size_t len, void *ctx);
 
 // Claims tx and rx for `owner`. NULL with *err set when the pins are not a
 // UART pair on this port or are taken.
-struct metalclaw_uart *metalclaw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t baud,
-    const struct metalclaw_uart_format *format, const void *owner, int *err);
-void metalclaw_hal_uart_close(struct metalclaw_uart *uart);
+struct mclw_uart *mclw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t baud,
+    const struct mclw_uart_format *format, const void *owner, int *err);
+void mclw_hal_uart_close(struct mclw_uart *uart);
 
-int metalclaw_hal_uart_set_baud(struct metalclaw_uart *uart, uint32_t baud);
-uint32_t metalclaw_hal_uart_baud(const struct metalclaw_uart *uart);
-void metalclaw_hal_uart_set_rx(struct metalclaw_uart *uart, metalclaw_uart_rx_t fn, void *ctx);
+int mclw_hal_uart_set_baud(struct mclw_uart *uart, uint32_t baud);
+uint32_t mclw_hal_uart_baud(const struct mclw_uart *uart);
+void mclw_hal_uart_set_rx(struct mclw_uart *uart, mclw_uart_rx_t fn, void *ctx);
 
 // Returns how many bytes were queued; fewer than `len` when the queue is full.
-size_t metalclaw_hal_uart_send(struct metalclaw_uart *uart, const uint8_t *bytes, size_t len);
-void metalclaw_hal_uart_stats(const struct metalclaw_uart *uart, struct metalclaw_uart_stats *out);
+size_t mclw_hal_uart_send(struct mclw_uart *uart, const uint8_t *bytes, size_t len);
+void mclw_hal_uart_stats(const struct mclw_uart *uart, struct mclw_uart_stats *out);
 
 #endif

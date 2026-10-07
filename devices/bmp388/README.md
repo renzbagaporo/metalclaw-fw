@@ -10,13 +10,13 @@ physical pressure in pascals and a temperature in millidegrees; the model
 turns those into the 24-bit raw words the driver's compensation maths
 expects, and the DUT reads back what was set.
 
-The model is one file with no bus code. It fills a `struct metalclaw_regmap`
+The model is one file with no bus code. It fills a `struct mclw_regmap`
 in `init` and arms whichever target engine was bound with it, the SPI one
 with the datasheet's framing (read bit `0x80`, seven address bits, one dummy
 byte before read data, auto-increment); from then on the engine serves every
 bus read and write from interrupt context without calling back into the
 model. The model touches the map again only when a property changes, under
-`metalclaw_hal_critical_enter()`, so a six-byte burst read never sees half of
+`mclw_hal_critical_enter()`, so a six-byte burst read never sees half of
 one sample and half of the next.
 
 ## Bindings
@@ -76,7 +76,7 @@ on the bus, not a long interrupts-off window.
 ## Register coverage
 
 Everything lives in one 256-byte bank, filler `0x00`. `W` is
-`METALCLAW_REG_WRITABLE`, `C` is `METALCLAW_REG_CLEAR_ON_READ`.
+`MCLW_REG_WRITABLE`, `C` is `MCLW_REG_CLEAR_ON_READ`.
 
 | reg | name | value | flags | why |
 | --- | --- | --- | --- | --- |
@@ -97,7 +97,7 @@ Everything lives in one 256-byte bank, filler `0x00`. `W` is
 | 0x7e | `CMD` | `0x00` | W | takes the write and does nothing; see below |
 
 Everything else reads `0x00` and ignores writes, which is what a write to a
-register with no `WRITABLE` flag does in `metalclaw_regmap_bus_write`.
+register with no `WRITABLE` flag does in `mclw_regmap_bus_write`.
 
 **Soft reset is accepted and ignored.** The driver opens `bmp388_init()` with
 `CMD = 0xB6` and then waits 2 ms. `CMD` is writable, so the byte lands and the

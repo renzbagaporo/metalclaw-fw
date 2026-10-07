@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#ifndef METALCLAW_DUT_MAILBOX_H
-#define METALCLAW_DUT_MAILBOX_H
+#ifndef MCLW_DUT_MAILBOX_H
+#define MCLW_DUT_MAILBOX_H
 
 #include <stdbool.h>
 #include <stddef.h>

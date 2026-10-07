@@ -64,12 +64,12 @@
 static const char probe_vendor[] = "Metalclaw";
 static const char probe_product[] = "Metalclaw";
 
-static void note_error(struct metalclaw_dap *dap, uint8_t request, uint16_t seq, int16_t result) {
+static void note_error(struct mclw_dap *dap, uint8_t request, uint16_t seq, int16_t result) {
     dap->errors++;
-    metalclaw_trace(dap->inst, METALCLAW_TRACE_ERROR, request, seq, result);
+    mclw_trace(dap->inst, MCLW_TRACE_ERROR, request, seq, result);
 }
 
-static bool wire_ready(const struct metalclaw_dap *dap) {
+static bool wire_ready(const struct mclw_dap *dap) {
     return dap->enabled && dap->swd != NULL;
 }
 
@@ -111,9 +111,9 @@ static const char *info_string(uint8_t info) {
         case DAP_INFO_PRODUCT:
             return probe_product;
         case DAP_INFO_SERIAL:
-            return metalclaw_hal_usb_serial();
+            return mclw_hal_usb_serial();
         case DAP_INFO_FIRMWARE:
-            return METALCLAW_VERSION_STRING;
+            return MCLW_VERSION_STRING;
         default:
             return NULL;
     }
@@ -134,7 +134,7 @@ static int response_info(const uint8_t *request, size_t request_length, uint8_t 
         response[0] = DAP_ID_INFO;
         response[1] = 1u;
         response[2] = info == DAP_INFO_CAPABILITIES ? (uint8_t)DAP_CAP_SWD :
-            (uint8_t)METALCLAW_DAP_PACKET_COUNT;
+            (uint8_t)MCLW_DAP_PACKET_COUNT;
         return 0;
     }
     if (info == DAP_INFO_PACKET_SIZE) {
@@ -144,8 +144,8 @@ static int response_info(const uint8_t *request, size_t request_length, uint8_t 
         }
         response[0] = DAP_ID_INFO;
         response[1] = 2u;
-        response[2] = (uint8_t)(METALCLAW_DAP_PACKET_SIZE & 0xffu);
-        response[3] = (uint8_t)(METALCLAW_DAP_PACKET_SIZE >> 8);
+        response[2] = (uint8_t)(MCLW_DAP_PACKET_SIZE & 0xffu);
+        response[3] = (uint8_t)(MCLW_DAP_PACKET_SIZE >> 8);
         return 0;
     }
 
@@ -172,14 +172,14 @@ static int response_info(const uint8_t *request, size_t request_length, uint8_t 
     return 0;
 }
 
-static int transfer_with_retry(struct metalclaw_dap *dap, uint8_t request, uint32_t *value,
+static int transfer_with_retry(struct mclw_dap *dap, uint8_t request, uint32_t *value,
     uint8_t *ack) {
     uint32_t attempt = 0u;
     int ret;
 
     do {
-        ret = metalclaw_hal_swd_transfer(dap->swd, request, value, dap->idle_cycles, ack);
-        if (ret != 0 || *ack != METALCLAW_SWD_ACK_WAIT) {
+        ret = mclw_hal_swd_transfer(dap->swd, request, value, dap->idle_cycles, ack);
+        if (ret != 0 || *ack != MCLW_SWD_ACK_WAIT) {
             return ret;
         }
         attempt++;
@@ -187,19 +187,19 @@ static int transfer_with_retry(struct metalclaw_dap *dap, uint8_t request, uint3
     return 0;
 }
 
-static int write_abort(struct metalclaw_dap *dap, uint32_t value) {
+static int write_abort(struct mclw_dap *dap, uint32_t value) {
     uint32_t data = value;
     uint8_t ack = DAP_ACK_NONE;
-    int ret = metalclaw_hal_swd_transfer(dap->swd, DAP_REQUEST_DP_ABORT, &data, dap->idle_cycles,
+    int ret = mclw_hal_swd_transfer(dap->swd, DAP_REQUEST_DP_ABORT, &data, dap->idle_cycles,
         &ack);
 
     if (ret != 0) {
         return ret;
     }
-    return ack == METALCLAW_SWD_ACK_OK ? 0 : -EIO;
+    return ack == MCLW_SWD_ACK_OK ? 0 : -EIO;
 }
 
-static int process_transfer(struct metalclaw_dap *dap, const uint8_t *request, size_t request_length,
+static int process_transfer(struct mclw_dap *dap, const uint8_t *request, size_t request_length,
     uint8_t *response, size_t capacity, size_t *length, bool block) {
     uint8_t command = request[0];
     uint32_t transfer_count;
@@ -275,7 +275,7 @@ static int process_transfer(struct metalclaw_dap *dap, const uint8_t *request, s
                 status = DAP_STATUS_ERROR;
                 break;
             }
-            if (posted_ack != METALCLAW_SWD_ACK_OK) {
+            if (posted_ack != MCLW_SWD_ACK_OK) {
                 note_error(dap, DAP_REQUEST_RDBUFF, (uint16_t)i, (int16_t)posted_ack);
                 status = posted_ack;
                 break;
@@ -286,7 +286,7 @@ static int process_transfer(struct metalclaw_dap *dap, const uint8_t *request, s
 
         if ((transfer_request &
             (DAP_TRANSFER_VALUE_MATCH | DAP_TRANSFER_MATCH_MASK | DAP_TRANSFER_TIMESTAMP)) != 0u) {
-            metalclaw_trace(dap->inst, METALCLAW_TRACE_ERROR, transfer_request, (uint16_t)i,
+            mclw_trace(dap->inst, MCLW_TRACE_ERROR, transfer_request, (uint16_t)i,
                 -ENOTSUP);
             status = DAP_STATUS_ERROR;
             break;
@@ -307,10 +307,10 @@ static int process_transfer(struct metalclaw_dap *dap, const uint8_t *request, s
             break;
         }
         status = ack;
-        if (ack == METALCLAW_SWD_ACK_OK) {
+        if (ack == MCLW_SWD_ACK_OK) {
             completed++;
         }
-        if (read && ack == METALCLAW_SWD_ACK_OK) {
+        if (read && ack == MCLW_SWD_ACK_OK) {
             if (response_offset + 4u > capacity) {
                 return -EMSGSIZE;
             }
@@ -327,7 +327,7 @@ static int process_transfer(struct metalclaw_dap *dap, const uint8_t *request, s
                 response_offset += 4u;
             }
         }
-        if (ack != METALCLAW_SWD_ACK_OK) {
+        if (ack != MCLW_SWD_ACK_OK) {
             note_error(dap, transfer_request, (uint16_t)i, (int16_t)ack);
             break;
         }
@@ -338,12 +338,12 @@ static int process_transfer(struct metalclaw_dap *dap, const uint8_t *request, s
         uint8_t posted_ack = DAP_ACK_NONE;
         int ret = transfer_with_retry(dap, DAP_REQUEST_RDBUFF, &posted_value, &posted_ack);
 
-        if (ret == 0 && posted_ack == METALCLAW_SWD_ACK_OK) {
+        if (ret == 0 && posted_ack == MCLW_SWD_ACK_OK) {
             store_word(&response[pending_start + (pending_count - 1u) * 4u], posted_value);
         } else {
             note_error(dap, DAP_REQUEST_RDBUFF, (uint16_t)transfer_count,
                 ret != 0 ? (int16_t)ret : (int16_t)posted_ack);
-            if (status == METALCLAW_SWD_ACK_OK) {
+            if (status == MCLW_SWD_ACK_OK) {
                 status = ret != 0 ? (uint8_t)DAP_STATUS_ERROR : posted_ack;
             }
         }
@@ -358,12 +358,12 @@ static int process_transfer(struct metalclaw_dap *dap, const uint8_t *request, s
     }
     *length = response_offset;
     dap->transfers += completed;
-    metalclaw_trace(dap->inst, METALCLAW_TRACE_COMMAND, command, (uint16_t)completed,
+    mclw_trace(dap->inst, MCLW_TRACE_COMMAND, command, (uint16_t)completed,
         (int16_t)status);
     return 0;
 }
 
-static int process_sequence(struct metalclaw_dap *dap, const uint8_t *request, size_t request_length,
+static int process_sequence(struct mclw_dap *dap, const uint8_t *request, size_t request_length,
     uint8_t *response, size_t capacity, size_t *length, bool swd) {
     uint8_t command = request[0];
     uint32_t bits;
@@ -380,7 +380,7 @@ static int process_sequence(struct metalclaw_dap *dap, const uint8_t *request, s
         if (request_length < 2u + bytes) {
             return response_status(response, capacity, command, DAP_STATUS_ERROR, length);
         }
-        ret = metalclaw_hal_swd_output_sequence(dap->swd, bits, &request[2]);
+        ret = mclw_hal_swd_output_sequence(dap->swd, bits, &request[2]);
         if (ret != 0) {
             note_error(dap, command, 0u, (int16_t)ret);
         }
@@ -420,14 +420,14 @@ static int process_sequence(struct metalclaw_dap *dap, const uint8_t *request, s
             if (response_cursor + bytes > capacity) {
                 return -EMSGSIZE;
             }
-            ret = metalclaw_hal_swd_input_sequence(dap->swd, bits, &response[response_cursor]);
+            ret = mclw_hal_swd_input_sequence(dap->swd, bits, &response[response_cursor]);
             response_cursor += bytes;
         } else {
             if (request_cursor + bytes > request_length) {
                 ret = -EINVAL;
                 break;
             }
-            ret = metalclaw_hal_swd_output_sequence(dap->swd, bits, &request[request_cursor]);
+            ret = mclw_hal_swd_output_sequence(dap->swd, bits, &request[request_cursor]);
             request_cursor += bytes;
         }
         if (ret != 0) {
@@ -441,7 +441,7 @@ static int process_sequence(struct metalclaw_dap *dap, const uint8_t *request, s
     return 0;
 }
 
-static int process_command(struct metalclaw_dap *dap, const uint8_t *request, size_t request_length,
+static int process_command(struct mclw_dap *dap, const uint8_t *request, size_t request_length,
     uint8_t *response, size_t capacity, size_t *length) {
     uint8_t command = request[0];
     int ret;
@@ -500,18 +500,18 @@ static int process_command(struct metalclaw_dap *dap, const uint8_t *request, si
             if (request_length < 3u) {
                 return response_status(response, capacity, command, DAP_STATUS_ERROR, length);
             }
-            metalclaw_hal_delay_us((uint32_t)request[1] | ((uint32_t)request[2] << 8));
+            mclw_hal_delay_us((uint32_t)request[1] | ((uint32_t)request[2] << 8));
             return response_status(response, capacity, command, DAP_STATUS_OK, length);
 
         case DAP_ID_RESET_TARGET:
             if (!wire_ready(dap)) {
                 return response_status(response, capacity, command, DAP_STATUS_ERROR, length);
             }
-            ret = metalclaw_hal_swd_set_pins(dap->swd, METALCLAW_SWD_PIN_NRESET, 0u);
-            metalclaw_hal_delay_us(DAP_RESET_TARGET_US);
+            ret = mclw_hal_swd_set_pins(dap->swd, MCLW_SWD_PIN_NRESET, 0u);
+            mclw_hal_delay_us(DAP_RESET_TARGET_US);
             if (ret == 0) {
-                ret = metalclaw_hal_swd_set_pins(dap->swd, METALCLAW_SWD_PIN_NRESET,
-                    METALCLAW_SWD_PIN_NRESET);
+                ret = mclw_hal_swd_set_pins(dap->swd, MCLW_SWD_PIN_NRESET,
+                    MCLW_SWD_PIN_NRESET);
             }
             if (response_need(capacity, 3u, length) != 0) {
                 return -EMSGSIZE;
@@ -526,8 +526,8 @@ static int process_command(struct metalclaw_dap *dap, const uint8_t *request, si
                 return response_status(response, capacity, command, DAP_STATUS_ERROR, length);
             }
             uint32_t wait_us = load_word(&request[3]);
-            ret = metalclaw_hal_swd_set_pins(dap->swd, request[2], request[1]);
-            metalclaw_hal_delay_us(wait_us > DAP_SWJ_PINS_WAIT_MAX_US ?
+            ret = mclw_hal_swd_set_pins(dap->swd, request[2], request[1]);
+            mclw_hal_delay_us(wait_us > DAP_SWJ_PINS_WAIT_MAX_US ?
                 DAP_SWJ_PINS_WAIT_MAX_US : wait_us);
             if (ret != 0) {
                 return response_status(response, capacity, command, DAP_STATUS_ERROR, length);
@@ -536,7 +536,7 @@ static int process_command(struct metalclaw_dap *dap, const uint8_t *request, si
                 return -EMSGSIZE;
             }
             response[0] = command;
-            if (metalclaw_hal_swd_get_pins(dap->swd, &response[1]) != 0) {
+            if (mclw_hal_swd_get_pins(dap->swd, &response[1]) != 0) {
                 response[1] = DAP_STATUS_ERROR;
             }
             return 0;
@@ -546,7 +546,7 @@ static int process_command(struct metalclaw_dap *dap, const uint8_t *request, si
             if (request_length < 5u || !wire_ready(dap)) {
                 return response_status(response, capacity, command, DAP_STATUS_ERROR, length);
             }
-            ret = metalclaw_dap_set_clock(dap, load_word(&request[1]));
+            ret = mclw_dap_set_clock(dap, load_word(&request[1]));
             return response_status(response, capacity, command,
                 ret == 0 ? (uint8_t)DAP_STATUS_OK : (uint8_t)DAP_STATUS_ERROR, length);
         }
@@ -563,7 +563,7 @@ static int process_command(struct metalclaw_dap *dap, const uint8_t *request, si
             }
             dap->turnaround = (uint8_t)((request[1] & 0x03u) + 1u);
             dap->data_phase = (request[1] & 0x04u) != 0u;
-            ret = metalclaw_hal_swd_configure(dap->swd, dap->turnaround, dap->data_phase);
+            ret = mclw_hal_swd_configure(dap->swd, dap->turnaround, dap->data_phase);
             return response_status(response, capacity, command,
                 ret == 0 ? (uint8_t)DAP_STATUS_OK : (uint8_t)DAP_STATUS_ERROR, length);
 
@@ -583,16 +583,16 @@ static int process_command(struct metalclaw_dap *dap, const uint8_t *request, si
     }
 }
 
-void metalclaw_dap_init(struct metalclaw_dap *dap, struct metalclaw_instance *inst,
-    struct metalclaw_swd *swd) {
+void mclw_dap_init(struct mclw_dap *dap, struct mclw_instance *inst,
+    struct mclw_swd *swd) {
     memset(dap, 0, sizeof(*dap));
     dap->inst = inst;
     dap->swd = swd;
-    dap->clock_hz = METALCLAW_DAP_CLOCK_MIN_HZ;
+    dap->clock_hz = MCLW_DAP_CLOCK_MIN_HZ;
     dap->turnaround = 1u;
 }
 
-int metalclaw_dap_enable(struct metalclaw_dap *dap, bool enable) {
+int mclw_dap_enable(struct mclw_dap *dap, bool enable) {
     int ret;
 
     if (dap->swd == NULL) {
@@ -604,39 +604,39 @@ int metalclaw_dap_enable(struct metalclaw_dap *dap, bool enable) {
     if (!enable) {
         dap->enabled = false;
         dap->connected = false;
-        return metalclaw_hal_swd_port_off(dap->swd);
+        return mclw_hal_swd_port_off(dap->swd);
     }
 
-    ret = metalclaw_hal_swd_port_on(dap->swd);
+    ret = mclw_hal_swd_port_on(dap->swd);
     if (ret != 0) {
         return ret;
     }
-    ret = metalclaw_hal_swd_set_clock(dap->swd, dap->clock_hz);
+    ret = mclw_hal_swd_set_clock(dap->swd, dap->clock_hz);
     if (ret == 0) {
-        ret = metalclaw_hal_swd_configure(dap->swd, dap->turnaround, dap->data_phase);
+        ret = mclw_hal_swd_configure(dap->swd, dap->turnaround, dap->data_phase);
     }
     if (ret != 0) {
-        (void)metalclaw_hal_swd_port_off(dap->swd);
+        (void)mclw_hal_swd_port_off(dap->swd);
         return ret;
     }
     dap->enabled = true;
     return 0;
 }
 
-int metalclaw_dap_set_clock(struct metalclaw_dap *dap, uint32_t hz) {
+int mclw_dap_set_clock(struct mclw_dap *dap, uint32_t hz) {
     int ret;
 
     if (hz == 0u || dap->swd == NULL) {
         return -EINVAL;
     }
-    ret = metalclaw_hal_swd_set_clock(dap->swd, hz);
+    ret = mclw_hal_swd_set_clock(dap->swd, hz);
     if (ret == 0) {
         dap->clock_hz = hz;
     }
     return ret;
 }
 
-int metalclaw_dap_reset(struct metalclaw_dap *dap, bool factory) {
+int mclw_dap_reset(struct mclw_dap *dap, bool factory) {
     int ret;
 
     dap->connected = false;
@@ -647,19 +647,19 @@ int metalclaw_dap_reset(struct metalclaw_dap *dap, bool factory) {
     dap->transfers = 0u;
     dap->errors = 0u;
     if (factory) {
-        dap->clock_hz = METALCLAW_DAP_CLOCK_MIN_HZ;
+        dap->clock_hz = MCLW_DAP_CLOCK_MIN_HZ;
     }
     if (!wire_ready(dap)) {
         return 0;
     }
-    ret = metalclaw_hal_swd_configure(dap->swd, dap->turnaround, dap->data_phase);
+    ret = mclw_hal_swd_configure(dap->swd, dap->turnaround, dap->data_phase);
     if (ret == 0 && factory) {
-        ret = metalclaw_hal_swd_set_clock(dap->swd, dap->clock_hz);
+        ret = mclw_hal_swd_set_clock(dap->swd, dap->clock_hz);
     }
     return ret;
 }
 
-size_t metalclaw_dap_process(struct metalclaw_dap *dap, const uint8_t *request,
+size_t mclw_dap_process(struct mclw_dap *dap, const uint8_t *request,
     size_t request_length) {
     size_t length = 0u;
 

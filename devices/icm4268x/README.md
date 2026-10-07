@@ -10,7 +10,7 @@ angular rate and die temperature through the sensor API. The host sets the raw
 16-bit counts the part would report; the DUT reads back what was set.
 
 The model is one file with no bus code. It fills a four-bank
-`struct metalclaw_regmap`, tells the engine how the part frames a register
+`struct mclw_regmap`, tells the engine how the part frames a register
 access (read bit `0x80`, seven address bits, auto-increment, no dummy bytes)
 and arms the SPI target engine with it. From then on every window is served
 from DMA; the model is called back only through `on_write`, in interrupt

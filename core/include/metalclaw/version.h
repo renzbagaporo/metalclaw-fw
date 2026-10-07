@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#ifndef METALCLAW_VERSION_H
-#define METALCLAW_VERSION_H
+#ifndef MCLW_VERSION_H
+#define MCLW_VERSION_H
 
-#define METALCLAW_VERSION_STRING "0.0.0"
+#define MCLW_VERSION_STRING "0.0.0"
 
 // Bumped whenever a struct or enum in metalclaw/*.h changes shape or meaning.
 // A model declares the version it was written against and the build refuses
 // a mismatch.
-#define METALCLAW_ABI_VERSION 1
+#define MCLW_ABI_VERSION 1
 
 #endif

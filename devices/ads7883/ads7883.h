@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#ifndef METALCLAW_DEVICE_ADS7883_H
-#define METALCLAW_DEVICE_ADS7883_H
+#ifndef MCLW_DEVICE_ADS7883_H
+#define MCLW_DEVICE_ADS7883_H
 
 #include <stdint.h>
 
@@ -13,8 +13,8 @@
 
 // 16 clocks: two leading zeros, the 12-bit result MSB first, two trailing
 // zeros. SDO stays low after the sixteenth clock.
-uint16_t metalclaw_ads7883_frame(uint16_t sample);
+uint16_t mclw_ads7883_frame(uint16_t sample);
 
-extern const struct metalclaw_model metalclaw_model_ads7883;
+extern const struct mclw_model mclw_model_ads7883;
 
 #endif

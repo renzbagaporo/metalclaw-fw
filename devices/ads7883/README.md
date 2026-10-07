@@ -7,7 +7,7 @@ registers: every chip-select window clocks out one 16-bit frame carrying the
 conversion result, and holds SDO low afterwards. The host sets the sample in
 LSB; the DUT clocks the frame and reads it back.
 
-The model is one file with no bus code. It fills a `struct metalclaw_stream`
+The model is one file with no bus code. It fills a `struct mclw_stream`
 with the two-byte frame and arms the SPI target engine with it; the engine
 serves every window from DMA without calling the model. A new sample is
 published into the stream's second buffer and swapped in, so a window never
@@ -53,7 +53,7 @@ bit 15 14 | 13 .. 2 | 1 0
 ```
 
 Two leading zeros, the result MSB first, two trailing zeros, then `0x00` for
-as long as the DUT keeps clocking inside the window. `metalclaw_ads7883_frame()`
+as long as the DUT keeps clocking inside the window. `mclw_ads7883_frame()`
 is the encoding.
 
 ## The DUT image

@@ -51,7 +51,7 @@ enum parse_state {
 };
 
 struct neo_m8n_state {
-    struct metalclaw_uart *uart;
+    struct mclw_uart *uart;
     int32_t latitude;
     int32_t longitude;
     int32_t altitude;
@@ -83,157 +83,157 @@ struct neo_m8n_state {
     uint8_t frame[UBX_HEADER_BYTES + UBX_NAV_PVT_LEN + UBX_TRAILER_BYTES];
 };
 
-static const struct metalclaw_property_desc neo_m8n_properties[] = {
+static const struct mclw_property_desc neo_m8n_properties[] = {
     {
         .name = "latitude",
-        .type = METALCLAW_TYPE_I32,
+        .type = MCLW_TYPE_I32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = "1e-7 deg",
         .min = -NEO_M8N_LATITUDE_MAX,
         .max = NEO_M8N_LATITUDE_MAX,
     },
     {
         .name = "longitude",
-        .type = METALCLAW_TYPE_I32,
+        .type = MCLW_TYPE_I32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = "1e-7 deg",
         .min = -NEO_M8N_LONGITUDE_MAX,
         .max = NEO_M8N_LONGITUDE_MAX,
     },
     {
         .name = "altitude",
-        .type = METALCLAW_TYPE_I32,
+        .type = MCLW_TYPE_I32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = "mm",
         .min = INT32_MIN,
         .max = INT32_MAX,
     },
     {
         .name = "speed",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = "mm/s",
         .min = 0,
         .max = INT32_MAX,
     },
     {
         .name = "heading",
-        .type = METALCLAW_TYPE_I32,
+        .type = MCLW_TYPE_I32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = "1e-5 deg",
         .min = 0,
         .max = NEO_M8N_HEADING_MAX,
     },
     {
         .name = "satellites",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = NULL,
         .min = 0,
         .max = NEO_M8N_SATELLITES_MAX,
     },
     {
         .name = "fix",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = NULL,
         .min = 0,
         .max = 5,
     },
     {
         .name = "pdop",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = "0.01",
         .min = 0,
         .max = UINT16_MAX,
     },
     {
         .name = "time",
-        .type = METALCLAW_TYPE_I32,
+        .type = MCLW_TYPE_I32,
         .count = 6,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = NULL,
         .min = 0,
         .max = 9999,
     },
     {
         .name = "baud",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = "baud",
         .min = NEO_M8N_BAUD_MIN,
         .max = NEO_M8N_BAUD_MAX,
     },
     {
         .name = "rate_ms",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RO,
+        .access = MCLW_ACCESS_RO,
         .unit = "ms",
         .min = 0,
         .max = NEO_M8N_RATE_MS_MAX,
     },
     {
         .name = "nav_pvt_rate",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RO,
+        .access = MCLW_ACCESS_RO,
         .unit = NULL,
         .min = 0,
         .max = 255,
     },
     {
         .name = "dyn_model",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RO,
+        .access = MCLW_ACCESS_RO,
         .unit = NULL,
         .min = 0,
         .max = 255,
     },
     {
         .name = "running",
-        .type = METALCLAW_TYPE_BOOL,
+        .type = MCLW_TYPE_BOOL,
         .count = 1,
-        .access = METALCLAW_ACCESS_RO,
+        .access = MCLW_ACCESS_RO,
         .unit = NULL,
         .min = 0,
         .max = 1,
     },
     {
         .name = "resets",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RO,
+        .access = MCLW_ACCESS_RO,
         .unit = NULL,
         .min = 0,
         .max = UINT32_MAX,
     },
     {
         .name = "fixes",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RO,
+        .access = MCLW_ACCESS_RO,
         .unit = NULL,
         .min = 0,
         .max = UINT32_MAX,
     },
 };
 
-static const struct metalclaw_binding_desc neo_m8n_bindings[] = {
+static const struct mclw_binding_desc neo_m8n_bindings[] = {
     {
         .name = "uart",
-        .kind = METALCLAW_BINDING_UART,
+        .kind = MCLW_BINDING_UART,
         .required = true,
         .usb = NULL,
         .spi = { 0 },
@@ -242,7 +242,7 @@ static const struct metalclaw_binding_desc neo_m8n_bindings[] = {
             .format = {
                 .data_bits = 8,
                 .stop_bits = 1,
-                .parity = METALCLAW_UART_PARITY_NONE,
+                .parity = MCLW_UART_PARITY_NONE,
             },
         },
     },
@@ -293,10 +293,10 @@ static void send_frame(struct neo_m8n_state *state, uint8_t cls, uint8_t id, con
     }
     f[UBX_HEADER_BYTES + len] = ck_a;
     f[UBX_HEADER_BYTES + len + 1] = ck_b;
-    if (metalclaw_hal_uart_send(state->uart, f, total) != total) {
-        metalclaw_trace(metalclaw_instance_from_state(state), METALCLAW_TRACE_ERROR, ((uint32_t)cls << 8) | id, (uint16_t)total, -ENOSPC);
+    if (mclw_hal_uart_send(state->uart, f, total) != total) {
+        mclw_trace(mclw_instance_from_state(state), MCLW_TRACE_ERROR, ((uint32_t)cls << 8) | id, (uint16_t)total, -ENOSPC);
     } else {
-        metalclaw_trace(metalclaw_instance_from_state(state), METALCLAW_TRACE_UART, ((uint32_t)cls << 8) | id, (uint16_t)total, 0);
+        mclw_trace(mclw_instance_from_state(state), MCLW_TRACE_UART, ((uint32_t)cls << 8) | id, (uint16_t)total, 0);
     }
 }
 
@@ -391,7 +391,7 @@ static void send_nav_pvt(struct neo_m8n_state *state) {
 }
 
 static void apply_baud(struct neo_m8n_state *state, uint32_t baud) {
-    if (metalclaw_hal_uart_set_baud(state->uart, baud) == 0) {
+    if (mclw_hal_uart_set_baud(state->uart, baud) == 0) {
         state->baud = baud;
     }
 }
@@ -432,7 +432,7 @@ static void handle_cfg(struct neo_m8n_state *state) {
                     state->running = true;
                 }
                 state->resets++;
-                metalclaw_trace(metalclaw_instance_from_state(state), METALCLAW_TRACE_COMMAND, p[2], 0, 0);
+                mclw_trace(mclw_instance_from_state(state), MCLW_TRACE_COMMAND, p[2], 0, 0);
             }
             break;
         case UBX_CFG_RATE:
@@ -554,7 +554,7 @@ static void parse_byte(struct neo_m8n_state *state, uint8_t byte) {
     }
 }
 
-static void on_rx(struct metalclaw_uart *uart, const uint8_t *bytes, size_t len, void *ctx) {
+static void on_rx(struct mclw_uart *uart, const uint8_t *bytes, size_t len, void *ctx) {
     struct neo_m8n_state *state = ctx;
 
     (void)uart;
@@ -588,24 +588,24 @@ static void power_on(struct neo_m8n_state *state) {
     state->parse = PARSE_SYNC_1;
 }
 
-static int neo_m8n_init(struct metalclaw_instance *inst, const struct metalclaw_binding *bindings) {
+static int neo_m8n_init(struct mclw_instance *inst, const struct mclw_binding *bindings) {
     struct neo_m8n_state *state = inst->state;
 
     state->uart = bindings[BINDING_UART].uart;
     power_on(state);
     state->baud = neo_m8n_bindings[BINDING_UART].uart.default_baud;
-    metalclaw_hal_uart_set_rx(state->uart, on_rx, state);
+    mclw_hal_uart_set_rx(state->uart, on_rx, state);
     return 0;
 }
 
-static void neo_m8n_deinit(struct metalclaw_instance *inst) {
+static void neo_m8n_deinit(struct mclw_instance *inst) {
     struct neo_m8n_state *state = inst->state;
 
-    metalclaw_hal_uart_set_rx(state->uart, NULL, NULL);
+    mclw_hal_uart_set_rx(state->uart, NULL, NULL);
     state->uart = NULL;
 }
 
-static int neo_m8n_reset(struct metalclaw_instance *inst, bool factory) {
+static int neo_m8n_reset(struct mclw_instance *inst, bool factory) {
     struct neo_m8n_state *state = inst->state;
 
     (void)factory;
@@ -614,7 +614,7 @@ static int neo_m8n_reset(struct metalclaw_instance *inst, bool factory) {
     return 0;
 }
 
-static int neo_m8n_get(struct metalclaw_instance *inst, size_t property, struct metalclaw_value *out) {
+static int neo_m8n_get(struct mclw_instance *inst, size_t property, struct mclw_value *out) {
     struct neo_m8n_state *state = inst->state;
 
     switch (property) {
@@ -673,7 +673,7 @@ static int neo_m8n_get(struct metalclaw_instance *inst, size_t property, struct 
     }
 }
 
-static int neo_m8n_set(struct metalclaw_instance *inst, size_t property, const struct metalclaw_value *in) {
+static int neo_m8n_set(struct mclw_instance *inst, size_t property, const struct mclw_value *in) {
     struct neo_m8n_state *state = inst->state;
 
     switch (property) {
@@ -716,7 +716,7 @@ static int neo_m8n_set(struct metalclaw_instance *inst, size_t property, const s
 
 // One NAV-PVT per fix interval while the receiver runs and the DUT asked
 // for the message; a jump of several intervals still produces one frame.
-static void neo_m8n_time_advanced(struct metalclaw_instance *inst, uint64_t now_us) {
+static void neo_m8n_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
     struct neo_m8n_state *state = inst->state;
 
     if (now_us < state->next_fix_us) {
@@ -728,7 +728,7 @@ static void neo_m8n_time_advanced(struct metalclaw_instance *inst, uint64_t now_
     }
 }
 
-static const struct metalclaw_model_ops neo_m8n_ops = {
+static const struct mclw_model_ops neo_m8n_ops = {
     .init = neo_m8n_init,
     .deinit = neo_m8n_deinit,
     .reset = neo_m8n_reset,
@@ -742,8 +742,8 @@ static const struct metalclaw_model_ops neo_m8n_ops = {
     .usb_rx = NULL,
 };
 
-const struct metalclaw_model metalclaw_model_neo_m8n = {
-    .abi_version = METALCLAW_ABI_VERSION,
+const struct mclw_model mclw_model_neo_m8n = {
+    .abi_version = MCLW_ABI_VERSION,
     .id = "neo_m8n",
     .family = "neo_m8n",
     .config = NULL,

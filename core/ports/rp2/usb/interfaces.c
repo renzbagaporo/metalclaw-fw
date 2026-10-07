@@ -7,10 +7,10 @@
 #include "metalclaw/hal/usb.h"
 #include "usb_internal.h"
 
-struct metalclaw_usb_interface {
+struct mclw_usb_interface {
     bool open;
-    const struct metalclaw_usb_interface_desc *desc;
-    metalclaw_usb_rx_t rx;
+    const struct mclw_usb_interface_desc *desc;
+    mclw_usb_rx_t rx;
     void *ctx;
     const void *owner;
     // Vendor interface number TinyUSB knows this slot by, in the current
@@ -18,7 +18,7 @@ struct metalclaw_usb_interface {
     uint8_t vendor_index;
 };
 
-static struct metalclaw_usb_interface slots[CFG_TUD_VENDOR];
+static struct mclw_usb_interface slots[CFG_TUD_VENDOR];
 
 static void assign_vendor_indices(void) {
     uint8_t n = 0;
@@ -29,7 +29,7 @@ static void assign_vendor_indices(void) {
     }
 }
 
-size_t metalclaw_usb_vendor_layout(const char **names, size_t max) {
+size_t mclw_usb_vendor_layout(const char **names, size_t max) {
     size_t n = 0;
     for (size_t i = 0; i < CFG_TUD_VENDOR && n < max; i++) {
         if (slots[i].open) {
@@ -39,13 +39,13 @@ size_t metalclaw_usb_vendor_layout(const char **names, size_t max) {
     return n;
 }
 
-struct metalclaw_usb_interface *metalclaw_hal_usb_open(const struct metalclaw_usb_interface_desc *desc,
-    metalclaw_usb_rx_t rx, void *ctx, const void *owner, int *err) {
+struct mclw_usb_interface *mclw_hal_usb_open(const struct mclw_usb_interface_desc *desc,
+    mclw_usb_rx_t rx, void *ctx, const void *owner, int *err) {
     if (desc == NULL || rx == NULL || owner == NULL) {
         *err = -EINVAL;
         return NULL;
     }
-    struct metalclaw_usb_interface *s = NULL;
+    struct mclw_usb_interface *s = NULL;
     for (size_t i = 0; i < CFG_TUD_VENDOR; i++) {
         if (!slots[i].open) {
             s = &slots[i];
@@ -62,21 +62,21 @@ struct metalclaw_usb_interface *metalclaw_hal_usb_open(const struct metalclaw_us
     s->ctx = ctx;
     s->owner = owner;
     assign_vendor_indices();
-    metalclaw_usb_request_reenumeration();
+    mclw_usb_request_reenumeration();
     *err = 0;
     return s;
 }
 
-void metalclaw_hal_usb_close(struct metalclaw_usb_interface *s) {
+void mclw_hal_usb_close(struct mclw_usb_interface *s) {
     if (s == NULL || !s->open) {
         return;
     }
     memset(s, 0, sizeof(*s));
     assign_vendor_indices();
-    metalclaw_usb_request_reenumeration();
+    mclw_usb_request_reenumeration();
 }
 
-size_t metalclaw_hal_usb_write(struct metalclaw_usb_interface *s, const uint8_t *data, size_t len) {
+size_t mclw_hal_usb_write(struct mclw_usb_interface *s, const uint8_t *data, size_t len) {
     if (s == NULL || !s->open || !tud_inited() || !tud_vendor_n_mounted(s->vendor_index)) {
         return 0;
     }
@@ -85,7 +85,7 @@ size_t metalclaw_hal_usb_write(struct metalclaw_usb_interface *s, const uint8_t 
     return n;
 }
 
-bool metalclaw_hal_usb_connected(const struct metalclaw_usb_interface *s) {
+bool mclw_hal_usb_connected(const struct mclw_usb_interface *s) {
     return s != NULL && s->open && tud_inited() && tud_vendor_n_mounted(s->vendor_index);
 }
 
@@ -93,7 +93,7 @@ bool metalclaw_hal_usb_connected(const struct metalclaw_usb_interface *s) {
 // drain it after handling or the FIFO fills and the OUT endpoint stops.
 void tud_vendor_rx_cb(uint8_t itf, const uint8_t *buffer, uint16_t bufsize) {
     for (size_t i = 0; i < CFG_TUD_VENDOR; i++) {
-        struct metalclaw_usb_interface *s = &slots[i];
+        struct mclw_usb_interface *s = &slots[i];
         if (s->open && s->vendor_index == itf) {
             s->rx(s, buffer, bufsize, s->ctx);
             break;

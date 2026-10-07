@@ -4,18 +4,18 @@
 
 #include "metalclaw/regmap.h"
 
-void metalclaw_regmap_init(struct metalclaw_regmap *map, uint8_t bank_count, uint8_t bank_select_reg, uint8_t filler) {
+void mclw_regmap_init(struct mclw_regmap *map, uint8_t bank_count, uint8_t bank_select_reg, uint8_t filler) {
     memset(map, 0, sizeof(*map));
     map->bank_count = bank_count == 0 ? 1 : bank_count;
-    if (map->bank_count > METALCLAW_REGMAP_BANKS_MAX) {
-        map->bank_count = METALCLAW_REGMAP_BANKS_MAX;
+    if (map->bank_count > MCLW_REGMAP_BANKS_MAX) {
+        map->bank_count = MCLW_REGMAP_BANKS_MAX;
     }
     map->bank_select_reg = bank_select_reg;
     map->filler = filler;
     memset(map->value, filler, sizeof(map->value));
 }
 
-void metalclaw_regmap_set(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint8_t value, uint8_t flags) {
+void mclw_regmap_set(struct mclw_regmap *map, uint8_t bank, uint8_t reg, uint8_t value, uint8_t flags) {
     if (bank >= map->bank_count) {
         return;
     }
@@ -23,46 +23,46 @@ void metalclaw_regmap_set(struct metalclaw_regmap *map, uint8_t bank, uint8_t re
     map->flags[bank][reg] = flags;
 }
 
-uint8_t metalclaw_regmap_get(const struct metalclaw_regmap *map, uint8_t bank, uint8_t reg) {
+uint8_t mclw_regmap_get(const struct mclw_regmap *map, uint8_t bank, uint8_t reg) {
     return bank < map->bank_count ? map->value[bank][reg] : map->filler;
 }
 
-void metalclaw_regmap_set_le16(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint16_t value) {
-    metalclaw_regmap_set(map, bank, reg, (uint8_t)value, 0);
-    metalclaw_regmap_set(map, bank, (uint8_t)(reg + 1u), (uint8_t)(value >> 8), 0);
+void mclw_regmap_set_le16(struct mclw_regmap *map, uint8_t bank, uint8_t reg, uint16_t value) {
+    mclw_regmap_set(map, bank, reg, (uint8_t)value, 0);
+    mclw_regmap_set(map, bank, (uint8_t)(reg + 1u), (uint8_t)(value >> 8), 0);
 }
 
-void metalclaw_regmap_set_le24(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint32_t value) {
-    metalclaw_regmap_set(map, bank, reg, (uint8_t)value, 0);
-    metalclaw_regmap_set(map, bank, (uint8_t)(reg + 1u), (uint8_t)(value >> 8), 0);
-    metalclaw_regmap_set(map, bank, (uint8_t)(reg + 2u), (uint8_t)(value >> 16), 0);
+void mclw_regmap_set_le24(struct mclw_regmap *map, uint8_t bank, uint8_t reg, uint32_t value) {
+    mclw_regmap_set(map, bank, reg, (uint8_t)value, 0);
+    mclw_regmap_set(map, bank, (uint8_t)(reg + 1u), (uint8_t)(value >> 8), 0);
+    mclw_regmap_set(map, bank, (uint8_t)(reg + 2u), (uint8_t)(value >> 16), 0);
 }
 
-void metalclaw_regmap_set_be16(struct metalclaw_regmap *map, uint8_t bank, uint8_t reg, uint16_t value) {
-    metalclaw_regmap_set(map, bank, reg, (uint8_t)(value >> 8), 0);
-    metalclaw_regmap_set(map, bank, (uint8_t)(reg + 1u), (uint8_t)value, 0);
+void mclw_regmap_set_be16(struct mclw_regmap *map, uint8_t bank, uint8_t reg, uint16_t value) {
+    mclw_regmap_set(map, bank, reg, (uint8_t)(value >> 8), 0);
+    mclw_regmap_set(map, bank, (uint8_t)(reg + 1u), (uint8_t)value, 0);
 }
 
-void metalclaw_regmap_set_on_write(struct metalclaw_regmap *map, metalclaw_regmap_on_write_t fn, void *ctx) {
+void mclw_regmap_set_on_write(struct mclw_regmap *map, mclw_regmap_on_write_t fn, void *ctx) {
     map->on_write = fn;
     map->on_write_ctx = ctx;
 }
 
-uint8_t metalclaw_regmap_bus_read(struct metalclaw_regmap *map, uint8_t reg) {
+uint8_t mclw_regmap_bus_read(struct mclw_regmap *map, uint8_t reg) {
     uint8_t bank = map->active_bank;
     uint8_t flags = map->flags[bank][reg];
     uint8_t value = map->value[bank][reg];
-    if (flags & METALCLAW_REG_CLEAR_ON_READ) {
+    if (flags & MCLW_REG_CLEAR_ON_READ) {
         map->value[bank][reg] = 0;
     }
     return value;
 }
 
-void metalclaw_regmap_bus_write(struct metalclaw_regmap *map, uint8_t reg, uint8_t value) {
+void mclw_regmap_bus_write(struct mclw_regmap *map, uint8_t reg, uint8_t value) {
     uint8_t bank = map->active_bank;
     if (map->bank_count > 1 && reg == map->bank_select_reg) {
         map->active_bank = value < map->bank_count ? value : 0;
-    } else if (map->flags[bank][reg] & METALCLAW_REG_WRITABLE) {
+    } else if (map->flags[bank][reg] & MCLW_REG_WRITABLE) {
         map->value[bank][reg] = value;
     } else {
         return;

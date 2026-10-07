@@ -2,8 +2,8 @@
 // Selected with CFG_TUSB_CONFIG_FILE. CFG_TUSB_MCU and CFG_TUSB_OS come from
 // pico-sdk's tinyusb_common_base and must not be set here.
 
-#ifndef METALCLAW_TUSB_CONFIG_H
-#define METALCLAW_TUSB_CONFIG_H
+#ifndef MCLW_TUSB_CONFIG_H
+#define MCLW_TUSB_CONFIG_H
 
 #include "py/mpconfig.h"
 

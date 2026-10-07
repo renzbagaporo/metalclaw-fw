@@ -12,31 +12,31 @@
 
 #define I2C_TARGET_CLOCK_HZ 400000
 
-struct metalclaw_i2c_target {
+struct mclw_i2c_target {
     i2c_inst_t *i2c;
     uint8_t sda;
     uint8_t scl;
     uint8_t address;
     const void *owner;
-    struct metalclaw_regmap *image;
+    struct mclw_regmap *image;
     // Set by the master's first written byte; auto-incremented after use.
     uint8_t pointer;
     bool pointer_pending;
-    struct metalclaw_i2c_target_stats stats;
+    struct mclw_i2c_target_stats stats;
 };
 
-static struct metalclaw_i2c_target targets[2];
+static struct mclw_i2c_target targets[2];
 
 static void handler(i2c_inst_t *i2c, i2c_slave_event_t event);
 
 static void slave_start(void *ctx) {
-    struct metalclaw_i2c_target *t = ctx;
+    struct mclw_i2c_target *t = ctx;
 
     i2c_slave_init(t->i2c, t->address, handler);
 }
 
 static void slave_stop(void *ctx) {
-    struct metalclaw_i2c_target *t = ctx;
+    struct mclw_i2c_target *t = ctx;
 
     i2c_slave_deinit(t->i2c);
 }
@@ -51,9 +51,9 @@ static i2c_inst_t *instance_for(uint8_t sda, uint8_t scl) {
 }
 
 static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
-    struct metalclaw_i2c_target *t = &targets[i2c_hw_index(i2c)];
-    uint32_t state = metalclaw_hal_critical_enter();
-    struct metalclaw_regmap *image = t->image;
+    struct mclw_i2c_target *t = &targets[i2c_hw_index(i2c)];
+    uint32_t state = mclw_hal_critical_enter();
+    struct mclw_regmap *image = t->image;
 
     switch (event) {
         case I2C_SLAVE_RECEIVE: {
@@ -62,13 +62,13 @@ static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
                 t->pointer = byte;
                 t->pointer_pending = false;
             } else if (image != NULL) {
-                metalclaw_regmap_bus_write(image, t->pointer++, byte);
+                mclw_regmap_bus_write(image, t->pointer++, byte);
             }
             t->stats.bytes++;
             break;
         }
         case I2C_SLAVE_REQUEST:
-            i2c_write_byte_raw(i2c, image != NULL ? metalclaw_regmap_bus_read(image, t->pointer++) : 0xff);
+            i2c_write_byte_raw(i2c, image != NULL ? mclw_regmap_bus_read(image, t->pointer++) : 0xff);
             t->stats.bytes++;
             break;
         case I2C_SLAVE_FINISH:
@@ -76,26 +76,26 @@ static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
             t->stats.transactions++;
             break;
     }
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }
 
-struct metalclaw_i2c_target *metalclaw_hal_i2c_target_open(uint8_t sda, uint8_t scl, uint8_t address,
+struct mclw_i2c_target *mclw_hal_i2c_target_open(uint8_t sda, uint8_t scl, uint8_t address,
     const void *owner, int *err) {
     i2c_inst_t *i2c = instance_for(sda, scl);
     if (i2c == NULL || address > 0x7f || owner == NULL) {
         *err = -EINVAL;
         return NULL;
     }
-    struct metalclaw_i2c_target *t = &targets[i2c_hw_index(i2c)];
+    struct mclw_i2c_target *t = &targets[i2c_hw_index(i2c)];
     if (t->owner != NULL) {
         *err = -EBUSY;
         return NULL;
     }
-    *err = metalclaw_hal_pin_claim(sda, owner);
+    *err = mclw_hal_pin_claim(sda, owner);
     if (*err == 0) {
-        *err = metalclaw_hal_pin_claim(scl, owner);
+        *err = mclw_hal_pin_claim(scl, owner);
         if (*err != 0) {
-            metalclaw_hal_pin_release(sda, owner);
+            mclw_hal_pin_release(sda, owner);
         }
     }
     if (*err != 0) {
@@ -119,41 +119,41 @@ struct metalclaw_i2c_target *metalclaw_hal_i2c_target_open(uint8_t sda, uint8_t 
     gpio_pull_up(sda);
     gpio_pull_up(scl);
     i2c_init(i2c, I2C_TARGET_CLOCK_HZ);
-    metalclaw_hal_work_call(slave_start, t);
+    mclw_hal_work_call(slave_start, t);
     return t;
 }
 
-void metalclaw_hal_i2c_target_close(struct metalclaw_i2c_target *t) {
+void mclw_hal_i2c_target_close(struct mclw_i2c_target *t) {
     if (t == NULL || t->owner == NULL) {
         return;
     }
-    metalclaw_hal_work_call(slave_stop, t);
+    mclw_hal_work_call(slave_stop, t);
     i2c_deinit(t->i2c);
     gpio_deinit(t->sda);
     gpio_deinit(t->scl);
-    metalclaw_hal_pin_release(t->sda, t->owner);
-    metalclaw_hal_pin_release(t->scl, t->owner);
+    mclw_hal_pin_release(t->sda, t->owner);
+    mclw_hal_pin_release(t->scl, t->owner);
     t->owner = NULL;
     t->image = NULL;
 }
 
-int metalclaw_hal_i2c_target_arm(struct metalclaw_i2c_target *t, struct metalclaw_regmap *image) {
+int mclw_hal_i2c_target_arm(struct mclw_i2c_target *t, struct mclw_regmap *image) {
     if (t == NULL || t->owner == NULL) {
         return -EINVAL;
     }
-    uint32_t state = metalclaw_hal_critical_enter();
+    uint32_t state = mclw_hal_critical_enter();
     t->image = image;
     t->pointer_pending = true;
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
     return 0;
 }
 
-void metalclaw_hal_i2c_target_disarm(struct metalclaw_i2c_target *t) {
-    (void)metalclaw_hal_i2c_target_arm(t, NULL);
+void mclw_hal_i2c_target_disarm(struct mclw_i2c_target *t) {
+    (void)mclw_hal_i2c_target_arm(t, NULL);
 }
 
-void metalclaw_hal_i2c_target_stats(const struct metalclaw_i2c_target *t, struct metalclaw_i2c_target_stats *out) {
-    uint32_t state = metalclaw_hal_critical_enter();
+void mclw_hal_i2c_target_stats(const struct mclw_i2c_target *t, struct mclw_i2c_target_stats *out) {
+    uint32_t state = mclw_hal_critical_enter();
     *out = t->stats;
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }

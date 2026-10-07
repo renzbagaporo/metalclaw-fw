@@ -67,9 +67,9 @@ static const char *const strings[STR_VENDOR_FIRST] = {
 
 #define STRING_MAX_CHARS 32
 
-bool metalclaw_usb_descriptors_rebuild(void) {
+bool mclw_usb_descriptors_rebuild(void) {
     const char *names[CFG_TUD_VENDOR];
-    size_t count = metalclaw_usb_vendor_layout(names, CFG_TUD_VENDOR);
+    size_t count = mclw_usb_vendor_layout(names, CFG_TUD_VENDOR);
     uint8_t itf_count = (uint8_t)(ITF_VENDOR_FIRST + count);
     uint16_t total = (uint16_t)(TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_MSC_DESC_LEN + count * TUD_VENDOR_DESC_LEN);
     uint8_t staged[CONFIG_MAX_LEN];
@@ -101,7 +101,7 @@ bool metalclaw_usb_descriptors_rebuild(void) {
     return changed;
 }
 
-const char *metalclaw_hal_usb_serial(void) {
+const char *mclw_hal_usb_serial(void) {
     if (serial[0] == '\0') {
         pico_get_unique_board_id_string(serial, sizeof(serial));
     }
@@ -128,7 +128,7 @@ const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
         len = 1;
     } else {
         if (index == STR_SERIAL) {
-            str = metalclaw_hal_usb_serial();
+            str = mclw_hal_usb_serial();
         } else if (index < STR_VENDOR_FIRST) {
             str = strings[index];
         } else if ((size_t)(index - STR_VENDOR_FIRST) < vendor_count) {

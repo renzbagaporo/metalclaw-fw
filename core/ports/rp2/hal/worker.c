@@ -20,12 +20,12 @@
 #define WORKER_POLLS_MAX 8u
 
 struct poll_entry {
-    metalclaw_hal_poll_t fn;
+    mclw_hal_poll_t fn;
     void *ctx;
 };
 
 static uint32_t worker_stack[WORKER_STACK_WORDS] __attribute__((aligned(8)));
-static struct metalclaw_work *volatile work_head;
+static struct mclw_work *volatile work_head;
 static struct poll_entry polls[WORKER_POLLS_MAX];
 static volatile size_t poll_count;
 static uint tick_alarm;
@@ -42,15 +42,15 @@ static void __not_in_flash_func(tick_handler)(uint alarm) {
 
 static void drain(void) {
     for (;;) {
-        uint32_t state = metalclaw_hal_critical_enter();
-        struct metalclaw_work *w = work_head;
+        uint32_t state = mclw_hal_critical_enter();
+        struct mclw_work *w = work_head;
 
         if (w != NULL) {
             work_head = w->next;
             w->next = NULL;
             w->pending = false;
         }
-        metalclaw_hal_critical_exit(state);
+        mclw_hal_critical_exit(state);
         if (w == NULL) {
             return;
         }
@@ -74,7 +74,7 @@ static void worker_main(void) {
     }
 }
 
-void metalclaw_worker_start(void) {
+void mclw_worker_start(void) {
     // A debugger reset leaves core 1 wherever it was; the launch handshake
     // only completes from the bootrom's wait loop, which the PSM reset
     // puts it back into.
@@ -82,12 +82,12 @@ void metalclaw_worker_start(void) {
     multicore_launch_core1_with_stack(worker_main, worker_stack, sizeof(worker_stack));
 }
 
-bool metalclaw_hal_in_worker(void) {
+bool mclw_hal_in_worker(void) {
     return get_core_num() == 1;
 }
 
-void metalclaw_hal_work_post(struct metalclaw_work *work) {
-    uint32_t state = metalclaw_hal_critical_enter();
+void mclw_hal_work_post(struct mclw_work *work) {
+    uint32_t state = mclw_hal_critical_enter();
 
     if (!work->pending) {
         work->pending = true;
@@ -95,18 +95,18 @@ void metalclaw_hal_work_post(struct metalclaw_work *work) {
         if (work_head == NULL) {
             work_head = work;
         } else {
-            struct metalclaw_work *tail = work_head;
+            struct mclw_work *tail = work_head;
             while (tail->next != NULL) {
                 tail = tail->next;
             }
             tail->next = work;
         }
     }
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
     __sev();
 }
 
-static void call_trampoline(struct metalclaw_work *work) {
+static void call_trampoline(struct mclw_work *work) {
     struct call_context *c = work->ctx;
 
     c->fn(c->ctx);
@@ -115,31 +115,31 @@ static void call_trampoline(struct metalclaw_work *work) {
     __sev();
 }
 
-void metalclaw_hal_work_call(void (*fn)(void *ctx), void *ctx) {
-    if (metalclaw_hal_in_worker()) {
+void mclw_hal_work_call(void (*fn)(void *ctx), void *ctx) {
+    if (mclw_hal_in_worker()) {
         fn(ctx);
         return;
     }
     struct call_context c = { .fn = fn, .ctx = ctx, .done = false };
-    struct metalclaw_work w = { .fn = call_trampoline, .ctx = &c, .pending = false, .next = NULL };
+    struct mclw_work w = { .fn = call_trampoline, .ctx = &c, .pending = false, .next = NULL };
 
-    metalclaw_hal_work_post(&w);
+    mclw_hal_work_post(&w);
     while (!c.done) {
         __wfe();
     }
 }
 
-int metalclaw_hal_poll_register(metalclaw_hal_poll_t fn, void *ctx) {
-    uint32_t state = metalclaw_hal_critical_enter();
+int mclw_hal_poll_register(mclw_hal_poll_t fn, void *ctx) {
+    uint32_t state = mclw_hal_critical_enter();
 
     if (poll_count >= WORKER_POLLS_MAX) {
-        metalclaw_hal_critical_exit(state);
+        mclw_hal_critical_exit(state);
         return -1;
     }
     polls[poll_count].fn = fn;
     polls[poll_count].ctx = ctx;
     __dmb();
     poll_count++;
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
     return 0;
 }

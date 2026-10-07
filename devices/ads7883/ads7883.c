@@ -24,32 +24,32 @@ enum {
 };
 
 struct ads7883_state {
-    struct metalclaw_stream stream;
-    struct metalclaw_spi_target *spi;
+    struct mclw_stream stream;
+    struct mclw_spi_target *spi;
     uint16_t sample;
 };
 
-static const struct metalclaw_property_desc ads7883_properties[] = {
+static const struct mclw_property_desc ads7883_properties[] = {
     {
         .name = "sample",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = "LSB",
         .min = 0,
         .max = ADS7883_SAMPLE_MAX,
     },
-    METALCLAW_PROPERTY_SPI_MODE,
+    MCLW_PROPERTY_SPI_MODE,
 };
 
-static const struct metalclaw_binding_desc ads7883_bindings[] = {
+static const struct mclw_binding_desc ads7883_bindings[] = {
     {
         .name = "spi",
-        .kind = METALCLAW_BINDING_SPI_TARGET,
+        .kind = MCLW_BINDING_SPI_TARGET,
         .required = true,
         .usb = NULL,
         .spi = {
-            .modes = METALCLAW_SPI_MODE_BIT(0) | METALCLAW_SPI_MODE_BIT(3),
+            .modes = MCLW_SPI_MODE_BIT(0) | MCLW_SPI_MODE_BIT(3),
             .default_mode = 0,
             .msb_first = true,
         },
@@ -57,37 +57,37 @@ static const struct metalclaw_binding_desc ads7883_bindings[] = {
     },
 };
 
-uint16_t metalclaw_ads7883_frame(uint16_t sample) {
+uint16_t mclw_ads7883_frame(uint16_t sample) {
     return (uint16_t)((sample & ADS7883_SAMPLE_MAX) << 2);
 }
 
-static void publish_sample(struct metalclaw_instance *inst) {
+static void publish_sample(struct mclw_instance *inst) {
     struct ads7883_state *state = inst->state;
-    uint16_t frame = metalclaw_ads7883_frame(state->sample);
+    uint16_t frame = mclw_ads7883_frame(state->sample);
     uint8_t bytes[ADS7883_FRAME_BYTES] = { (uint8_t)(frame >> 8), (uint8_t)frame };
 
-    metalclaw_stream_publish(&state->stream, bytes, sizeof(bytes));
-    metalclaw_trace(inst, METALCLAW_TRACE_STATE, 0, ADS7883_FRAME_BYTES, 0);
+    mclw_stream_publish(&state->stream, bytes, sizeof(bytes));
+    mclw_trace(inst, MCLW_TRACE_STATE, 0, ADS7883_FRAME_BYTES, 0);
 }
 
-static int ads7883_init(struct metalclaw_instance *inst, const struct metalclaw_binding *bindings) {
+static int ads7883_init(struct mclw_instance *inst, const struct mclw_binding *bindings) {
     struct ads7883_state *state = inst->state;
 
     state->spi = bindings[BINDING_SPI].spi;
     state->sample = ADS7883_SAMPLE_DEFAULT;
-    metalclaw_stream_init(&state->stream, METALCLAW_STREAM_OUT, ADS7883_FRAME_BYTES, 0x00);
+    mclw_stream_init(&state->stream, MCLW_STREAM_OUT, ADS7883_FRAME_BYTES, 0x00);
     publish_sample(inst);
-    return metalclaw_hal_spi_target_arm_stream(state->spi, &state->stream);
+    return mclw_hal_spi_target_arm_stream(state->spi, &state->stream);
 }
 
-static void ads7883_deinit(struct metalclaw_instance *inst) {
+static void ads7883_deinit(struct mclw_instance *inst) {
     struct ads7883_state *state = inst->state;
 
-    metalclaw_hal_spi_target_disarm(state->spi);
+    mclw_hal_spi_target_disarm(state->spi);
     state->spi = NULL;
 }
 
-static int ads7883_reset(struct metalclaw_instance *inst, bool factory) {
+static int ads7883_reset(struct mclw_instance *inst, bool factory) {
     struct ads7883_state *state = inst->state;
 
     (void)factory;
@@ -96,7 +96,7 @@ static int ads7883_reset(struct metalclaw_instance *inst, bool factory) {
     return 0;
 }
 
-static int ads7883_get(struct metalclaw_instance *inst, size_t property, struct metalclaw_value *out) {
+static int ads7883_get(struct mclw_instance *inst, size_t property, struct mclw_value *out) {
     struct ads7883_state *state = inst->state;
 
     switch (property) {
@@ -104,13 +104,13 @@ static int ads7883_get(struct metalclaw_instance *inst, size_t property, struct 
             out->v[0] = state->sample;
             return 0;
         case PROP_SPI_MODE:
-            return metalclaw_spi_mode_get(inst, BINDING_SPI, out);
+            return mclw_spi_mode_get(inst, BINDING_SPI, out);
         default:
             return -EINVAL;
     }
 }
 
-static int ads7883_set(struct metalclaw_instance *inst, size_t property, const struct metalclaw_value *in) {
+static int ads7883_set(struct mclw_instance *inst, size_t property, const struct mclw_value *in) {
     struct ads7883_state *state = inst->state;
 
     switch (property) {
@@ -119,13 +119,13 @@ static int ads7883_set(struct metalclaw_instance *inst, size_t property, const s
             publish_sample(inst);
             return 0;
         case PROP_SPI_MODE:
-            return metalclaw_spi_mode_set(inst, BINDING_SPI, in);
+            return mclw_spi_mode_set(inst, BINDING_SPI, in);
         default:
             return -EINVAL;
     }
 }
 
-static const struct metalclaw_model_ops ads7883_ops = {
+static const struct mclw_model_ops ads7883_ops = {
     .init = ads7883_init,
     .deinit = ads7883_deinit,
     .reset = ads7883_reset,
@@ -139,8 +139,8 @@ static const struct metalclaw_model_ops ads7883_ops = {
     .usb_rx = NULL,
 };
 
-const struct metalclaw_model metalclaw_model_ads7883 = {
-    .abi_version = METALCLAW_ABI_VERSION,
+const struct mclw_model mclw_model_ads7883 = {
+    .abi_version = MCLW_ABI_VERSION,
     .id = "ads7883",
     .family = "ads7883",
     .config = NULL,

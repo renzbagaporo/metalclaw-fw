@@ -27,99 +27,99 @@ enum {
 };
 
 struct swd_probe_state {
-    struct metalclaw_dap dap;
-    struct metalclaw_usb_interface *usb;
+    struct mclw_dap dap;
+    struct mclw_usb_interface *usb;
 };
 
-static const struct metalclaw_property_desc probe_properties[] = {
+static const struct mclw_property_desc probe_properties[] = {
     {
         .name = "enabled",
-        .type = METALCLAW_TYPE_BOOL,
+        .type = MCLW_TYPE_BOOL,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = NULL,
         .min = 0,
         .max = 1,
     },
     {
         .name = "clock_hz",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RW,
+        .access = MCLW_ACCESS_RW,
         .unit = "Hz",
-        .min = METALCLAW_DAP_CLOCK_MIN_HZ,
-        .max = METALCLAW_DAP_CLOCK_MAX_HZ,
+        .min = MCLW_DAP_CLOCK_MIN_HZ,
+        .max = MCLW_DAP_CLOCK_MAX_HZ,
     },
     {
         .name = "connected",
-        .type = METALCLAW_TYPE_BOOL,
+        .type = MCLW_TYPE_BOOL,
         .count = 1,
-        .access = METALCLAW_ACCESS_RO,
+        .access = MCLW_ACCESS_RO,
         .unit = NULL,
         .min = 0,
         .max = 1,
     },
     {
         .name = "transfers",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RO,
+        .access = MCLW_ACCESS_RO,
         .unit = NULL,
         .min = 0,
         .max = UINT32_MAX,
     },
     {
         .name = "errors",
-        .type = METALCLAW_TYPE_U32,
+        .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = METALCLAW_ACCESS_RO,
+        .access = MCLW_ACCESS_RO,
         .unit = NULL,
         .min = 0,
         .max = UINT32_MAX,
     },
 };
 
-static const struct metalclaw_usb_interface_desc dap_interface = {
+static const struct mclw_usb_interface_desc dap_interface = {
     .name = "CMSIS-DAP v2",
 };
 
-static const struct metalclaw_binding_desc probe_bindings[] = {
+static const struct mclw_binding_desc probe_bindings[] = {
     {
         .name = "swd",
-        .kind = METALCLAW_BINDING_SWD_WIRE,
+        .kind = MCLW_BINDING_SWD_WIRE,
         .required = true,
         .usb = NULL,
     },
     {
         .name = "dap",
-        .kind = METALCLAW_BINDING_USB_INTERFACE,
+        .kind = MCLW_BINDING_USB_INTERFACE,
         .required = true,
         .usb = &dap_interface,
     },
 };
 
-static int probe_init(struct metalclaw_instance *inst, const struct metalclaw_binding *bindings) {
+static int probe_init(struct mclw_instance *inst, const struct mclw_binding *bindings) {
     struct swd_probe_state *state = inst->state;
 
     state->usb = bindings[BINDING_DAP].usb;
-    metalclaw_dap_init(&state->dap, inst, bindings[BINDING_SWD].swd);
-    return metalclaw_dap_enable(&state->dap, true);
+    mclw_dap_init(&state->dap, inst, bindings[BINDING_SWD].swd);
+    return mclw_dap_enable(&state->dap, true);
 }
 
-static void probe_deinit(struct metalclaw_instance *inst) {
+static void probe_deinit(struct mclw_instance *inst) {
     struct swd_probe_state *state = inst->state;
 
-    (void)metalclaw_dap_enable(&state->dap, false);
+    (void)mclw_dap_enable(&state->dap, false);
     state->usb = NULL;
 }
 
-static int probe_reset(struct metalclaw_instance *inst, bool factory) {
+static int probe_reset(struct mclw_instance *inst, bool factory) {
     struct swd_probe_state *state = inst->state;
 
-    return metalclaw_dap_reset(&state->dap, factory);
+    return mclw_dap_reset(&state->dap, factory);
 }
 
-static int probe_get(struct metalclaw_instance *inst, size_t property, struct metalclaw_value *out) {
+static int probe_get(struct mclw_instance *inst, size_t property, struct mclw_value *out) {
     struct swd_probe_state *state = inst->state;
 
     switch (property) {
@@ -127,7 +127,7 @@ static int probe_get(struct metalclaw_instance *inst, size_t property, struct me
             out->v[0] = state->dap.enabled ? 1 : 0;
             return 0;
         case PROP_CLOCK_HZ:
-            out->v[0] = metalclaw_hal_swd_get_clock(state->dap.swd);
+            out->v[0] = mclw_hal_swd_get_clock(state->dap.swd);
             return 0;
         case PROP_CONNECTED:
             out->v[0] = state->dap.connected ? 1 : 0;
@@ -143,21 +143,21 @@ static int probe_get(struct metalclaw_instance *inst, size_t property, struct me
     }
 }
 
-static int probe_set(struct metalclaw_instance *inst, size_t property,
-    const struct metalclaw_value *in) {
+static int probe_set(struct mclw_instance *inst, size_t property,
+    const struct mclw_value *in) {
     struct swd_probe_state *state = inst->state;
 
     switch (property) {
         case PROP_ENABLED:
-            return metalclaw_dap_enable(&state->dap, in->v[0] != 0);
+            return mclw_dap_enable(&state->dap, in->v[0] != 0);
         case PROP_CLOCK_HZ:
-            return metalclaw_dap_set_clock(&state->dap, (uint32_t)in->v[0]);
+            return mclw_dap_set_clock(&state->dap, (uint32_t)in->v[0]);
         default:
             return -EINVAL;
     }
 }
 
-static void probe_usb_rx(struct metalclaw_instance *inst, size_t binding, const uint8_t *data,
+static void probe_usb_rx(struct mclw_instance *inst, size_t binding, const uint8_t *data,
     size_t len) {
     struct swd_probe_state *state = inst->state;
     size_t response_length;
@@ -165,13 +165,13 @@ static void probe_usb_rx(struct metalclaw_instance *inst, size_t binding, const 
     if (binding != (size_t)BINDING_DAP || state->usb == NULL) {
         return;
     }
-    response_length = metalclaw_dap_process(&state->dap, data, len);
+    response_length = mclw_dap_process(&state->dap, data, len);
     if (response_length != 0u) {
-        (void)metalclaw_hal_usb_write(state->usb, state->dap.response, response_length);
+        (void)mclw_hal_usb_write(state->usb, state->dap.response, response_length);
     }
 }
 
-static const struct metalclaw_model_ops probe_ops = {
+static const struct mclw_model_ops probe_ops = {
     .init = probe_init,
     .deinit = probe_deinit,
     .reset = probe_reset,
@@ -185,8 +185,8 @@ static const struct metalclaw_model_ops probe_ops = {
     .usb_rx = probe_usb_rx,
 };
 
-const struct metalclaw_model metalclaw_model_swd_probe = {
-    .abi_version = METALCLAW_ABI_VERSION,
+const struct mclw_model mclw_model_swd_probe = {
+    .abi_version = MCLW_ABI_VERSION,
     .id = "swd_probe",
     .family = "probe",
     .config = NULL,

@@ -2,8 +2,8 @@
 // Included by every Metalclaw rp2 board's mpconfigboard.h. Board files add
 // only their identity on top of this.
 
-#ifndef METALCLAW_PORT_RP2_H
-#define METALCLAW_PORT_RP2_H
+#ifndef MCLW_PORT_RP2_H
+#define MCLW_PORT_RP2_H
 
 #include "metalclaw/runtime.h"
 
@@ -41,17 +41,17 @@
 // threads; TinyUSB is only ever called from core 0's thread context.
 #define MICROPY_PY_THREAD                       (0)
 
-void metalclaw_platform_init(void);
-void metalclaw_worker_start(void);
-void metalclaw_usb_init(void);
-void metalclaw_usb_task(void);
-void metalclaw_port_event_hook(void);
-void metalclaw_console_vm_init(void);
-void metalclaw_port_early_init(void);
+void mclw_platform_init(void);
+void mclw_worker_start(void);
+void mclw_usb_init(void);
+void mclw_usb_task(void);
+void mclw_port_event_hook(void);
+void mclw_console_vm_init(void);
+void mclw_port_early_init(void);
 
-#define MICROPY_BOARD_EARLY_INIT()              metalclaw_port_early_init()
-#define MICROPY_PORT_INIT_FUNC                  metalclaw_console_vm_init()
-#define MICROPY_PORT_DEINIT_FUNC                metalclaw_detach_all()
-#define MICROPY_INTERNAL_EVENT_HOOK             metalclaw_port_event_hook()
+#define MICROPY_BOARD_EARLY_INIT()              mclw_port_early_init()
+#define MICROPY_PORT_INIT_FUNC                  mclw_console_vm_init()
+#define MICROPY_PORT_DEINIT_FUNC                mclw_detach_all()
+#define MICROPY_INTERNAL_EVENT_HOOK             mclw_port_event_hook()
 
 #endif

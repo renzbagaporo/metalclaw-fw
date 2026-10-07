@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#ifndef METALCLAW_DEVICE_BMP388_H
-#define METALCLAW_DEVICE_BMP388_H
+#ifndef MCLW_DEVICE_BMP388_H
+#define MCLW_DEVICE_BMP388_H
 
 #include <stdint.h>
 
@@ -70,9 +70,9 @@
 #define BMP388_TEMPERATURE_NUMERATOR 65536
 #define BMP388_TEMPERATURE_DENOMINATOR 1000
 
-uint32_t metalclaw_bmp388_raw_pressure(int32_t pressure_pa);
-uint32_t metalclaw_bmp388_raw_temperature(int32_t temperature_mc);
+uint32_t mclw_bmp388_raw_pressure(int32_t pressure_pa);
+uint32_t mclw_bmp388_raw_temperature(int32_t temperature_mc);
 
-extern const struct metalclaw_model metalclaw_model_bmp388;
+extern const struct mclw_model mclw_model_bmp388;
 
 #endif

@@ -2,8 +2,8 @@
 // u-blox NEO-M8N: the UBX protocol subset the part answers on its UART,
 // from the u-blox 8 / M8 receiver description (protocol 18).
 
-#ifndef METALCLAW_DEVICES_NEO_M8N_H
-#define METALCLAW_DEVICES_NEO_M8N_H
+#ifndef MCLW_DEVICE_NEO_M8N_H
+#define MCLW_DEVICE_NEO_M8N_H
 
 #include <stdint.h>
 

@@ -34,7 +34,7 @@ enum probe_command {
     PROBE_CMD_READ,
 };
 
-struct metalclaw_swd {
+struct mclw_swd {
     const void *owner;
     PIO pio;
     uint8_t sm;
@@ -62,13 +62,13 @@ static const pio_program_t probe_program = {
     .pio_version = 0,
 };
 
-static struct metalclaw_swd slot;
+static struct mclw_swd slot;
 
 static uint32_t probe_min(uint32_t left, uint32_t right) {
     return left < right ? left : right;
 }
 
-static uint32_t probe_command_word(const struct metalclaw_swd *swd, uint32_t count, bool output,
+static uint32_t probe_command_word(const struct mclw_swd *swd, uint32_t count, bool output,
     enum probe_command command) {
     uint32_t address;
 
@@ -87,7 +87,7 @@ static uint32_t probe_command_word(const struct metalclaw_swd *swd, uint32_t cou
     return ((count - 1u) & 0xffu) | ((uint32_t)output << 8) | (address << 9);
 }
 
-static void probe_resync(struct metalclaw_swd *swd) {
+static void probe_resync(struct mclw_swd *swd) {
     const uint32_t debug_bits =
         (1u << (PIO_FDEBUG_TXSTALL_LSB + swd->sm)) |
         (1u << (PIO_FDEBUG_TXOVER_LSB + swd->sm)) |
@@ -103,7 +103,7 @@ static void probe_resync(struct metalclaw_swd *swd) {
     pio_sm_set_enabled(swd->pio, swd->sm, true);
 }
 
-static int probe_put(struct metalclaw_swd *swd, uint32_t value) {
+static int probe_put(struct mclw_swd *swd, uint32_t value) {
     absolute_time_t deadline = make_timeout_time_us(PROBE_TIMEOUT_US);
 
     while (pio_sm_is_tx_fifo_full(swd->pio, swd->sm)) {
@@ -117,7 +117,7 @@ static int probe_put(struct metalclaw_swd *swd, uint32_t value) {
     return 0;
 }
 
-static int probe_get(struct metalclaw_swd *swd, uint32_t *value) {
+static int probe_get(struct mclw_swd *swd, uint32_t *value) {
     absolute_time_t deadline = make_timeout_time_us(PROBE_TIMEOUT_US);
 
     while (pio_sm_is_rx_fifo_empty(swd->pio, swd->sm)) {
@@ -131,7 +131,7 @@ static int probe_get(struct metalclaw_swd *swd, uint32_t *value) {
     return 0;
 }
 
-static int probe_wait_idle(struct metalclaw_swd *swd) {
+static int probe_wait_idle(struct mclw_swd *swd) {
     const uint32_t stall = 1u << (PIO_FDEBUG_TXSTALL_LSB + swd->sm);
     absolute_time_t deadline;
 
@@ -147,19 +147,19 @@ static int probe_wait_idle(struct metalclaw_swd *swd) {
     return 0;
 }
 
-static int probe_write(struct metalclaw_swd *swd, uint32_t count, uint32_t value) {
+static int probe_write(struct mclw_swd *swd, uint32_t count, uint32_t value) {
     int ret = probe_put(swd, probe_command_word(swd, count, true, PROBE_CMD_WRITE));
 
     return ret != 0 ? ret : probe_put(swd, value);
 }
 
-static int probe_hiz(struct metalclaw_swd *swd, uint32_t count) {
+static int probe_hiz(struct mclw_swd *swd, uint32_t count) {
     int ret = probe_put(swd, probe_command_word(swd, count, false, PROBE_CMD_WRITE));
 
     return ret != 0 ? ret : probe_put(swd, 0u);
 }
 
-static int probe_read(struct metalclaw_swd *swd, uint32_t count, uint32_t *value) {
+static int probe_read(struct mclw_swd *swd, uint32_t count, uint32_t *value) {
     int ret = probe_put(swd, probe_command_word(swd, count, false, PROBE_CMD_READ));
 
     if (ret != 0) {
@@ -175,7 +175,7 @@ static int probe_read(struct metalclaw_swd *swd, uint32_t count, uint32_t *value
     return 0;
 }
 
-static void probe_apply_clock(struct metalclaw_swd *swd) {
+static void probe_apply_clock(struct mclw_swd *swd) {
     const uint64_t numerator = (uint64_t)clock_get_hz(clk_sys) * 256u;
     const uint64_t denominator = (uint64_t)swd->request_hz * 4u;
     uint64_t divider256 = (numerator + denominator - 1u) / denominator;
@@ -191,8 +191,8 @@ static void probe_apply_clock(struct metalclaw_swd *swd) {
         (uint8_t)(divider256 & 0xffu));
 }
 
-static void probe_reset_configure(const struct metalclaw_swd *swd) {
-    if (swd->nreset == METALCLAW_PIN_NONE) {
+static void probe_reset_configure(const struct mclw_swd *swd) {
+    if (swd->nreset == MCLW_PIN_NONE) {
         return;
     }
     gpio_init(swd->nreset);
@@ -201,8 +201,8 @@ static void probe_reset_configure(const struct metalclaw_swd *swd) {
     gpio_pull_up(swd->nreset);
 }
 
-static void probe_reset_set(const struct metalclaw_swd *swd, bool asserted) {
-    if (swd->nreset == METALCLAW_PIN_NONE) {
+static void probe_reset_set(const struct mclw_swd *swd, bool asserted) {
+    if (swd->nreset == MCLW_PIN_NONE) {
         return;
     }
     if (asserted) {
@@ -214,11 +214,11 @@ static void probe_reset_set(const struct metalclaw_swd *swd, bool asserted) {
     }
 }
 
-static bool probe_reset_get(const struct metalclaw_swd *swd) {
-    return swd->nreset == METALCLAW_PIN_NONE ? true : gpio_get(swd->nreset);
+static bool probe_reset_get(const struct mclw_swd *swd) {
+    return swd->nreset == MCLW_PIN_NONE ? true : gpio_get(swd->nreset);
 }
 
-static void probe_release_pads(const struct metalclaw_swd *swd) {
+static void probe_release_pads(const struct mclw_swd *swd) {
     gpio_set_function(swd->swclk, GPIO_FUNC_SIO);
     gpio_set_function(swd->swdio, GPIO_FUNC_SIO);
     gpio_set_dir(swd->swclk, GPIO_IN);
@@ -227,7 +227,7 @@ static void probe_release_pads(const struct metalclaw_swd *swd) {
     gpio_disable_pulls(swd->swdio);
 }
 
-static int probe_acquire_sm(struct metalclaw_swd *swd) {
+static int probe_acquire_sm(struct mclw_swd *swd) {
     int err = -ENOMEM;
 
     for (uint32_t i = 0; i < NUM_PIOS; i++) {
@@ -250,39 +250,39 @@ static int probe_acquire_sm(struct metalclaw_swd *swd) {
     return err;
 }
 
-static void probe_release_sm(struct metalclaw_swd *swd) {
+static void probe_release_sm(struct mclw_swd *swd) {
     pio_remove_program(swd->pio, &probe_program, swd->offset);
     pio_sm_unclaim(swd->pio, swd->sm);
 }
 
-struct metalclaw_swd *metalclaw_hal_swd_open(uint8_t swclk, uint8_t swdio, uint8_t nreset,
+struct mclw_swd *mclw_hal_swd_open(uint8_t swclk, uint8_t swdio, uint8_t nreset,
     const void *owner, int *err) {
-    struct metalclaw_swd *swd = &slot;
+    struct mclw_swd *swd = &slot;
 
     if (swd->owner != NULL) {
         *err = -EBUSY;
         return NULL;
     }
     if (owner == NULL || swclk >= 32u || swdio >= 32u || swclk == swdio ||
-        (nreset != METALCLAW_PIN_NONE && (nreset == swclk || nreset == swdio))) {
+        (nreset != MCLW_PIN_NONE && (nreset == swclk || nreset == swdio))) {
         *err = -EINVAL;
         return NULL;
     }
 
-    *err = metalclaw_hal_pin_claim(swclk, owner);
+    *err = mclw_hal_pin_claim(swclk, owner);
     if (*err != 0) {
         return NULL;
     }
-    *err = metalclaw_hal_pin_claim(swdio, owner);
+    *err = mclw_hal_pin_claim(swdio, owner);
     if (*err != 0) {
-        metalclaw_hal_pin_release(swclk, owner);
+        mclw_hal_pin_release(swclk, owner);
         return NULL;
     }
-    if (nreset != METALCLAW_PIN_NONE) {
-        *err = metalclaw_hal_pin_claim(nreset, owner);
+    if (nreset != MCLW_PIN_NONE) {
+        *err = mclw_hal_pin_claim(nreset, owner);
         if (*err != 0) {
-            metalclaw_hal_pin_release(swdio, owner);
-            metalclaw_hal_pin_release(swclk, owner);
+            mclw_hal_pin_release(swdio, owner);
+            mclw_hal_pin_release(swclk, owner);
             return NULL;
         }
     }
@@ -298,11 +298,11 @@ struct metalclaw_swd *metalclaw_hal_swd_open(uint8_t swclk, uint8_t swdio, uint8
 
     *err = probe_acquire_sm(swd);
     if (*err != 0) {
-        if (nreset != METALCLAW_PIN_NONE) {
-            metalclaw_hal_pin_release(nreset, owner);
+        if (nreset != MCLW_PIN_NONE) {
+            mclw_hal_pin_release(nreset, owner);
         }
-        metalclaw_hal_pin_release(swdio, owner);
-        metalclaw_hal_pin_release(swclk, owner);
+        mclw_hal_pin_release(swdio, owner);
+        mclw_hal_pin_release(swclk, owner);
         return NULL;
     }
 
@@ -312,21 +312,21 @@ struct metalclaw_swd *metalclaw_hal_swd_open(uint8_t swclk, uint8_t swdio, uint8
     return swd;
 }
 
-void metalclaw_hal_swd_close(struct metalclaw_swd *swd) {
+void mclw_hal_swd_close(struct mclw_swd *swd) {
     if (swd == NULL || swd->owner == NULL) {
         return;
     }
-    (void)metalclaw_hal_swd_port_off(swd);
+    (void)mclw_hal_swd_port_off(swd);
     probe_release_sm(swd);
-    metalclaw_hal_pin_release(swd->swclk, swd->owner);
-    metalclaw_hal_pin_release(swd->swdio, swd->owner);
-    if (swd->nreset != METALCLAW_PIN_NONE) {
-        metalclaw_hal_pin_release(swd->nreset, swd->owner);
+    mclw_hal_pin_release(swd->swclk, swd->owner);
+    mclw_hal_pin_release(swd->swdio, swd->owner);
+    if (swd->nreset != MCLW_PIN_NONE) {
+        mclw_hal_pin_release(swd->nreset, swd->owner);
     }
     swd->owner = NULL;
 }
 
-int metalclaw_hal_swd_port_on(struct metalclaw_swd *swd) {
+int mclw_hal_swd_port_on(struct mclw_swd *swd) {
     pio_sm_config config = pio_get_default_sm_config();
     uint32_t pin_mask;
     int ret;
@@ -367,7 +367,7 @@ int metalclaw_hal_swd_port_on(struct metalclaw_swd *swd) {
     return 0;
 }
 
-int metalclaw_hal_swd_port_off(struct metalclaw_swd *swd) {
+int mclw_hal_swd_port_off(struct mclw_swd *swd) {
     int ret = 0;
 
     if (swd == NULL || swd->owner == NULL) {
@@ -386,7 +386,7 @@ int metalclaw_hal_swd_port_off(struct metalclaw_swd *swd) {
     return ret;
 }
 
-int metalclaw_hal_swd_set_clock(struct metalclaw_swd *swd, uint32_t hz) {
+int mclw_hal_swd_set_clock(struct mclw_swd *swd, uint32_t hz) {
     if (swd == NULL || swd->owner == NULL) {
         return -EINVAL;
     }
@@ -395,11 +395,11 @@ int metalclaw_hal_swd_set_clock(struct metalclaw_swd *swd, uint32_t hz) {
     return 0;
 }
 
-uint32_t metalclaw_hal_swd_get_clock(const struct metalclaw_swd *swd) {
+uint32_t mclw_hal_swd_get_clock(const struct mclw_swd *swd) {
     return swd == NULL ? 0u : swd->clock_hz;
 }
 
-int metalclaw_hal_swd_configure(struct metalclaw_swd *swd, uint8_t turnaround, bool data_phase) {
+int mclw_hal_swd_configure(struct mclw_swd *swd, uint8_t turnaround, bool data_phase) {
     if (swd == NULL || swd->owner == NULL) {
         return -EINVAL;
     }
@@ -411,7 +411,7 @@ int metalclaw_hal_swd_configure(struct metalclaw_swd *swd, uint8_t turnaround, b
     return 0;
 }
 
-int metalclaw_hal_swd_output_sequence(struct metalclaw_swd *swd, uint32_t count,
+int mclw_hal_swd_output_sequence(struct mclw_swd *swd, uint32_t count,
     const uint8_t *data) {
     if (swd == NULL || swd->owner == NULL || (count != 0u && data == NULL)) {
         return -EINVAL;
@@ -431,7 +431,7 @@ int metalclaw_hal_swd_output_sequence(struct metalclaw_swd *swd, uint32_t count,
     return 0;
 }
 
-int metalclaw_hal_swd_input_sequence(struct metalclaw_swd *swd, uint32_t count, uint8_t *data) {
+int mclw_hal_swd_input_sequence(struct mclw_swd *swd, uint32_t count, uint8_t *data) {
     if (swd == NULL || swd->owner == NULL || (count != 0u && data == NULL)) {
         return -EINVAL;
     }
@@ -452,7 +452,7 @@ int metalclaw_hal_swd_input_sequence(struct metalclaw_swd *swd, uint32_t count, 
     return 0;
 }
 
-int metalclaw_hal_swd_transfer(struct metalclaw_swd *swd, uint8_t request, uint32_t *data,
+int mclw_hal_swd_transfer(struct mclw_swd *swd, uint8_t request, uint32_t *data,
     uint8_t idle_cycles, uint8_t *response) {
     uint32_t parity = 0u;
     uint32_t value = 0u;
@@ -485,7 +485,7 @@ int metalclaw_hal_swd_transfer(struct metalclaw_swd *swd, uint8_t request, uint3
     }
     ack = (uint8_t)(raw_ack >> swd->turnaround);
 
-    if (ack == METALCLAW_SWD_ACK_OK) {
+    if (ack == MCLW_SWD_ACK_OK) {
         if ((request & PROBE_REQUEST_RNW) != 0u) {
             ret = probe_read(swd, 32u, &value);
             if (ret == 0) {
@@ -495,7 +495,7 @@ int metalclaw_hal_swd_transfer(struct metalclaw_swd *swd, uint8_t request, uint3
                 return ret;
             }
             if (((uint32_t)__builtin_popcount(value) ^ parity) & 1u) {
-                ack |= METALCLAW_SWD_ERROR;
+                ack |= MCLW_SWD_ERROR;
             }
             if (data != NULL) {
                 *data = value;
@@ -517,7 +517,7 @@ int metalclaw_hal_swd_transfer(struct metalclaw_swd *swd, uint8_t request, uint3
             ret = probe_write(swd, chunk, 0u);
             idle_cycles -= (uint8_t)chunk;
         }
-    } else if (ack == METALCLAW_SWD_ACK_WAIT || ack == METALCLAW_SWD_ACK_FAULT) {
+    } else if (ack == MCLW_SWD_ACK_WAIT || ack == MCLW_SWD_ACK_FAULT) {
         if (swd->data_phase && (request & PROBE_REQUEST_RNW) != 0u) {
             uint32_t discarded = 0u;
 
@@ -551,31 +551,31 @@ int metalclaw_hal_swd_transfer(struct metalclaw_swd *swd, uint8_t request, uint3
     return ret;
 }
 
-int metalclaw_hal_swd_set_pins(struct metalclaw_swd *swd, uint8_t mask, uint8_t values) {
+int mclw_hal_swd_set_pins(struct mclw_swd *swd, uint8_t mask, uint8_t values) {
     uint32_t pin_mask = 0u;
     uint32_t levels = 0u;
 
     if (swd == NULL || swd->owner == NULL) {
         return -EINVAL;
     }
-    if ((mask & METALCLAW_SWD_PIN_NRESET) != 0u) {
-        probe_reset_set(swd, (values & METALCLAW_SWD_PIN_NRESET) == 0u);
+    if ((mask & MCLW_SWD_PIN_NRESET) != 0u) {
+        probe_reset_set(swd, (values & MCLW_SWD_PIN_NRESET) == 0u);
     }
-    if ((mask & (METALCLAW_SWD_PIN_SWCLK | METALCLAW_SWD_PIN_SWDIO)) == 0u) {
+    if ((mask & (MCLW_SWD_PIN_SWCLK | MCLW_SWD_PIN_SWDIO)) == 0u) {
         return 0;
     }
     if (!swd->active) {
         return -EACCES;
     }
-    if ((mask & METALCLAW_SWD_PIN_SWCLK) != 0u) {
+    if ((mask & MCLW_SWD_PIN_SWCLK) != 0u) {
         pin_mask |= 1u << swd->swclk;
-        if ((values & METALCLAW_SWD_PIN_SWCLK) != 0u) {
+        if ((values & MCLW_SWD_PIN_SWCLK) != 0u) {
             levels |= 1u << swd->swclk;
         }
     }
-    if ((mask & METALCLAW_SWD_PIN_SWDIO) != 0u) {
+    if ((mask & MCLW_SWD_PIN_SWDIO) != 0u) {
         pin_mask |= 1u << swd->swdio;
-        if ((values & METALCLAW_SWD_PIN_SWDIO) != 0u) {
+        if ((values & MCLW_SWD_PIN_SWDIO) != 0u) {
             levels |= 1u << swd->swdio;
         }
     }
@@ -587,20 +587,20 @@ int metalclaw_hal_swd_set_pins(struct metalclaw_swd *swd, uint8_t mask, uint8_t 
     return 0;
 }
 
-int metalclaw_hal_swd_get_pins(struct metalclaw_swd *swd, uint8_t *values) {
+int mclw_hal_swd_get_pins(struct mclw_swd *swd, uint8_t *values) {
     uint8_t result = 0u;
 
     if (swd == NULL || swd->owner == NULL || values == NULL) {
         return -EINVAL;
     }
     if (gpio_get(swd->swclk)) {
-        result |= METALCLAW_SWD_PIN_SWCLK;
+        result |= MCLW_SWD_PIN_SWCLK;
     }
     if (gpio_get(swd->swdio)) {
-        result |= METALCLAW_SWD_PIN_SWDIO;
+        result |= MCLW_SWD_PIN_SWDIO;
     }
     if (probe_reset_get(swd)) {
-        result |= METALCLAW_SWD_PIN_NRESET;
+        result |= MCLW_SWD_PIN_NRESET;
     }
     *values = result;
     return 0;

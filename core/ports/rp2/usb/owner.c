@@ -51,14 +51,14 @@ static void reenum_schedule(uint64_t delay_us) {
     reenum_alarm = add_alarm_in_us(delay_us + 1000, reenum_alarm_cb, NULL, true);
 }
 
-void metalclaw_usb_init(void) {
+void mclw_usb_init(void) {
     if (!tud_inited()) {
-        metalclaw_usb_descriptors_rebuild();
+        mclw_usb_descriptors_rebuild();
         tud_init(0);
     }
 }
 
-void metalclaw_usb_request_reenumeration(void) {
+void mclw_usb_request_reenumeration(void) {
     if (reenum_state != REENUM_DISCONNECTED) {
         reenum_state = REENUM_PENDING;
         reenum_schedule(REENUMERATE_DEBOUNCE_US);
@@ -70,7 +70,7 @@ static void reenumerate_step(void) {
         return;
     }
     if (reenum_state == REENUM_PENDING) {
-        if (!metalclaw_usb_descriptors_rebuild()) {
+        if (!mclw_usb_descriptors_rebuild()) {
             reenum_state = REENUM_IDLE;
             return;
         }
@@ -86,7 +86,7 @@ static void reenumerate_step(void) {
     reenum_state = REENUM_IDLE;
 }
 
-void metalclaw_usb_task(void) {
+void mclw_usb_task(void) {
     reenumerate_step();
     if (tud_inited()) {
         tud_task_ext(0, false);
@@ -95,7 +95,7 @@ void metalclaw_usb_task(void) {
 
 static void usb_task_callback(mp_sched_node_t *node) {
     (void)node;
-    metalclaw_usb_task();
+    mclw_usb_task();
 }
 
 void tud_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr) {
@@ -123,7 +123,7 @@ void tud_cdc_rx_cb(uint8_t itf) {
     }
 }
 
-size_t metalclaw_hal_console_write(const void *buf, size_t size) {
+size_t mclw_hal_console_write(const void *buf, size_t size) {
     const uint8_t *data = buf;
     size_t written = 0;
     mp_uint_t last_progress = mp_hal_ticks_ms();
@@ -147,20 +147,20 @@ size_t metalclaw_hal_console_write(const void *buf, size_t size) {
             } else if (tud_cdc_n_connected(CDC_ITF)) {
                 mp_event_wait_ms(1);
             }
-            metalclaw_usb_task();
+            mclw_usb_task();
         }
     }
     return written;
 }
 
-size_t metalclaw_hal_console_read(void *buf, size_t size) {
+size_t mclw_hal_console_read(void *buf, size_t size) {
     return tud_cdc_n_read(CDC_ITF, buf, size);
 }
 
-bool metalclaw_hal_console_readable(void) {
+bool mclw_hal_console_readable(void) {
     return tud_cdc_n_available(CDC_ITF) > 0;
 }
 
-bool metalclaw_hal_console_writable(void) {
+bool mclw_hal_console_writable(void) {
     return tud_cdc_n_write_available(CDC_ITF) > 0;
 }

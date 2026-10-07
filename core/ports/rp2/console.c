@@ -14,12 +14,12 @@ typedef struct _console_obj_t {
 static mp_uint_t console_write(mp_obj_t self_in, const void *buf, mp_uint_t size, int *errcode) {
     (void)self_in;
     (void)errcode;
-    return metalclaw_hal_console_write(buf, size);
+    return mclw_hal_console_write(buf, size);
 }
 
 static mp_uint_t console_read(mp_obj_t self_in, void *buf, mp_uint_t size, int *errcode) {
     (void)self_in;
-    size_t n = metalclaw_hal_console_read(buf, size);
+    size_t n = mclw_hal_console_read(buf, size);
     if (n == 0) {
         *errcode = MP_EAGAIN;
         return MP_STREAM_ERROR;
@@ -34,10 +34,10 @@ static mp_uint_t console_ioctl(mp_obj_t self_in, mp_uint_t request, uintptr_t ar
         return MP_STREAM_ERROR;
     }
     mp_uint_t ret = 0;
-    if ((arg & MP_STREAM_POLL_RD) && metalclaw_hal_console_readable()) {
+    if ((arg & MP_STREAM_POLL_RD) && mclw_hal_console_readable()) {
         ret |= MP_STREAM_POLL_RD;
     }
-    if ((arg & MP_STREAM_POLL_WR) && metalclaw_hal_console_writable()) {
+    if ((arg & MP_STREAM_POLL_WR) && mclw_hal_console_writable()) {
         ret |= MP_STREAM_POLL_WR;
     }
     return ret;
@@ -62,6 +62,6 @@ bool mp_os_dupterm_is_builtin_stream(mp_const_obj_t stream) {
     return stream == MP_OBJ_FROM_PTR(&console_obj);
 }
 
-void metalclaw_console_vm_init(void) {
+void mclw_console_vm_init(void) {
     MP_STATE_VM(dupterm_objs[0]) = MP_OBJ_FROM_PTR(&console_obj);
 }

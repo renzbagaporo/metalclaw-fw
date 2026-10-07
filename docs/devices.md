@@ -4,7 +4,7 @@
 
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
-`devices/` that defines one `struct metalclaw_model` and nothing else the
+`devices/` that defines one `struct mclw_model` and nothing else the
 runtime needs to know about. Five exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
 [`bmp388`](../devices/bmp388/README.md), a Bosch barometer on I2C or SPI;
@@ -23,7 +23,7 @@ parses what arrives and answers. The transports live in the port.
 an ops table:
 
 - **properties**: name, type (`bool`, `i32`, `u32`), element count (up to 8),
-  unit, min, max, access. Values travel as `struct metalclaw_value`; the
+  unit, min, max, access. Values travel as `struct mclw_value`; the
   runtime range-checks them before the model sees them.
 - **regions**: named byte ranges (a register file, a FIFO) with a size and
   access.
@@ -49,10 +49,10 @@ an ops table:
   reads it.
 
 A model owns its response image in its state, arms the bound engine from
-`init`, and edits the image under `metalclaw_hal_critical_enter()` whenever
+`init`, and edits the image under `mclw_hal_critical_enter()` whenever
 a property changes. The engine serves the image with no model call. A
 callback that only holds the state gets its instance back with
-`metalclaw_instance_from_state()`. The runtime has already refused a
+`mclw_instance_from_state()`. The runtime has already refused a
 missing required binding before `init` runs.
 
 A model declares the ABI version it targets twice: in `device.cmake`, where
@@ -64,7 +64,7 @@ the generator refuses a mismatch at configure time, and in the struct, where
 A device directory contains `device.cmake` that calls
 
 ```cmake
-metalclaw_device(bmp388 SYMBOL metalclaw_model_bmp388 ABI 1 SOURCES ${CMAKE_CURRENT_LIST_DIR}/bmp388.c)
+metalclaw_device(bmp388 SYMBOL mclw_model_bmp388 ABI 1 SOURCES ${CMAKE_CURRENT_LIST_DIR}/bmp388.c)
 ```
 
 `core/cmake/devices.cmake` globs every such file and generates the registry
@@ -85,10 +85,10 @@ script involved (`neo_m8n` sends a fix every interval). `pause()` stops it;
 `advance_us()` then steps it by exactly the amount asked, which is how a
 case counts frames deterministically; `resume()` lets it run again from
 where it is. Each instance carries a 16-entry trace ring that models append
-to with `metalclaw_trace()`, stamped with simulation time; a kind is one of
+to with `mclw_trace()`, stamped with simulation time; a kind is one of
 `spi`, `i2c`, `uart`, `command`, `state`, `error`. Every engine's counters
 reach a binding or a host through one runtime call,
-`metalclaw_binding_stats()`, as named values.
+`mclw_binding_stats()`, as named values.
 
 ## Where a model runs
 
@@ -105,11 +105,11 @@ enabled on core 1, so MicroPython's atomic sections never delay one.
 | `uart` `on_rx` | the worker | the runtime lock |
 | `regmap` `on_write`, `stream` `on_frame` | an engine interrupt | the critical section |
 
-The runtime lock (`metalclaw_hal_lock`) is what lets a model touch its
+The runtime lock (`mclw_hal_lock`) is what lets a model touch its
 state from `set` and from `on_rx` without further care. Image edits from
-any context go under `metalclaw_hal_critical_enter()`, which is what the
+any context go under `mclw_hal_critical_enter()`, which is what the
 engines hold while they read the image. Both are in `hal/platform.h`, with
-real time (`metalclaw_hal_time_us`, `metalclaw_hal_delay_us`), the work
+real time (`mclw_hal_time_us`, `mclw_hal_delay_us`), the work
 queue and the poll table.
 
 ## Images
@@ -122,7 +122,7 @@ either byte order, and bus-side read/write helpers an engine calls without
 the model. A model may install an
 `on_write` hook: it runs in interrupt context after a write has been
 committed, bank select included, and may only edit the image. For SPI the
-model adds a `struct metalclaw_regmap_framing` (in `hal/spi_target.h`) from
+model adds a `struct mclw_regmap_framing` (in `hal/spi_target.h`) from
 the datasheet: which command bit means read, which bits are the address,
 whether a multi-byte access walks consecutive addresses, and whether one
 dummy byte precedes read data. The same map serves I2C and SPI; `bmp388`
@@ -131,7 +131,7 @@ binds either.
 `core/include/metalclaw/stream.h` is the other image: a fixed-length frame
 of up to 64 bytes, double-buffered, that the part drives out (`OUT`, an ADC)
 or receives (`IN`, delivered through `on_frame` after the window closes).
-`metalclaw_stream_publish()` swaps in a new frame between windows.
+`mclw_stream_publish()` swaps in a new frame between windows.
 
 ## The HAL
 

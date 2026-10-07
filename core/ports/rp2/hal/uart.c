@@ -23,16 +23,16 @@
 #define UART_TX_RING_MASK (UART_TX_RING_SIZE - 1u)
 #define UART_FIFO_LEVEL_EIGHTH 0u
 
-struct metalclaw_uart {
+struct mclw_uart {
     uart_inst_t *inst;
     uint32_t irq;
     uint8_t tx_pin;
     uint8_t rx_pin;
     const void *owner;
     uint32_t baud;
-    metalclaw_uart_rx_t on_rx;
+    mclw_uart_rx_t on_rx;
     void *on_rx_ctx;
-    struct metalclaw_uart_stats stats;
+    struct mclw_uart_stats stats;
     volatile uint16_t rx_head;
     volatile uint16_t rx_tail;
     volatile uint16_t tx_head;
@@ -42,8 +42,8 @@ struct metalclaw_uart {
     uint8_t rx_linear[UART_RX_RING_SIZE];
 };
 
-static struct metalclaw_uart blocks[UART_BLOCK_COUNT];
-static struct metalclaw_work rx_work[UART_BLOCK_COUNT];
+static struct mclw_uart blocks[UART_BLOCK_COUNT];
+static struct mclw_work rx_work[UART_BLOCK_COUNT];
 
 static uart_inst_t *instance_for(uint8_t tx, uint8_t rx) {
     bool uart0_tx = tx == 0u || tx == 12u || tx == 16u;
@@ -60,23 +60,23 @@ static uart_inst_t *instance_for(uint8_t tx, uint8_t rx) {
     return NULL;
 }
 
-static bool parity_for(enum metalclaw_uart_parity parity, uart_parity_t *out) {
+static bool parity_for(enum mclw_uart_parity parity, uart_parity_t *out) {
     switch (parity) {
-        case METALCLAW_UART_PARITY_NONE:
+        case MCLW_UART_PARITY_NONE:
             *out = UART_PARITY_NONE;
             return true;
-        case METALCLAW_UART_PARITY_EVEN:
+        case MCLW_UART_PARITY_EVEN:
             *out = UART_PARITY_EVEN;
             return true;
-        case METALCLAW_UART_PARITY_ODD:
+        case MCLW_UART_PARITY_ODD:
             *out = UART_PARITY_ODD;
             return true;
     }
     return false;
 }
 
-static void rx_deliver(struct metalclaw_work *work) {
-    struct metalclaw_uart *u = work->ctx;
+static void rx_deliver(struct mclw_work *work) {
+    struct mclw_uart *u = work->ctx;
     uint16_t head = u->rx_head;
     uint16_t tail = u->rx_tail;
     uint16_t used = (uint16_t)((head - tail) & UART_RX_RING_MASK);
@@ -84,13 +84,13 @@ static void rx_deliver(struct metalclaw_work *work) {
     if (used == 0u) {
         return;
     }
-    if (!metalclaw_hal_try_lock()) {
-        metalclaw_hal_work_post(work);
+    if (!mclw_hal_try_lock()) {
+        mclw_hal_work_post(work);
         return;
     }
     if (u->owner == NULL || u->on_rx == NULL) {
         u->rx_tail = head;
-        metalclaw_hal_unlock();
+        mclw_hal_unlock();
         return;
     }
     for (uint16_t i = 0; i < used; i++) {
@@ -99,10 +99,10 @@ static void rx_deliver(struct metalclaw_work *work) {
     __compiler_memory_barrier();
     u->rx_tail = (uint16_t)((tail + used) & UART_RX_RING_MASK);
     u->on_rx(u, u->rx_linear, used, u->on_rx_ctx);
-    metalclaw_hal_unlock();
+    mclw_hal_unlock();
 }
 
-static void rx_service(struct metalclaw_uart *u) {
+static void rx_service(struct mclw_uart *u) {
     uart_hw_t *hw = uart_get_hw(u->inst);
     uint16_t head = u->rx_head;
     bool pushed = false;
@@ -132,11 +132,11 @@ static void rx_service(struct metalclaw_uart *u) {
     if (pushed) {
         __compiler_memory_barrier();
         u->rx_head = head;
-        metalclaw_hal_work_post(&rx_work[uart_get_index(u->inst)]);
+        mclw_hal_work_post(&rx_work[uart_get_index(u->inst)]);
     }
 }
 
-static void tx_pump(struct metalclaw_uart *u) {
+static void tx_pump(struct mclw_uart *u) {
     uart_hw_t *hw = uart_get_hw(u->inst);
     uint16_t tail = u->tx_tail;
 
@@ -153,9 +153,9 @@ static void tx_pump(struct metalclaw_uart *u) {
     }
 }
 
-static void service(struct metalclaw_uart *u) {
+static void service(struct mclw_uart *u) {
     uart_hw_t *hw = uart_get_hw(u->inst);
-    uint32_t state = metalclaw_hal_critical_enter();
+    uint32_t state = mclw_hal_critical_enter();
     uint32_t mis = hw->mis;
 
     if ((mis & (UART_UARTMIS_RXMIS_BITS | UART_UARTMIS_RTMIS_BITS)) != 0u) {
@@ -165,7 +165,7 @@ static void service(struct metalclaw_uart *u) {
         hw->icr = UART_UARTICR_TXIC_BITS;
         tx_pump(u);
     }
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }
 
 static void uart0_irq_handler(void) {
@@ -181,25 +181,25 @@ static irq_handler_t handler_for(const uart_inst_t *inst) {
 }
 
 static void irq_enable_on_worker(void *ctx) {
-    const struct metalclaw_uart *u = ctx;
+    const struct mclw_uart *u = ctx;
 
     irq_set_enabled(u->irq, true);
 }
 
 static void irq_disable_on_worker(void *ctx) {
-    const struct metalclaw_uart *u = ctx;
+    const struct mclw_uart *u = ctx;
 
     irq_set_enabled(u->irq, false);
 }
 
-static void tx_flush(struct metalclaw_uart *u) {
+static void tx_flush(struct mclw_uart *u) {
     for (;;) {
-        uint32_t state = metalclaw_hal_critical_enter();
+        uint32_t state = mclw_hal_critical_enter();
         bool empty = u->tx_head == u->tx_tail;
         if (!empty) {
             tx_pump(u);
         }
-        metalclaw_hal_critical_exit(state);
+        mclw_hal_critical_exit(state);
         if (empty) {
             break;
         }
@@ -207,8 +207,8 @@ static void tx_flush(struct metalclaw_uart *u) {
     uart_tx_wait_blocking(u->inst);
 }
 
-struct metalclaw_uart *metalclaw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t baud,
-    const struct metalclaw_uart_format *format, const void *owner, int *err) {
+struct mclw_uart *mclw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t baud,
+    const struct mclw_uart_format *format, const void *owner, int *err) {
     uart_inst_t *inst = instance_for(tx, rx);
     uart_parity_t parity = UART_PARITY_NONE;
 
@@ -219,7 +219,7 @@ struct metalclaw_uart *metalclaw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t 
         *err = -EINVAL;
         return NULL;
     }
-    struct metalclaw_uart *u = &blocks[uart_get_index(inst)];
+    struct mclw_uart *u = &blocks[uart_get_index(inst)];
     if (u->owner != NULL) {
         *err = -EBUSY;
         return NULL;
@@ -234,11 +234,11 @@ struct metalclaw_uart *metalclaw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t 
         }
         irq_remove_handler(irq, previous);
     }
-    *err = metalclaw_hal_pin_claim(tx, owner);
+    *err = mclw_hal_pin_claim(tx, owner);
     if (*err == 0) {
-        *err = metalclaw_hal_pin_claim(rx, owner);
+        *err = mclw_hal_pin_claim(rx, owner);
         if (*err != 0) {
-            metalclaw_hal_pin_release(tx, owner);
+            mclw_hal_pin_release(tx, owner);
         }
     }
     if (*err != 0) {
@@ -271,8 +271,8 @@ struct metalclaw_uart *metalclaw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t 
     u->baud = uart_init(inst, baud);
     if (u->baud == 0u) {
         uart_deinit(inst);
-        metalclaw_hal_pin_release(tx, owner);
-        metalclaw_hal_pin_release(rx, owner);
+        mclw_hal_pin_release(tx, owner);
+        mclw_hal_pin_release(rx, owner);
         *err = -EIO;
         return NULL;
     }
@@ -292,27 +292,27 @@ struct metalclaw_uart *metalclaw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t 
     u->owner = owner;
 
     irq_set_exclusive_handler(irq, handler);
-    metalclaw_hal_work_call(irq_enable_on_worker, u);
+    mclw_hal_work_call(irq_enable_on_worker, u);
     hw->imsc = UART_UARTIMSC_RXIM_BITS | UART_UARTIMSC_RTIM_BITS;
     *err = 0;
     return u;
 }
 
-void metalclaw_hal_uart_close(struct metalclaw_uart *u) {
+void mclw_hal_uart_close(struct mclw_uart *u) {
     if (u == NULL || u->owner == NULL) {
         return;
     }
     uart_hw_t *hw = uart_get_hw(u->inst);
     hw->imsc = 0u;
     hw->icr = UART_UARTICR_BITS;
-    metalclaw_hal_work_call(irq_disable_on_worker, u);
+    mclw_hal_work_call(irq_disable_on_worker, u);
     irq_remove_handler(u->irq, handler_for(u->inst));
     uart_deinit(u->inst);
     gpio_set_pulls(u->rx_pin, false, false);
     gpio_deinit(u->tx_pin);
     gpio_deinit(u->rx_pin);
-    metalclaw_hal_pin_release(u->tx_pin, u->owner);
-    metalclaw_hal_pin_release(u->rx_pin, u->owner);
+    mclw_hal_pin_release(u->tx_pin, u->owner);
+    mclw_hal_pin_release(u->rx_pin, u->owner);
     u->owner = NULL;
     u->on_rx = NULL;
     u->on_rx_ctx = NULL;
@@ -322,7 +322,7 @@ void metalclaw_hal_uart_close(struct metalclaw_uart *u) {
     u->tx_tail = 0;
 }
 
-int metalclaw_hal_uart_set_baud(struct metalclaw_uart *u, uint32_t baud) {
+int mclw_hal_uart_set_baud(struct mclw_uart *u, uint32_t baud) {
     if (u == NULL || u->owner == NULL || baud == 0u) {
         return -EINVAL;
     }
@@ -338,21 +338,21 @@ int metalclaw_hal_uart_set_baud(struct metalclaw_uart *u, uint32_t baud) {
     return u->baud == 0u ? -EIO : 0;
 }
 
-uint32_t metalclaw_hal_uart_baud(const struct metalclaw_uart *u) {
+uint32_t mclw_hal_uart_baud(const struct mclw_uart *u) {
     return u == NULL ? 0u : u->baud;
 }
 
-void metalclaw_hal_uart_set_rx(struct metalclaw_uart *u, metalclaw_uart_rx_t fn, void *ctx) {
+void mclw_hal_uart_set_rx(struct mclw_uart *u, mclw_uart_rx_t fn, void *ctx) {
     if (u == NULL) {
         return;
     }
-    uint32_t state = metalclaw_hal_critical_enter();
+    uint32_t state = mclw_hal_critical_enter();
     u->on_rx = fn;
     u->on_rx_ctx = ctx;
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }
 
-size_t metalclaw_hal_uart_send(struct metalclaw_uart *u, const uint8_t *bytes, size_t len) {
+size_t mclw_hal_uart_send(struct mclw_uart *u, const uint8_t *bytes, size_t len) {
     if (u == NULL || u->owner == NULL || bytes == NULL || len == 0) {
         return 0;
     }
@@ -369,17 +369,17 @@ size_t metalclaw_hal_uart_send(struct metalclaw_uart *u, const uint8_t *bytes, s
     __compiler_memory_barrier();
     u->tx_head = (uint16_t)((head + queued) & UART_TX_RING_MASK);
 
-    uint32_t state = metalclaw_hal_critical_enter();
+    uint32_t state = mclw_hal_critical_enter();
     tx_pump(u);
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
     return queued;
 }
 
-void metalclaw_hal_uart_stats(const struct metalclaw_uart *u, struct metalclaw_uart_stats *out) {
+void mclw_hal_uart_stats(const struct mclw_uart *u, struct mclw_uart_stats *out) {
     if (u == NULL || out == NULL) {
         return;
     }
-    uint32_t state = metalclaw_hal_critical_enter();
+    uint32_t state = mclw_hal_critical_enter();
     *out = u->stats;
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }

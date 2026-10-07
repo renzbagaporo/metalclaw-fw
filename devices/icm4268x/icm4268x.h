@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#ifndef METALCLAW_DEVICE_ICM4268X_H
-#define METALCLAW_DEVICE_ICM4268X_H
+#ifndef MCLW_DEVICE_ICM4268X_H
+#define MCLW_DEVICE_ICM4268X_H
 
 #include <stdint.h>
 
@@ -46,7 +46,7 @@
 #define ICM4268X_SPI_READ_BIT 0x80
 #define ICM4268X_SPI_ADDRESS_MASK 0x7f
 
-extern const struct metalclaw_model metalclaw_model_icm42688;
-extern const struct metalclaw_model metalclaw_model_icm42686;
+extern const struct mclw_model mclw_model_icm42688;
+extern const struct mclw_model mclw_model_icm42686;
 
 #endif

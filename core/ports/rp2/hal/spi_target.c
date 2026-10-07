@@ -39,8 +39,8 @@
 #define SPI_TABLE_SLOTS 8u
 #define SPI_TABLE_ALIGN 2048u
 #define SPI_TABLE_SHIFT 11u
-#define SPI_BANK_BYTES ((uint32_t)METALCLAW_REGMAP_BANK_SIZE)
-#define SPI_FRAME_BYTES ((uint32_t)METALCLAW_STREAM_FRAME_MAX)
+#define SPI_BANK_BYTES ((uint32_t)MCLW_REGMAP_BANK_SIZE)
+#define SPI_FRAME_BYTES ((uint32_t)MCLW_STREAM_FRAME_MAX)
 
 #define SPI_REGMAP_CLOCK_HZ 10714285u
 #define SPI_STREAM_CLOCK_HZ 15000000u
@@ -86,7 +86,7 @@ struct spi_bus {
     uint8_t table_owner[SPI_TABLE_SLOTS];
 };
 
-struct metalclaw_spi_target {
+struct mclw_spi_target {
     struct spi_bus *bus;
     const void *owner;
     uint8_t cs;
@@ -99,12 +99,12 @@ struct metalclaw_spi_target {
     int8_t loader_dma;
 
     enum spi_image image;
-    struct metalclaw_regmap *map;
-    struct metalclaw_regmap_framing framing;
-    struct metalclaw_stream *stream;
+    struct mclw_regmap *map;
+    struct mclw_regmap_framing framing;
+    struct mclw_stream *stream;
 
     uint8_t banks;
-    uint8_t table[METALCLAW_REGMAP_BANKS_MAX];
+    uint8_t table[MCLW_REGMAP_BANKS_MAX];
     uint8_t bank;
 
     volatile bool window_open;
@@ -118,13 +118,13 @@ struct metalclaw_spi_target {
     uint8_t tx_buf[SPI_BUFFER_BYTES];
     uint8_t capture[SPI_BUFFER_BYTES];
 
-    struct metalclaw_spi_target_stats stats;
+    struct mclw_spi_target_stats stats;
 };
 
 static struct spi_bus spi_bus;
-static struct metalclaw_spi_target targets[SPI_TARGET_COUNT];
+static struct mclw_spi_target targets[SPI_TARGET_COUNT];
 
-static struct spi_descriptor table_pool[SPI_TABLE_SLOTS][METALCLAW_REGMAP_BANK_SIZE]
+static struct spi_descriptor table_pool[SPI_TABLE_SLOTS][MCLW_REGMAP_BANK_SIZE]
     __attribute__((aligned(SPI_TABLE_ALIGN)));
 
 static const uint8_t wait_slots[] = { 6u, 7u, 18u, 19u };
@@ -142,7 +142,7 @@ static uint8_t mode_class(uint8_t mode) {
     return (mode == 1u || mode == 2u) ? 1u : 0u;
 }
 
-static uint8_t __not_in_flash_func(wire_byte)(const struct metalclaw_spi_target *t, uint8_t value) {
+static uint8_t __not_in_flash_func(wire_byte)(const struct mclw_spi_target *t, uint8_t value) {
     return t->msb_first ? reverse_byte(value) : value;
 }
 
@@ -189,7 +189,7 @@ static void encode_program(struct spi_bus *bus, uint8_t sck, uint8_t cls) {
     bus->program.pio_version = 0;
 }
 
-static uint16_t dummy_instruction(const struct metalclaw_regmap_framing *framing, uint8_t filler) {
+static uint16_t dummy_instruction(const struct mclw_regmap_framing *framing, uint8_t filler) {
     if (framing->read_dummy_bytes == 0u) {
         return (uint16_t)pio_encode_nop();
     }
@@ -238,9 +238,9 @@ static void bus_unload_program(struct spi_bus *bus) {
     bus->program_loaded = false;
 }
 
-static bool __not_in_flash_func(bus_miso_held)(const struct metalclaw_spi_target *t) {
+static bool __not_in_flash_func(bus_miso_held)(const struct mclw_spi_target *t) {
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-        const struct metalclaw_spi_target *o = &targets[i];
+        const struct mclw_spi_target *o = &targets[i];
 
         if (o != t && o->bus == t->bus && o->window_open) {
             return true;
@@ -249,7 +249,7 @@ static bool __not_in_flash_func(bus_miso_held)(const struct metalclaw_spi_target
     return false;
 }
 
-static void __not_in_flash_func(miso_release)(const struct metalclaw_spi_target *t) {
+static void __not_in_flash_func(miso_release)(const struct mclw_spi_target *t) {
     if (bus_miso_held(t)) {
         return;
     }
@@ -270,7 +270,7 @@ static void __not_in_flash_func(stop_channel)(int8_t channel) {
     dma_hw->intr = 1u << channel;
 }
 
-static void __not_in_flash_func(stop_dma)(struct metalclaw_spi_target *t) {
+static void __not_in_flash_func(stop_dma)(struct mclw_spi_target *t) {
     if (t->rx_dma >= 0) {
         dma_channel_set_irq1_enabled((uint)t->rx_dma, false);
     }
@@ -286,7 +286,7 @@ static void __not_in_flash_func(stop_dma)(struct metalclaw_spi_target *t) {
     }
 }
 
-static bool __not_in_flash_func(dma_faulted)(const struct metalclaw_spi_target *t) {
+static bool __not_in_flash_func(dma_faulted)(const struct mclw_spi_target *t) {
     uint32_t bits = 0;
 
     if (t->tx_dma >= 0) {
@@ -301,7 +301,7 @@ static bool __not_in_flash_func(dma_faulted)(const struct metalclaw_spi_target *
     return (bits & SPI_DMA_ERROR_BITS) != 0u;
 }
 
-static void __not_in_flash_func(quiesce)(const struct metalclaw_spi_target *t) {
+static void __not_in_flash_func(quiesce)(const struct mclw_spi_target *t) {
     uint32_t previous;
     uint32_t stable = 0;
 
@@ -346,7 +346,7 @@ static void __not_in_flash_func(quiesce)(const struct metalclaw_spi_target *t) {
     }
 }
 
-static void configure_sm(struct metalclaw_spi_target *t, bool regmap) {
+static void configure_sm(struct mclw_spi_target *t, bool regmap) {
     const struct spi_bus *bus = t->bus;
     pio_sm_config c = pio_get_default_sm_config();
 
@@ -370,7 +370,7 @@ static void configure_sm(struct metalclaw_spi_target *t, bool regmap) {
     pio_sm_set_consecutive_pindirs(SPI_PIO, t->sm, bus->miso, 1u, false);
 }
 
-static void __not_in_flash_func(set_autoshift)(const struct metalclaw_spi_target *t, bool pull, bool push,
+static void __not_in_flash_func(set_autoshift)(const struct mclw_spi_target *t, bool pull, bool push,
     uint32_t threshold, uint32_t pull_threshold) {
     const uint32_t mask = PIO_SM0_SHIFTCTRL_AUTOPUSH_BITS | PIO_SM0_SHIFTCTRL_AUTOPULL_BITS |
         PIO_SM0_SHIFTCTRL_PUSH_THRESH_BITS | PIO_SM0_SHIFTCTRL_PULL_THRESH_BITS;
@@ -387,11 +387,11 @@ static void __not_in_flash_func(set_autoshift)(const struct metalclaw_spi_target
     SPI_PIO->sm[t->sm].shiftctrl = (SPI_PIO->sm[t->sm].shiftctrl & ~mask) | value;
 }
 
-static volatile void *__not_in_flash_func(tx_fifo_msb)(const struct metalclaw_spi_target *t) {
+static volatile void *__not_in_flash_func(tx_fifo_msb)(const struct mclw_spi_target *t) {
     return (volatile uint8_t *)&SPI_PIO->txf[t->sm] + 3;
 }
 
-static void __not_in_flash_func(arm_capture)(struct metalclaw_spi_target *t, bool trigger) {
+static void __not_in_flash_func(arm_capture)(struct mclw_spi_target *t, bool trigger) {
     dma_channel_config c = dma_channel_get_default_config((uint)t->rx_dma);
 
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
@@ -406,8 +406,8 @@ static void __not_in_flash_func(arm_capture)(struct metalclaw_spi_target *t, boo
     }
 }
 
-static void __not_in_flash_func(regmap_prepare)(struct metalclaw_spi_target *t, bool join) {
-    struct metalclaw_regmap *map = t->map;
+static void __not_in_flash_func(regmap_prepare)(struct mclw_spi_target *t, bool join) {
+    struct mclw_regmap *map = t->map;
     const struct spi_descriptor *table;
     dma_channel_config c;
     uint8_t bank = map->active_bank;
@@ -480,14 +480,14 @@ static void __not_in_flash_func(regmap_prepare)(struct metalclaw_spi_target *t, 
     pio_sm_set_enabled(SPI_PIO, t->sm, !idle_wait);
 }
 
-static void __not_in_flash_func(stream_prepare)(struct metalclaw_spi_target *t, bool join) {
-    struct metalclaw_stream *s = t->stream;
+static void __not_in_flash_func(stream_prepare)(struct mclw_spi_target *t, bool join) {
+    struct mclw_stream *s = t->stream;
     const uint8_t *frame = s->frame[s->active];
-    uint16_t length = s->length > METALCLAW_STREAM_FRAME_MAX ? METALCLAW_STREAM_FRAME_MAX : s->length;
+    uint16_t length = s->length > MCLW_STREAM_FRAME_MAX ? MCLW_STREAM_FRAME_MAX : s->length;
     dma_channel_hw_t *tx = dma_channel_hw_addr((uint)t->tx_dma);
     dma_channel_hw_t *rx = dma_channel_hw_addr((uint)t->rx_dma);
 
-    if (s->direction == METALCLAW_STREAM_OUT) {
+    if (s->direction == MCLW_STREAM_OUT) {
         for (uint16_t i = 0; i < length; i++) {
             t->tx_buf[i] = wire_byte(t, frame[i]);
         }
@@ -529,7 +529,7 @@ static void __not_in_flash_func(stream_prepare)(struct metalclaw_spi_target *t, 
     pio_sm_set_enabled(SPI_PIO, t->sm, true);
 }
 
-static void __not_in_flash_func(prepare)(struct metalclaw_spi_target *t, bool join) {
+static void __not_in_flash_func(prepare)(struct mclw_spi_target *t, bool join) {
     if (t->image == SPI_IMAGE_REGMAP) {
         regmap_prepare(t, join);
     } else if (t->image == SPI_IMAGE_STREAM) {
@@ -537,13 +537,13 @@ static void __not_in_flash_func(prepare)(struct metalclaw_spi_target *t, bool jo
     }
 }
 
-static bool __not_in_flash_func(command_pending)(const struct metalclaw_spi_target *t) {
+static bool __not_in_flash_func(command_pending)(const struct mclw_spi_target *t) {
     dma_channel_hw_t *rx = dma_channel_hw_addr((uint)t->rx_dma);
 
     return (rx->ctrl_trig & DMA_CH0_CTRL_TRIG_BUSY_BITS) != 0u || rx->transfer_count != 0u;
 }
 
-static void __not_in_flash_func(service_command)(struct metalclaw_spi_target *t) {
+static void __not_in_flash_func(service_command)(struct mclw_spi_target *t) {
     dma_channel_hw_t *rx = dma_channel_hw_addr((uint)t->rx_dma);
 
 
@@ -555,7 +555,7 @@ static void __not_in_flash_func(service_command)(struct metalclaw_spi_target *t)
     t->command_taken = true;
 }
 
-static bool __not_in_flash_func(command_byte)(const struct metalclaw_spi_target *t, uint8_t *out) {
+static bool __not_in_flash_func(command_byte)(const struct mclw_spi_target *t, uint8_t *out) {
     uintptr_t base = (uintptr_t)table_pool[t->table[t->bank]];
     uintptr_t loaded;
     uintptr_t descriptor;
@@ -578,8 +578,8 @@ static bool __not_in_flash_func(command_byte)(const struct metalclaw_spi_target 
     return true;
 }
 
-static void __not_in_flash_func(regmap_finalize)(struct metalclaw_spi_target *t) {
-    struct metalclaw_regmap *map = t->map;
+static void __not_in_flash_func(regmap_finalize)(struct mclw_spi_target *t) {
+    struct mclw_regmap *map = t->map;
     uint32_t remaining;
     uint32_t payload = 0;
     uint32_t available;
@@ -629,7 +629,7 @@ static void __not_in_flash_func(regmap_finalize)(struct metalclaw_spi_target *t)
         for (uint32_t i = 0; i < served; i++) {
             uint8_t reg = t->framing.auto_increment ? (uint8_t)(address + i) : (uint8_t)address;
 
-            (void)metalclaw_regmap_bus_read(map, reg);
+            (void)mclw_regmap_bus_read(map, reg);
         }
     } else {
         if (payload >= SPI_BUFFER_BYTES) {
@@ -641,13 +641,13 @@ static void __not_in_flash_func(regmap_finalize)(struct metalclaw_spi_target *t)
         for (uint32_t i = 0; i < payload; i++) {
             uint8_t reg = t->framing.auto_increment ? (uint8_t)(address + i) : (uint8_t)address;
 
-            metalclaw_regmap_bus_write(map, reg, t->capture[i]);
+            mclw_regmap_bus_write(map, reg, t->capture[i]);
         }
     }
 }
 
-static void __not_in_flash_func(stream_finalize)(struct metalclaw_spi_target *t) {
-    struct metalclaw_stream *s = t->stream;
+static void __not_in_flash_func(stream_finalize)(struct mclw_spi_target *t) {
+    struct mclw_stream *s = t->stream;
     uint32_t remaining;
     uint32_t count = 0;
     bool fault;
@@ -677,7 +677,7 @@ static void __not_in_flash_func(stream_finalize)(struct metalclaw_spi_target *t)
     if (t->frame_pending) {
         t->stats.stale_windows++;
     }
-    if (s->direction == METALCLAW_STREAM_IN && s->on_frame != NULL) {
+    if (s->direction == MCLW_STREAM_IN && s->on_frame != NULL) {
         uint32_t len = count > SPI_FRAME_BYTES ? SPI_FRAME_BYTES : count;
 
         if (!t->msb_first) {
@@ -689,11 +689,11 @@ static void __not_in_flash_func(stream_finalize)(struct metalclaw_spi_target *t)
     }
 }
 
-static void __not_in_flash_func(finalize)(struct metalclaw_spi_target *t) {
-    uint32_t state = metalclaw_hal_critical_enter();
+static void __not_in_flash_func(finalize)(struct mclw_spi_target *t) {
+    uint32_t state = mclw_hal_critical_enter();
 
     if (t->image == SPI_IMAGE_NONE || !t->window_open) {
-        metalclaw_hal_critical_exit(state);
+        mclw_hal_critical_exit(state);
         return;
     }
     t->window_open = false;
@@ -704,10 +704,10 @@ static void __not_in_flash_func(finalize)(struct metalclaw_spi_target *t) {
         stream_finalize(t);
     }
     prepare(t, true);
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }
 
-static bool __not_in_flash_func(window_evidence)(const struct metalclaw_spi_target *t) {
+static bool __not_in_flash_func(window_evidence)(const struct mclw_spi_target *t) {
     if (t->image == SPI_IMAGE_REGMAP) {
         return t->command_taken || dma_irqn_get_channel_status(1u, (uint)t->rx_dma);
     }
@@ -718,10 +718,10 @@ static bool __not_in_flash_func(window_evidence)(const struct metalclaw_spi_targ
 }
 
 static void __not_in_flash_func(spi_target_dma_handler)(void) {
-    uint32_t state = metalclaw_hal_critical_enter();
+    uint32_t state = mclw_hal_critical_enter();
 
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-        struct metalclaw_spi_target *t = &targets[i];
+        struct mclw_spi_target *t = &targets[i];
 
         if (t->image != SPI_IMAGE_REGMAP || t->rx_dma < 0) {
             continue;
@@ -735,15 +735,15 @@ static void __not_in_flash_func(spi_target_dma_handler)(void) {
         }
         service_command(t);
     }
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }
 
 static void __not_in_flash_func(spi_target_release_handler)(void) {
-    uint32_t state = metalclaw_hal_critical_enter();
+    uint32_t state = mclw_hal_critical_enter();
     uint32_t flags = SPI_PIO->irq;
 
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-        struct metalclaw_spi_target *t = &targets[i];
+        struct mclw_spi_target *t = &targets[i];
 
         if (t->owner == NULL || (flags & (1u << t->monitor_sm)) == 0u) {
             continue;
@@ -765,16 +765,16 @@ static void __not_in_flash_func(spi_target_release_handler)(void) {
             finalize(t);
         }
     }
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }
 
-static void stream_notify(struct metalclaw_stream *s, void *ctx) {
-    struct metalclaw_spi_target *t = ctx;
-    uint32_t state = metalclaw_hal_critical_enter();
+static void stream_notify(struct mclw_stream *s, void *ctx) {
+    struct mclw_spi_target *t = ctx;
+    uint32_t state = mclw_hal_critical_enter();
 
     (void)s;
     if (t->image != SPI_IMAGE_STREAM) {
-        metalclaw_hal_critical_exit(state);
+        mclw_hal_critical_exit(state);
         return;
     }
     if (t->window_open || !gpio_get(t->cs)) {
@@ -782,7 +782,7 @@ static void stream_notify(struct metalclaw_stream *s, void *ctx) {
     } else {
         stream_prepare(t, false);
     }
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }
 
 static void release_irq_install(void *ctx) {
@@ -802,7 +802,7 @@ static void release_irq_sync(struct spi_bus *bus, bool want) {
     if (want == bus->release_installed) {
         return;
     }
-    metalclaw_hal_work_call(release_irq_install, &want);
+    mclw_hal_work_call(release_irq_install, &want);
     bus->release_installed = want;
 }
 
@@ -823,16 +823,16 @@ static void dma_handler_sync(struct spi_bus *bus, bool want) {
     if (want == bus->dma_installed) {
         return;
     }
-    metalclaw_hal_work_call(dma_handler_install, &want);
+    mclw_hal_work_call(dma_handler_install, &want);
     bus->dma_installed = want;
 }
 
 static void poll_targets(void *ctx) {
     (void)ctx;
-    metalclaw_hal_spi_target_poll();
+    mclw_hal_spi_target_poll();
 }
 
-static void release_tables(struct metalclaw_spi_target *t) {
+static void release_tables(struct mclw_spi_target *t) {
     uint8_t *table_owner = t->bus->table_owner;
     uint8_t tag = (uint8_t)((t - targets) + 1);
 
@@ -844,7 +844,7 @@ static void release_tables(struct metalclaw_spi_target *t) {
     t->banks = 0;
 }
 
-static bool claim_tables(struct metalclaw_spi_target *t, uint8_t banks) {
+static bool claim_tables(struct mclw_spi_target *t, uint8_t banks) {
     uint8_t *table_owner = t->bus->table_owner;
     uint8_t tag = (uint8_t)((t - targets) + 1);
     uint8_t taken = 0;
@@ -864,8 +864,8 @@ static bool claim_tables(struct metalclaw_spi_target *t, uint8_t banks) {
     return true;
 }
 
-static void build_tables(struct metalclaw_spi_target *t) {
-    const struct metalclaw_regmap *map = t->map;
+static void build_tables(struct mclw_spi_target *t) {
+    const struct mclw_regmap *map = t->map;
 
     for (uint8_t b = 0; b < t->banks; b++) {
         struct spi_descriptor *table = table_pool[t->table[b]];
@@ -892,12 +892,12 @@ static int bus_claim_pins(struct spi_bus *bus, uint8_t sck, uint8_t mosi, uint8_
     size_t claimed;
 
     for (claimed = 0; claimed < 3u; claimed++) {
-        int err = metalclaw_hal_pin_claim(pins[claimed], bus);
+        int err = mclw_hal_pin_claim(pins[claimed], bus);
 
         if (err != 0) {
             while (claimed > 0u) {
                 claimed--;
-                metalclaw_hal_pin_release(pins[claimed], bus);
+                mclw_hal_pin_release(pins[claimed], bus);
             }
             return err;
         }
@@ -916,21 +916,21 @@ static void bus_release_pins(struct spi_bus *bus) {
         gpio_set_function(pins[i], GPIO_FUNC_SIO);
         gpio_set_dir(pins[i], GPIO_IN);
         gpio_disable_pulls(pins[i]);
-        metalclaw_hal_pin_release(pins[i], bus);
+        mclw_hal_pin_release(pins[i], bus);
     }
 }
 
-static void release_cs(const struct metalclaw_spi_target *t) {
+static void release_cs(const struct mclw_spi_target *t) {
     gpio_set_function(t->cs, GPIO_FUNC_SIO);
     gpio_set_dir(t->cs, GPIO_IN);
     gpio_disable_pulls(t->cs);
-    metalclaw_hal_pin_release(t->cs, t->owner);
+    mclw_hal_pin_release(t->cs, t->owner);
 }
 
-static bool bus_class_conflict(const struct spi_bus *bus, const struct metalclaw_spi_target *t,
+static bool bus_class_conflict(const struct spi_bus *bus, const struct mclw_spi_target *t,
     uint8_t cls) {
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-        const struct metalclaw_spi_target *o = &targets[i];
+        const struct mclw_spi_target *o = &targets[i];
 
         if (o != t && o->bus == bus && mode_class(o->mode) != cls) {
             return true;
@@ -941,7 +941,7 @@ static bool bus_class_conflict(const struct spi_bus *bus, const struct metalclaw
 
 static void bus_set_class(struct spi_bus *bus, uint8_t cls) {
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-        struct metalclaw_spi_target *o = &targets[i];
+        struct mclw_spi_target *o = &targets[i];
 
         if (o->bus == bus) {
             pio_sm_set_enabled(SPI_PIO, o->sm, false);
@@ -951,7 +951,7 @@ static void bus_set_class(struct spi_bus *bus, uint8_t cls) {
     }
     program_patch(bus, bus->program_sck, cls);
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-        struct metalclaw_spi_target *o = &targets[i];
+        struct mclw_spi_target *o = &targets[i];
 
         if (o->bus == bus && o->image != SPI_IMAGE_NONE) {
             prepare(o, false);
@@ -959,10 +959,10 @@ static void bus_set_class(struct spi_bus *bus, uint8_t cls) {
     }
 }
 
-static bool bus_dummy_conflict(const struct spi_bus *bus, const struct metalclaw_spi_target *t,
+static bool bus_dummy_conflict(const struct spi_bus *bus, const struct mclw_spi_target *t,
     uint16_t dummy) {
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-        const struct metalclaw_spi_target *o = &targets[i];
+        const struct mclw_spi_target *o = &targets[i];
 
         if (o != t && o->bus == bus && o->image == SPI_IMAGE_REGMAP &&
             dummy_instruction(&o->framing, o->map->filler) != dummy) {
@@ -972,10 +972,10 @@ static bool bus_dummy_conflict(const struct spi_bus *bus, const struct metalclaw
     return false;
 }
 
-struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t mosi, uint8_t miso,
+struct mclw_spi_target *mclw_hal_spi_target_open(uint8_t sck, uint8_t mosi, uint8_t miso,
     uint8_t cs, uint8_t mode, bool msb_first, const void *owner, int *err) {
     struct spi_bus *bus = &spi_bus;
-    struct metalclaw_spi_target *t = NULL;
+    struct mclw_spi_target *t = NULL;
     bool claimed_bus = false;
     uint8_t cls;
     int sm;
@@ -1012,7 +1012,7 @@ struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t 
         }
         claimed_bus = true;
     }
-    *err = metalclaw_hal_pin_claim(cs, owner);
+    *err = mclw_hal_pin_claim(cs, owner);
     if (*err != 0) {
         if (claimed_bus) {
             bus_release_pins(bus);
@@ -1084,7 +1084,7 @@ struct metalclaw_spi_target *metalclaw_hal_spi_target_open(uint8_t sck, uint8_t 
 
     t->owner = owner;
     if (bus->open_count++ == 0u && !bus->poll_registered) {
-        bus->poll_registered = metalclaw_hal_poll_register(poll_targets, NULL) == 0;
+        bus->poll_registered = mclw_hal_poll_register(poll_targets, NULL) == 0;
     }
     release_irq_sync(bus, true);
     dma_handler_sync(bus, true);
@@ -1110,17 +1110,17 @@ fail_pins:
     if (claimed_bus) {
         bus_release_pins(bus);
     }
-    metalclaw_hal_pin_release(cs, owner);
+    mclw_hal_pin_release(cs, owner);
     return NULL;
 }
 
-void metalclaw_hal_spi_target_disarm(struct metalclaw_spi_target *t) {
+void mclw_hal_spi_target_disarm(struct mclw_spi_target *t) {
     uint32_t state;
 
     if (t == NULL || t->owner == NULL) {
         return;
     }
-    state = metalclaw_hal_critical_enter();
+    state = mclw_hal_critical_enter();
     if (t->image != SPI_IMAGE_NONE) {
         pio_sm_set_enabled(SPI_PIO, t->sm, false);
         stop_dma(t);
@@ -1138,17 +1138,17 @@ void metalclaw_hal_spi_target_disarm(struct metalclaw_spi_target *t) {
         t->map = NULL;
         t->stream = NULL;
     }
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }
 
-void metalclaw_hal_spi_target_close(struct metalclaw_spi_target *t) {
+void mclw_hal_spi_target_close(struct mclw_spi_target *t) {
     struct spi_bus *bus;
 
     if (t == NULL || t->owner == NULL) {
         return;
     }
     bus = t->bus;
-    metalclaw_hal_spi_target_disarm(t);
+    mclw_hal_spi_target_disarm(t);
 
     pio_sm_set_enabled(SPI_PIO, t->sm, false);
     pio_sm_unclaim(SPI_PIO, t->sm);
@@ -1182,7 +1182,7 @@ void metalclaw_hal_spi_target_close(struct metalclaw_spi_target *t) {
     }
 }
 
-int metalclaw_hal_spi_target_set_mode(struct metalclaw_spi_target *t, uint8_t mode) {
+int mclw_hal_spi_target_set_mode(struct mclw_spi_target *t, uint8_t mode) {
     struct spi_bus *bus;
     uint8_t cls;
     uint32_t state;
@@ -1195,7 +1195,7 @@ int metalclaw_hal_spi_target_set_mode(struct metalclaw_spi_target *t, uint8_t mo
     if (cls != bus->program_class && bus_class_conflict(bus, t, cls)) {
         return -ENOSPC;
     }
-    state = metalclaw_hal_critical_enter();
+    state = mclw_hal_critical_enter();
     t->mode = mode;
     if (cls != bus->program_class) {
         bus_set_class(bus, cls);
@@ -1205,12 +1205,12 @@ int metalclaw_hal_spi_target_set_mode(struct metalclaw_spi_target *t, uint8_t mo
         t->window_open = false;
         prepare(t, false);
     }
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
     return 0;
 }
 
-int metalclaw_hal_spi_target_arm_regmap(struct metalclaw_spi_target *t, struct metalclaw_regmap *map,
-    const struct metalclaw_regmap_framing *framing) {
+int mclw_hal_spi_target_arm_regmap(struct mclw_spi_target *t, struct mclw_regmap *map,
+    const struct mclw_regmap_framing *framing) {
     uint8_t banks;
     uint32_t state;
     uint16_t dummy;
@@ -1234,14 +1234,14 @@ int metalclaw_hal_spi_target_arm_regmap(struct metalclaw_spi_target *t, struct m
     if (bus_dummy_conflict(t->bus, t, dummy)) {
         return -ENOSPC;
     }
-    metalclaw_hal_spi_target_disarm(t);
+    mclw_hal_spi_target_disarm(t);
     banks = map->bank_count == 0 ? 1 : map->bank_count;
-    if (banks > METALCLAW_REGMAP_BANKS_MAX) {
-        banks = METALCLAW_REGMAP_BANKS_MAX;
+    if (banks > MCLW_REGMAP_BANKS_MAX) {
+        banks = MCLW_REGMAP_BANKS_MAX;
     }
-    state = metalclaw_hal_critical_enter();
+    state = mclw_hal_critical_enter();
     if (!claim_tables(t, banks)) {
-        metalclaw_hal_critical_exit(state);
+        mclw_hal_critical_exit(state);
         return -ENOMEM;
     }
     t->map = map;
@@ -1256,22 +1256,22 @@ int metalclaw_hal_spi_target_arm_regmap(struct metalclaw_spi_target *t, struct m
     configure_sm(t, true);
     pio_interrupt_clear(SPI_PIO, t->monitor_sm);
     regmap_prepare(t, false);
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
     return 0;
 }
 
-int metalclaw_hal_spi_target_arm_stream(struct metalclaw_spi_target *t,
-    struct metalclaw_stream *s) {
+int mclw_hal_spi_target_arm_stream(struct mclw_spi_target *t,
+    struct mclw_stream *s) {
     uint32_t state;
 
     if (t == NULL || t->owner == NULL || s == NULL) {
         return -EINVAL;
     }
-    if (s->length > METALCLAW_STREAM_FRAME_MAX) {
+    if (s->length > MCLW_STREAM_FRAME_MAX) {
         return -EINVAL;
     }
-    metalclaw_hal_spi_target_disarm(t);
-    state = metalclaw_hal_critical_enter();
+    mclw_hal_spi_target_disarm(t);
+    state = mclw_hal_critical_enter();
     t->stream = s;
     t->image = SPI_IMAGE_STREAM;
     t->frame_pending = false;
@@ -1293,20 +1293,20 @@ int metalclaw_hal_spi_target_arm_stream(struct metalclaw_spi_target *t,
     arm_capture(t, false);
     pio_interrupt_clear(SPI_PIO, t->monitor_sm);
     stream_prepare(t, false);
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
     return 0;
 }
 
-void metalclaw_hal_spi_target_poll(void) {
+void mclw_hal_spi_target_poll(void) {
     for (size_t i = 0; i < SPI_TARGET_COUNT; i++) {
-        struct metalclaw_spi_target *t = &targets[i];
+        struct mclw_spi_target *t = &targets[i];
 
         if (t->owner == NULL || t->image == SPI_IMAGE_NONE) {
             continue;
         }
         if (t->wait_idle) {
             if (gpio_get(t->cs)) {
-                uint32_t state = metalclaw_hal_critical_enter();
+                uint32_t state = mclw_hal_critical_enter();
 
                 if (t->wait_idle && gpio_get(t->cs)) {
                     t->wait_idle = false;
@@ -1314,7 +1314,7 @@ void metalclaw_hal_spi_target_poll(void) {
                         pio_encode_jmp(t->bus->program_offset + SPI_REGMAP_ENTRY));
                     pio_sm_set_enabled(SPI_PIO, t->sm, true);
                 }
-                metalclaw_hal_critical_exit(state);
+                mclw_hal_critical_exit(state);
             }
             continue;
         }
@@ -1336,8 +1336,8 @@ void metalclaw_hal_spi_target_poll(void) {
     }
 }
 
-void metalclaw_hal_spi_target_stats(const struct metalclaw_spi_target *t,
-    struct metalclaw_spi_target_stats *out) {
+void mclw_hal_spi_target_stats(const struct mclw_spi_target *t,
+    struct mclw_spi_target_stats *out) {
     uint32_t state;
 
     if (out == NULL) {
@@ -1347,19 +1347,19 @@ void metalclaw_hal_spi_target_stats(const struct metalclaw_spi_target *t,
         memset(out, 0, sizeof(*out));
         return;
     }
-    state = metalclaw_hal_critical_enter();
+    state = mclw_hal_critical_enter();
     *out = t->stats;
-    metalclaw_hal_critical_exit(state);
+    mclw_hal_critical_exit(state);
 }
 
-uint8_t metalclaw_hal_spi_target_mode(const struct metalclaw_spi_target *t) {
+uint8_t mclw_hal_spi_target_mode(const struct mclw_spi_target *t) {
     if (t == NULL) {
         return 0u;
     }
     return t->mode;
 }
 
-uint32_t metalclaw_hal_spi_target_max_clock_hz(const struct metalclaw_spi_target *t) {
+uint32_t mclw_hal_spi_target_max_clock_hz(const struct mclw_spi_target *t) {
     if (t == NULL) {
         return 0u;
     }
