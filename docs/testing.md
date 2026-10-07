@@ -12,10 +12,13 @@ just setup-dut                        # Zephyr workspace in ../.zephyr-workspace
 just build-dut                        # build/dut/smoke/zephyr/zephyr.elf
 just build-dut bmp388                 # build/dut/bmp388/, with Zephyr's bmp388 driver
 just build-dut bmp388/spi             # build/dut/bmp388/spi/, the SPI variant of that image
-METALCLAW_HARNESS_SERIAL=<serial> METALCLAW_ARM_TOOLCHAIN_DIR=<dir> just test hardware
+METALCLAW_HARNESS_SERIAL=<serial> just test hardware
 ```
 
-Extra arguments after `hardware` go to pytest.
+Extra arguments after `hardware` go to pytest. The rig finds the DUT
+mailbox's symbols with the ARM toolchain's `nm`, from the same
+`METALCLAW_ARM_TOOLCHAIN_DIR` the firmware build uses. `METALCLAW_PROBE_RS`
+names the probe-rs executable when it is not on `PATH`.
 
 ## Where cases live
 

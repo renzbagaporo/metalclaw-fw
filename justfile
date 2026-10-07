@@ -90,7 +90,8 @@ setup-rig:
 
 # Run the cases on a platform. Extra arguments go to pytest.
 test PLATFORM="hardware" *ARGS: setup-rig
-    cd "{{project_dir}}" && "{{rig_python}}" test/rig/run.py --platform {{PLATFORM}} {{ARGS}}
+    cd "{{project_dir}}" && METALCLAW_ARM_TOOLCHAIN_DIR="{{arm_toolchain_dir}}" \
+        "{{rig_python}}" test/rig/run.py --platform {{PLATFORM}} {{ARGS}}
 
 # Create the Zephyr workspace for the DUT fixture from test/rig/dut/west.yml.
 # METALCLAW_ZEPHYR_REFERENCE may name a directory holding local clones
