@@ -112,3 +112,15 @@ resetting are two sessions. `--connect-under-reset` is refused in the rig's
 probe wrapper. The DUT is described to probe-rs as `RP2350_Core0`, a
 core-0-only description shipped in `test/rig/platforms/hardware/`; probe-rs
 picks the RP2350 debug sequence by variant name prefix, so the name matters.
+
+`METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S` sets the host deadline in seconds for each
+`probe-rs download`, including verification. It defaults to 180 and must be a
+positive finite number. An explicit `ProbeRs.download(timeout=...)` argument
+takes precedence. An emulated fixture whose verified transfer exceeds the
+default can opt into a longer deadline:
+
+```sh
+METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S=900 just test hardware
+```
+
+This setting applies only to downloading the DUT image.

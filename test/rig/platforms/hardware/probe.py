@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
+import math
 import os
 import re
 import subprocess
@@ -10,6 +11,8 @@ DEFAULT_SPEED_KHZ = 1000
 PROBE_RS_ENV = "METALCLAW_PROBE_RS"
 FORBIDDEN_FLAGS = ("--connect-under-reset",)
 DOWNLOAD_TIMEOUT_S = 180.0
+DOWNLOAD_TIMEOUT_ENV = "METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S"
+_DEFAULT_DOWNLOAD_TIMEOUT = object()
 RESET_TIMEOUT_S = 30.0
 ACCESS_TIMEOUT_S = 30.0
 ADDRESSED_LINE = re.compile(r"\s*([0-9a-fA-F]{8}):\s*(.*?)\s*")
@@ -125,10 +128,22 @@ class ProbeRs:
             )
         return completed.stdout
 
-    def download(self, image, verify=True, reset=True, timeout=DOWNLOAD_TIMEOUT_S):
+    def download(self, image, verify=True, reset=True, timeout=_DEFAULT_DOWNLOAD_TIMEOUT):
         image = Path(image)
         if not image.is_file():
             raise ProbeError(f"no DUT image at {image}")
+        value = (
+            os.environ.get(DOWNLOAD_TIMEOUT_ENV, DOWNLOAD_TIMEOUT_S)
+            if timeout is _DEFAULT_DOWNLOAD_TIMEOUT
+            else timeout
+        )
+        invalid_timeout = f"invalid download timeout {value!r}; expected positive finite seconds"
+        try:
+            timeout = float(value)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ProbeError(invalid_timeout) from error
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ProbeError(invalid_timeout)
         arguments = []
         if image.suffix.lower() == ".hex":
             arguments.extend(("--binary-format", "hex"))
