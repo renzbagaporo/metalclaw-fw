@@ -124,3 +124,19 @@ METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S=900 just test hardware
 ```
 
 This setting applies only to downloading the DUT image.
+
+`METALCLAW_DUT_MAILBOX_TIMEOUT_S` sets the configured host per-stage mailbox
+budget in seconds when `Dut.ping()` or `Dut.command()` omits its timeout. It
+defaults to 10 and must be positive and finite; an explicit timeout argument
+takes precedence. `Dut.ping()` gives that budget separately to its readiness
+wait and its command transaction. Each command transaction includes its
+preparatory reads, command write and result polling.
+
+An emulated fixture with slower host probe operations can opt into these
+budgets:
+
+```sh
+METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S=900 \
+METALCLAW_DUT_MAILBOX_TIMEOUT_S=120 \
+just test hardware
+```

@@ -2,6 +2,7 @@
 # The hardware platform: a real harness on USB and a real DUT behind its
 # probe. It refuses to run without explicit identities and never scans.
 
+import math
 import os
 import subprocess
 import time
@@ -9,11 +10,14 @@ from pathlib import Path
 
 import pytest
 
-from test.rig.platforms.hardware.mailbox import Mailbox
+from test.rig.platforms.hardware.mailbox import Mailbox, MailboxError
 from test.rig.platforms.hardware.probe import ProbeRs
 from test.rig.platforms.hardware.repl import Repl
 
 ROOT = Path(__file__).resolve().parents[4]
+DUT_MAILBOX_TIMEOUT_S = 10.0
+DUT_MAILBOX_TIMEOUT_ENV = "METALCLAW_DUT_MAILBOX_TIMEOUT_S"
+_DEFAULT_MAILBOX_TIMEOUT = object()
 
 FIXTURE = {
     "swd": (2, 3, 28),
@@ -33,6 +37,19 @@ def _required(name: str) -> str:
     if not value:
         pytest.exit(f"{name} is not set; the hardware platform never guesses a fixture", returncode=2)
     return value
+
+
+def _mailbox_timeout(value):
+    if value is _DEFAULT_MAILBOX_TIMEOUT:
+        value = os.environ.get(DUT_MAILBOX_TIMEOUT_ENV, DUT_MAILBOX_TIMEOUT_S)
+    invalid_timeout = f"invalid DUT mailbox timeout {value!r}; expected positive finite seconds"
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise MailboxError(invalid_timeout) from error
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise MailboxError(invalid_timeout)
+    return timeout
 
 
 class Harness:
@@ -84,12 +101,13 @@ class Dut:
         self.probe.reset()
         self.mailbox.last_result = 0
 
-    def ping(self, timeout: float = 10.0) -> dict:
+    def ping(self, timeout=_DEFAULT_MAILBOX_TIMEOUT) -> dict:
+        timeout = _mailbox_timeout(timeout)
         self.mailbox.wait_ready(timeout)
         return self.mailbox.ping(timeout)
 
-    def command(self, line: str, timeout: float = 10.0) -> dict:
-        return self.mailbox.command(line, timeout)
+    def command(self, line: str, timeout=_DEFAULT_MAILBOX_TIMEOUT) -> dict:
+        return self.mailbox.command(line, _mailbox_timeout(timeout))
 
     # The device the flashed image was built for, "smoke" for none.
     def image_name(self) -> str:
