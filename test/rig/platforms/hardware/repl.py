@@ -16,11 +16,19 @@ class Repl:
         self.port = serial.Serial(ports[0], 115200, timeout=0.1)
 
     def __enter__(self):
-        self.port.write(b"\x03\x03")
-        time.sleep(0.2)
-        self.port.write(b"\x01")
-        time.sleep(0.2)
         self.port.reset_input_buffer()
+        self.port.write(b"\x03\x03")
+        self.port.write(b"\x01")
+        deadline = time.monotonic() + 5.0
+        entry = b""
+        try:
+            while not entry.endswith(b"raw REPL; CTRL-B to exit\r\n>"):
+                entry += self.port.read(4096)
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(f"raw REPL entry prompt timed out: {entry!r}")
+        except Exception:
+            self.port.close()
+            raise
         return self
 
     def __exit__(self, *exc):
