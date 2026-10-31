@@ -4,7 +4,9 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 project_dir := justfile_directory()
 micropython_dir := project_dir / "core/third_party/micropython"
-build_dir := env_var_or_default("METALCLAW_BUILD_DIR", project_dir / "build")
+# A relative METALCLAW_BUILD_DIR is taken from the project directory; make
+# runs from the MicroPython port directory and would put it inside the submodule.
+build_dir := absolute_path(env_var_or_default("METALCLAW_BUILD_DIR", project_dir / "build"))
 jobs := env_var_or_default("METALCLAW_JOBS", num_cpus())
 
 # The board directory may live anywhere, e.g. a bench-specific board kept
