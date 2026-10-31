@@ -486,10 +486,10 @@ static int process_command(struct mclw_dap *dap, const uint8_t *request, size_t 
             return 0;
 
         case DAP_ID_WRITE_ABORT:
-            if (request_length < 5u || !wire_ready(dap)) {
+            if (request_length < 6u || !wire_ready(dap)) {
                 return response_status(response, capacity, command, DAP_STATUS_ERROR, length);
             }
-            ret = write_abort(dap, load_word(&request[1]));
+            ret = write_abort(dap, load_word(&request[2]));
             if (ret != 0) {
                 note_error(dap, DAP_REQUEST_DP_ABORT, 0u, (int16_t)ret);
             }
