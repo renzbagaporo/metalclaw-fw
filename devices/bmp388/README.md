@@ -16,8 +16,11 @@ with the datasheet's framing (read bit `0x80`, seven address bits, one dummy
 byte before read data, auto-increment); from then on the engine serves every
 bus read and write from interrupt context without calling back into the
 model. The model touches the map again only when a property changes, under
-`mclw_hal_critical_enter()`, so a six-byte burst read never sees half of
-one sample and half of the next.
+`mclw_hal_critical_enter()`, so each per-byte engine call sees the six data
+bytes change at once. That does not hold for a whole burst: the I2C engine
+leaves the critical section between bytes and the SPI engine's DMA reads the
+live image, so a six-byte burst read that overlaps the change can carry
+bytes of the old sample and of the new one.
 
 ## Bindings
 
@@ -280,5 +283,6 @@ beyond their reset values, oversampling and ODR actually affecting the sample,
 and the conversion time a real part needs. Nothing the Zephyr driver does in
 this configuration depends on any of them.
 
-One instance costs 2 088 bytes of the runtime's 8 KiB arena, almost all of it
-the register map's value and flag banks.
+One instance's state is 2 076 bytes; the arena hands it out in 64-byte pages,
+so it takes 33 pages, 2 112 bytes, of the runtime's 8 KiB arena, almost all of
+it the register map's value and flag banks.

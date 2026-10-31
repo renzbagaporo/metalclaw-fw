@@ -16,6 +16,12 @@ and arms the SPI target engine with it. From then on every window is served
 from DMA; the model is called back only through `on_write`, in interrupt
 context, for the two registers with side effects.
 
+A property write changes the sample and the image in one critical section,
+so `on_write` (a soft reset rebuilds the image from the sample) never sees
+half of one. A bus read gets no such promise: the engine's DMA reads the
+live image while armed, so a burst that overlaps a property write can carry
+bytes of the old sample and of the new one.
+
 ## Bindings
 
 | index | name | kind | required | resolved into |

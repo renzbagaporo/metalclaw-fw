@@ -107,8 +107,11 @@ enabled on core 1, so MicroPython's atomic sections never delay one.
 
 The runtime lock (`mclw_hal_lock`) is what lets a model touch its
 state from `set` and from `on_rx` without further care. Image edits from
-any context go under `mclw_hal_critical_enter()`, which is what the
-engines hold while they read the image. Both are in `hal/platform.h`, with
+any context go under `mclw_hal_critical_enter()`. It makes a multi-byte
+update atomic with respect to interrupt-context code such as `on_write` and
+to each per-byte call of the I2C engine; the I2C engine leaves it between
+bytes and the SPI engine's DMA reads the live image, so a burst that
+overlaps an update can mix the old image and the new one. Both are in `hal/platform.h`, with
 real time (`mclw_hal_time_us`, `mclw_hal_delay_us`), the work
 queue and the poll table.
 
@@ -158,8 +161,9 @@ port exists.
   window is served with no CPU in the byte path, and the model is called
   back only through `on_write` or `on_frame` at chip-select release. Two
   targets may share one bus; each keeps its own chip select. Release to
-  re-arm costs about 10 µs, so drivers that read back-to-back rely on a
-  chip-select setup delay in their overlay.
+  re-arm costs about 20 µs for a 14-byte read at 125 MHz, and reads start
+  failing when the host's gap is below about 16 µs, so drivers that read
+  back-to-back rely on a chip-select setup delay in their overlay.
 - `uart.h`: a UART with `send()` that queues and returns, `set_baud`, and a
   receive callback delivered on the worker under the runtime lock with
   whatever accumulated, never per byte and never from an interrupt, so a
