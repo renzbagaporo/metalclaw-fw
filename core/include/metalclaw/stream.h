@@ -6,6 +6,10 @@
 // OUT: the part drives the bus. The model publishes the next frame with
 // mclw_stream_publish(); the engine serves it from the next window on
 // and repeats it until the next publish. Bytes past the frame are `filler`.
+// Every window carries one whole frame. While windows arrive back to back
+// (one ended less than 2 ms ago) the engine does not re-arm under them: a
+// frame published then is served from the second window after the publish at
+// the latest, and the window served before it is counted in `stale_windows`.
 // IN: the part receives. The engine captures each window and hands it to
 // `on_frame` in interrupt context: no allocation, no HAL calls, keep it short.
 

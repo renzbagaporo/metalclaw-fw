@@ -45,6 +45,11 @@
 #define SPI_REGMAP_CLOCK_HZ 10714285u
 #define SPI_STREAM_CLOCK_HZ 15000000u
 
+// A stream's frame is re-armed in idle only when no window has ended this
+// recently: re-arming stops the state machine, so a host that is clocking
+// windows back to back must not be re-armed under; its window ends re-arm
+// the frame instead.
+#define SPI_STREAM_BURST_US 2000u
 #define SPI_RELEASE_BUDGET_US 16u
 #define SPI_RELEASE_STABLE_US 1u
 #define SPI_RELEASE_SETTLE_US 10u
@@ -111,6 +116,8 @@ struct mclw_spi_target {
     volatile bool command_taken;
     volatile bool wait_idle;
     volatile bool frame_pending;
+    bool released;
+    uint32_t last_release_us;
     uint8_t release_polls;
     uint32_t payload_ctrl;
     uint32_t tx_ctrl;
@@ -120,6 +127,15 @@ struct mclw_spi_target {
 
     struct mclw_spi_target_stats stats;
 };
+
+// pio_sm_set_enabled() is not inlined and so would run from flash.
+static inline __attribute__((always_inline)) void sm_enable(uint sm, bool enabled) {
+    if (enabled) {
+        hw_set_bits(&SPI_PIO->ctrl, 1u << sm);
+    } else {
+        hw_clear_bits(&SPI_PIO->ctrl, 1u << sm);
+    }
+}
 
 static struct spi_bus spi_bus;
 static struct mclw_spi_target targets[SPI_TARGET_COUNT];
@@ -327,7 +343,9 @@ static void __not_in_flash_func(quiesce)(const struct mclw_spi_target *t) {
         uint8_t pc;
         bool rest;
 
-        busy_wait_us_32(1u);
+        // busy_wait_us_32() would run from flash; the timer read is inline.
+        for (uint32_t start = time_us_32(); time_us_32() - start < 1u;) {
+        }
         remaining = dma_channel_hw_addr((uint)t->rx_dma)->transfer_count;
         pc = pio_sm_get_pc(SPI_PIO, t->sm);
         rest = pc == (uint8_t)(t->bus->program_offset + SPI_REST_LEAD) ||
@@ -420,7 +438,7 @@ static void __not_in_flash_func(regmap_prepare)(struct mclw_spi_target *t, bool 
     t->bank = bank;
     table = table_pool[t->table[bank]];
 
-    pio_sm_set_enabled(SPI_PIO, t->sm, false);
+    sm_enable(t->sm, false);
     stop_dma(t);
     set_autoshift(t, false, false, 32u, 8u);
     pio_sm_clear_fifos(SPI_PIO, t->sm);
@@ -477,7 +495,7 @@ static void __not_in_flash_func(regmap_prepare)(struct mclw_spi_target *t, bool 
     t->window_open = active;
     t->command_taken = false;
     t->release_polls = 0;
-    pio_sm_set_enabled(SPI_PIO, t->sm, !idle_wait);
+    sm_enable(t->sm, !idle_wait);
 }
 
 static void __not_in_flash_func(stream_prepare)(struct mclw_spi_target *t, bool join) {
@@ -493,7 +511,7 @@ static void __not_in_flash_func(stream_prepare)(struct mclw_spi_target *t, bool 
         }
     }
 
-    pio_sm_set_enabled(SPI_PIO, t->sm, false);
+    sm_enable(t->sm, false);
     stop_dma(t);
     set_autoshift(t, false, true, 8u, 8u);
     pio_sm_clear_fifos(SPI_PIO, t->sm);
@@ -526,7 +544,7 @@ static void __not_in_flash_func(stream_prepare)(struct mclw_spi_target *t, bool 
     t->wait_idle = false;
     t->command_taken = false;
     t->release_polls = 0;
-    pio_sm_set_enabled(SPI_PIO, t->sm, true);
+    sm_enable(t->sm, true);
 }
 
 static void __not_in_flash_func(prepare)(struct mclw_spi_target *t, bool join) {
@@ -704,6 +722,8 @@ static void __not_in_flash_func(finalize)(struct mclw_spi_target *t) {
         stream_finalize(t);
     }
     prepare(t, true);
+    t->last_release_us = time_us_32();
+    t->released = true;
     mclw_hal_critical_exit(state);
 }
 
@@ -755,7 +775,7 @@ static void __not_in_flash_func(spi_target_release_handler)(void) {
         if (t->wait_idle) {
             t->wait_idle = false;
             pio_sm_exec(SPI_PIO, t->sm, pio_encode_jmp(t->bus->program_offset + SPI_REGMAP_ENTRY));
-            pio_sm_set_enabled(SPI_PIO, t->sm, true);
+            sm_enable(t->sm, true);
             continue;
         }
         if (!t->window_open && window_evidence(t)) {
@@ -768,7 +788,15 @@ static void __not_in_flash_func(spi_target_release_handler)(void) {
     mclw_hal_critical_exit(state);
 }
 
-static void stream_notify(struct mclw_stream *s, void *ctx) {
+// Whether re-arming the stream now could cut a window: one is open or has
+// finished unfinalized, chip select is low, or one ended a moment ago and
+// the next is likely about to start.
+static bool __not_in_flash_func(stream_busy)(const struct mclw_spi_target *t) {
+    return t->window_open || !gpio_get(t->cs) || window_evidence(t) ||
+        (t->released && (uint32_t)(time_us_32() - t->last_release_us) < SPI_STREAM_BURST_US);
+}
+
+static void __not_in_flash_func(stream_notify)(struct mclw_stream *s, void *ctx) {
     struct mclw_spi_target *t = ctx;
     uint32_t state = mclw_hal_critical_enter();
 
@@ -777,7 +805,7 @@ static void stream_notify(struct mclw_stream *s, void *ctx) {
         mclw_hal_critical_exit(state);
         return;
     }
-    if (t->window_open || !gpio_get(t->cs)) {
+    if (stream_busy(t)) {
         t->frame_pending = true;
     } else {
         stream_prepare(t, false);
@@ -1122,7 +1150,7 @@ void mclw_hal_spi_target_disarm(struct mclw_spi_target *t) {
     }
     state = mclw_hal_critical_enter();
     if (t->image != SPI_IMAGE_NONE) {
-        pio_sm_set_enabled(SPI_PIO, t->sm, false);
+        sm_enable(t->sm, false);
         stop_dma(t);
         t->window_open = false;
         t->wait_idle = false;
@@ -1150,7 +1178,7 @@ void mclw_hal_spi_target_close(struct mclw_spi_target *t) {
     bus = t->bus;
     mclw_hal_spi_target_disarm(t);
 
-    pio_sm_set_enabled(SPI_PIO, t->sm, false);
+    sm_enable(t->sm, false);
     pio_sm_unclaim(SPI_PIO, t->sm);
     pio_set_irq1_source_enabled(SPI_PIO, (enum pio_interrupt_source)(pis_interrupt0 + t->monitor_sm), false);
     pio_sm_set_enabled(SPI_PIO, t->monitor_sm, false);
@@ -1200,7 +1228,7 @@ int mclw_hal_spi_target_set_mode(struct mclw_spi_target *t, uint8_t mode) {
     if (cls != bus->program_class) {
         bus_set_class(bus, cls);
     } else if (t->image != SPI_IMAGE_NONE) {
-        pio_sm_set_enabled(SPI_PIO, t->sm, false);
+        sm_enable(t->sm, false);
         stop_dma(t);
         t->window_open = false;
         prepare(t, false);
@@ -1275,6 +1303,7 @@ int mclw_hal_spi_target_arm_stream(struct mclw_spi_target *t,
     t->stream = s;
     t->image = SPI_IMAGE_STREAM;
     t->frame_pending = false;
+    t->released = false;
     memset(&t->stats, 0, sizeof(t->stats));
     s->notify = stream_notify;
     s->notify_ctx = t;
@@ -1312,11 +1341,21 @@ void mclw_hal_spi_target_poll(void) {
                     t->wait_idle = false;
                     pio_sm_exec(SPI_PIO, t->sm,
                         pio_encode_jmp(t->bus->program_offset + SPI_REGMAP_ENTRY));
-                    pio_sm_set_enabled(SPI_PIO, t->sm, true);
+                    sm_enable(t->sm, true);
                 }
                 mclw_hal_critical_exit(state);
             }
             continue;
+        }
+        if (t->image == SPI_IMAGE_STREAM && t->frame_pending) {
+            // A frame published in a burst waits for the next window end; if
+            // none comes, arm it once the engine has been idle long enough.
+            uint32_t state = mclw_hal_critical_enter();
+
+            if (t->image == SPI_IMAGE_STREAM && t->frame_pending && !stream_busy(t)) {
+                stream_prepare(t, false);
+            }
+            mclw_hal_critical_exit(state);
         }
         if (!t->window_open) {
             continue;

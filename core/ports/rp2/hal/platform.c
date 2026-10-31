@@ -20,7 +20,10 @@ void mclw_platform_init(void) {
     runtime_lock = spin_lock_instance((uint)spin_lock_claim_unused(true));
 }
 
-uint32_t mclw_hal_critical_enter(void) {
+// Both halves live in RAM: the SPI engine's interrupts enter the critical
+// section, and a fetch from flash that misses the cache, with the other core
+// running MicroPython, would delay the engine's re-arm by microseconds.
+uint32_t __not_in_flash_func(mclw_hal_critical_enter)(void) {
     uint32_t state = save_and_disable_interrupts();
     int core = (int)get_core_num();
 
@@ -34,7 +37,7 @@ uint32_t mclw_hal_critical_enter(void) {
     return state;
 }
 
-void mclw_hal_critical_exit(uint32_t state) {
+void __not_in_flash_func(mclw_hal_critical_exit)(uint32_t state) {
     if (--critical_depth == 0) {
         critical_owner = -1;
         spin_unlock_unsafe(critical_lock);
