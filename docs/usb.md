@@ -62,11 +62,14 @@ and the volume as a raw FAT block device with no partition table.
 
 Opening or closing a device interface marks the descriptor set dirty. 200 ms
 after the last change the port rebuilds it; if the result is byte-identical to
-what the host has, nothing happens. Otherwise it disconnects, waits 100 ms so
-the host notices, and re-initialises with the new set. Both phases are driven
-by an alarm, since a deinitialised device raises no interrupts to wake an idle
-VM. The host loses its REPL session and mounted volume for about a second and
-must reconnect by serial, not by device number.
+what the host has, nothing happens. Otherwise it removes the pull-up, waits
+100 ms so the host notices, and restores it; the host's bus reset on reconnect
+resets the class drivers and the next `SET_CONFIGURATION` opens the new set.
+TinyUSB is never deinitialised: on this port `tud_init` claims two hardware
+spinlocks and `tud_deinit` releases one. Both phases are driven by an alarm,
+since a device off the bus raises no interrupts to wake an idle VM. The host
+loses its REPL session and mounted volume for about a second and must
+reconnect by serial, not by device number.
 
 A soft reset detaches every instance and then runs `main.py` again. If
 `main.py` re-attaches the same devices, the rebuilt set is identical and there

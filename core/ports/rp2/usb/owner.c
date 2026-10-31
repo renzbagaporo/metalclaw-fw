@@ -19,7 +19,14 @@
 // with one disconnect, and only if the descriptor set really changed: a
 // soft reset that re-attaches the same devices never re-enumerates. The
 // host must see the pull-up gone for a while or it keeps the old
-// configuration, hence the gap before re-init.
+// configuration, hence the gap before reconnecting.
+//
+// Re-enumeration only drops and restores the pull-up; the host's bus reset
+// on reconnect resets the class drivers and endpoints, and the next
+// SET_CONFIGURATION opens the new set. TinyUSB stays initialised: on this
+// port tud_init claims two of the eight free hardware spinlocks and
+// tud_deinit releases one, so a deinit/init cycle would leak a spinlock
+// per re-enumeration until critical_section_init panics.
 #define REENUMERATE_DEBOUNCE_US 200000
 #define REENUMERATE_GAP_US      100000
 
@@ -33,7 +40,7 @@ static alarm_id_t reenum_alarm;
 
 static void usb_task_callback(mp_sched_node_t *node);
 
-// With the device deinitialised there are no USB interrupts to wake an idle
+// With the device off the bus there are no USB interrupts to wake an idle
 // VM, so each phase is driven by an alarm that schedules the USB task.
 static int64_t reenum_alarm_cb(alarm_id_t id, void *user) {
     (void)id;
@@ -74,15 +81,12 @@ static void reenumerate_step(void) {
             reenum_state = REENUM_IDLE;
             return;
         }
-        if (tud_inited()) {
-            tud_disconnect();
-            tud_deinit(0);
-        }
+        tud_disconnect();
         reenum_state = REENUM_DISCONNECTED;
         reenum_schedule(REENUMERATE_GAP_US);
         return;
     }
-    tud_init(0);
+    tud_connect();
     reenum_state = REENUM_IDLE;
 }
 
