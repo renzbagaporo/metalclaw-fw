@@ -63,7 +63,8 @@ and the volume as a raw FAT block device with no partition table.
 Opening or closing a device interface marks the descriptor set dirty. 200 ms
 after the last change the port rebuilds it; if the result is byte-identical to
 what the host has, nothing happens. Otherwise it removes the pull-up, waits
-100 ms so the host notices, and restores it; the host's bus reset on reconnect
+100 ms so the host notices, rebuilds the set once more in case an interface
+opened or closed meanwhile, and restores it; the host's bus reset on reconnect
 resets the class drivers and the next `SET_CONFIGURATION` opens the new set.
 TinyUSB is never deinitialised: on this port `tud_init` claims two hardware
 spinlocks and `tud_deinit` releases one. Both phases are driven by an alarm,

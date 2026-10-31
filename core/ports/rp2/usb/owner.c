@@ -19,7 +19,9 @@
 // with one disconnect, and only if the descriptor set really changed: a
 // soft reset that re-attaches the same devices never re-enumerates. The
 // host must see the pull-up gone for a while or it keeps the old
-// configuration, hence the gap before reconnecting.
+// configuration, hence the gap before reconnecting. A change made in the
+// gap needs no new request: the descriptors are rebuilt just before the
+// reconnect, so the host enumerates the set the slots hold by then.
 //
 // Re-enumeration only drops and restores the pull-up; the host's bus reset
 // on reconnect resets the class drivers and endpoints, and the next
@@ -65,6 +67,8 @@ void mclw_usb_init(void) {
     }
 }
 
+// While the device is off the bus the reconnect picks the change up, so
+// only the other states start a debounce.
 void mclw_usb_request_reenumeration(void) {
     if (reenum_state != REENUM_DISCONNECTED) {
         reenum_state = REENUM_PENDING;
@@ -86,6 +90,7 @@ static void reenumerate_step(void) {
         reenum_schedule(REENUMERATE_GAP_US);
         return;
     }
+    (void)mclw_usb_descriptors_rebuild();
     tud_connect();
     reenum_state = REENUM_IDLE;
 }
