@@ -200,16 +200,6 @@ static void on_write(struct mclw_regmap *map, uint8_t bank, uint8_t reg, uint8_t
     }
 }
 
-static void publish_sample(struct mclw_instance *inst) {
-    struct icm4268x_state *state = inst->state;
-    uint32_t critical = mclw_hal_critical_enter();
-
-    load_sample(state);
-    raise_data_ready(state);
-    mclw_hal_critical_exit(critical);
-    mclw_trace(inst, MCLW_TRACE_STATE, ICM4268X_REG_TEMP_DATA1, ICM4268X_SAMPLE_BYTES, 0);
-}
-
 static int icm4268x_init(struct mclw_instance *inst, const struct mclw_binding *bindings) {
     struct icm4268x_state *state = inst->state;
 
@@ -281,25 +271,34 @@ static int icm4268x_get(struct mclw_instance *inst, size_t property, struct mclw
 
 static int icm4268x_set(struct mclw_instance *inst, size_t property, const struct mclw_value *in) {
     struct icm4268x_state *state = inst->state;
+    uint32_t critical;
 
     switch (property) {
         case PROP_ACCEL:
-        case PROP_GYRO: {
-            int16_t *axes = property == PROP_ACCEL ? state->accel : state->gyro;
-            for (size_t i = 0; i < 3; i++) {
-                axes[i] = (int16_t)in->v[i];
-            }
-            break;
-        }
+        case PROP_GYRO:
         case PROP_TEMPERATURE:
-            state->temperature = (int16_t)in->v[0];
             break;
         case PROP_SPI_MODE:
             return mclw_spi_mode_set(inst, BINDING_SPI, in);
         default:
             return -EINVAL;
     }
-    publish_sample(inst);
+    // The state and the image change together: a soft reset in on_write
+    // rebuilds the image from the state, so it must not run between them.
+    critical = mclw_hal_critical_enter();
+    if (property == PROP_TEMPERATURE) {
+        state->temperature = (int16_t)in->v[0];
+    } else {
+        int16_t *axes = property == PROP_ACCEL ? state->accel : state->gyro;
+
+        for (size_t i = 0; i < 3; i++) {
+            axes[i] = (int16_t)in->v[i];
+        }
+    }
+    load_sample(state);
+    raise_data_ready(state);
+    mclw_hal_critical_exit(critical);
+    mclw_trace(inst, MCLW_TRACE_STATE, ICM4268X_REG_TEMP_DATA1, ICM4268X_SAMPLE_BYTES, 0);
     return 0;
 }
 
