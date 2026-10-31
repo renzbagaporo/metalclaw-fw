@@ -103,7 +103,7 @@ the driver splits every read into a command chunk and a data chunk), an
 `icm42688@0` node aliased `imu` in mode 3 at 10.7 MHz, low-noise power modes,
 50 Hz data rates and the ±16 g / ±2000 dps full scales. It asks for a 1 ms
 `spi-cs-setup-delay-ns`: the driver's reset sequence reads back-to-back, and
-the engine needs about 10 µs after a release before it can serve the next
+the engine needs about 15 µs after a release before it can serve the next
 window; the setup delay lets it join a window that has already been asserted.
 
 The DUT command is `SENSOR imu accel_xyz gyro_xyz die_temp [count=N]`: `N`

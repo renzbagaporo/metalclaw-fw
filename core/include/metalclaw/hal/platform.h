@@ -18,6 +18,13 @@
 uint32_t mclw_hal_critical_enter(void);
 void mclw_hal_critical_exit(uint32_t state);
 
+// A function on an engine interrupt's path, defined as
+// `void MCLW_RAM_FUNC(name)(...)`. A port whose linker script copies
+// `.time_critical.*` to RAM (pico-sdk's do) runs it from there, without the
+// flash cache misses that stretch an engine's re-arm after a window; on
+// any other port it is just a section name.
+#define MCLW_RAM_FUNC(name) __attribute__((section(".time_critical." #name))) name
+
 // Mutual exclusion between the script's thread and the worker for
 // everything a model does outside an interrupt. Interrupts stay enabled.
 // The worker only ever tries: the script's thread may wait for the worker

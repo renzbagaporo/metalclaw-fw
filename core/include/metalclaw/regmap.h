@@ -57,5 +57,10 @@ void mclw_regmap_set_on_write(struct mclw_regmap *map, mclw_regmap_on_write_t fn
 // bus_write commits the value (bank select included) and fires on_write.
 uint8_t mclw_regmap_bus_read(struct mclw_regmap *map, uint8_t reg);
 void mclw_regmap_bus_write(struct mclw_regmap *map, uint8_t reg, uint8_t value);
+// A window at once: `count` of the calls above from `reg` on, the register
+// one higher each time if `increment` (wrapping within the bank).
+void mclw_regmap_bus_read_burst(struct mclw_regmap *map, uint8_t reg, size_t count, bool increment);
+void mclw_regmap_bus_write_burst(struct mclw_regmap *map, uint8_t reg, const uint8_t *values,
+    size_t count, bool increment);
 
 #endif

@@ -124,7 +124,9 @@ per-register flags for writable and clear-on-read, multi-byte setters in
 either byte order, and bus-side read/write helpers an engine calls without
 the model. A model may install an
 `on_write` hook: it runs in interrupt context after a write has been
-committed, bank select included, and may only edit the image. For SPI the
+committed, bank select included, and may only edit the image. The hook,
+and whatever it calls, is defined with `MCLW_RAM_FUNC` so it runs from RAM,
+as `icm4268x`'s is; the regmap's own functions already are. For SPI the
 model adds a `struct mclw_regmap_framing` (in `hal/spi_target.h`) from
 the datasheet: which command bit means read, which bits are the address,
 whether a multi-byte access walks consecutive addresses, and whether one
@@ -142,7 +144,9 @@ or receives (`IN`, delivered through `on_frame` after the window closes).
 port exists.
 
 - `platform.h`: the execution model: the critical section, the runtime
-  lock, real time, the work queue and poll table of the worker.
+  lock, real time, the work queue and poll table of the worker, and
+  `MCLW_RAM_FUNC`, which places a function on an engine interrupt's path
+  in RAM.
 - `pins.h`: pin ownership. Claims are per owner; a board may name pins that
   no device may ever claim with `METALCLAW_RESERVED_PINS`.
 - `gpio.h`: one pin driven or sampled by a device.
@@ -160,9 +164,9 @@ port exists.
   stale windows). On rp2 it is one PIO program and a DMA chain; every
   window is served with no CPU in the byte path, and the model is called
   back only through `on_write` or `on_frame` at chip-select release. Two
-  targets may share one bus; each keeps its own chip select. Release to
-  re-arm costs about 20 µs for a 14-byte read at 125 MHz, and reads start
-  failing when the host's gap is below about 16 µs, so drivers that read
+  targets may share one bus; each keeps its own chip select. At 125 MHz,
+  back-to-back 14-byte reads stay clean down to a 15 µs gap between
+  windows and start failing at about 14 µs, so drivers that read
   back-to-back rely on a chip-select setup delay in their overlay.
 - `uart.h`: a UART with `send()` that queues and returns, `set_baud`, and a
   receive callback delivered on the worker under the runtime lock with

@@ -79,7 +79,7 @@ struct mclw_instance *mclw_instance_find(const char *name) {
     return NULL;
 }
 
-struct mclw_instance *mclw_instance_from_state(const void *state) {
+struct mclw_instance *MCLW_RAM_FUNC(mclw_instance_from_state)(const void *state) {
     const uint8_t *p = state;
 
     if (p < arena || p >= arena + METALCLAW_ARENA_SIZE) {
@@ -724,7 +724,7 @@ void mclw_runtime_init(void) {
     (void)mclw_hal_poll_register(clock_tick, NULL);
 }
 
-void mclw_trace(struct mclw_instance *inst, enum mclw_trace_kind kind,
+void MCLW_RAM_FUNC(mclw_trace)(struct mclw_instance *inst, enum mclw_trace_kind kind,
     uint32_t addr, uint16_t len, int16_t result) {
     uint32_t state = mclw_hal_critical_enter();
     struct mclw_trace_entry *e = &inst->trace[inst->trace_head];

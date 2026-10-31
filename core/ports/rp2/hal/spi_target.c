@@ -644,11 +644,7 @@ static void __not_in_flash_func(regmap_finalize)(struct mclw_spi_target *t) {
             payload = available;
         }
         served = payload > dummies ? payload - dummies : 0u;
-        for (uint32_t i = 0; i < served; i++) {
-            uint8_t reg = t->framing.auto_increment ? (uint8_t)(address + i) : (uint8_t)address;
-
-            (void)mclw_regmap_bus_read(map, reg);
-        }
+        mclw_regmap_bus_read_burst(map, (uint8_t)address, served, t->framing.auto_increment);
     } else {
         if (payload >= SPI_BUFFER_BYTES) {
             t->stats.long_windows++;
@@ -656,11 +652,8 @@ static void __not_in_flash_func(regmap_finalize)(struct mclw_spi_target *t) {
         if (payload > SPI_BANK_BYTES) {
             payload = SPI_BANK_BYTES;
         }
-        for (uint32_t i = 0; i < payload; i++) {
-            uint8_t reg = t->framing.auto_increment ? (uint8_t)(address + i) : (uint8_t)address;
-
-            mclw_regmap_bus_write(map, reg, t->capture[i]);
-        }
+        mclw_regmap_bus_write_burst(map, (uint8_t)address, t->capture, payload,
+            t->framing.auto_increment);
     }
 }
 

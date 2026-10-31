@@ -144,7 +144,7 @@ static const struct mclw_regmap_framing icm4268x_framing = {
     .auto_increment = true,
 };
 
-static void load_sample(struct icm4268x_state *state) {
+static void MCLW_RAM_FUNC(load_sample)(struct icm4268x_state *state) {
     mclw_regmap_set_be16(&state->map, 0, ICM4268X_REG_TEMP_DATA1, (uint16_t)state->temperature);
     for (uint8_t i = 0; i < 3; i++) {
         mclw_regmap_set_be16(&state->map, 0, (uint8_t)(ICM4268X_REG_ACCEL_DATA_X1 + 2 * i), (uint16_t)state->accel[i]);
@@ -154,7 +154,7 @@ static void load_sample(struct icm4268x_state *state) {
 
 // Power-on state, as the part leaves it after a soft reset: every register
 // writable and zero except the few with a documented reset value.
-static void build_map(struct icm4268x_state *state) {
+static void MCLW_RAM_FUNC(build_map)(struct icm4268x_state *state) {
     struct mclw_regmap *map = &state->map;
 
     for (uint8_t bank = 0; bank < ICM4268X_BANKS; bank++) {
@@ -175,7 +175,7 @@ static void build_map(struct icm4268x_state *state) {
     load_sample(state);
 }
 
-static void raise_data_ready(struct icm4268x_state *state) {
+static void MCLW_RAM_FUNC(raise_data_ready)(struct icm4268x_state *state) {
     struct mclw_regmap *map = &state->map;
     if (mclw_regmap_get(map, 0, ICM4268X_REG_PWR_MGMT0) & ICM4268X_PWR_MGMT0_SENSOR_MASK) {
         mclw_regmap_set(map, 0, ICM4268X_REG_INT_STATUS,
@@ -183,8 +183,9 @@ static void raise_data_ready(struct icm4268x_state *state) {
     }
 }
 
-// Interrupt context, after the engine committed a bus write.
-static void on_write(struct mclw_regmap *map, uint8_t bank, uint8_t reg, uint8_t value, void *ctx) {
+// Interrupt context, after the engine committed a bus write and before it
+// re-arms, so it and everything it calls are in RAM.
+static void MCLW_RAM_FUNC(on_write)(struct mclw_regmap *map, uint8_t bank, uint8_t reg, uint8_t value, void *ctx) {
     struct icm4268x_state *state = ctx;
     (void)map;
 
