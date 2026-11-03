@@ -136,15 +136,18 @@ The pinned Renode models what the `smoke` image needs: both cores, PIO
 and DMA on the RP2040, its USB device, and the RP2350's debug port behind
 the wired SWD pins. Device images run as their models land.
 
-`.github/workflows/emulator.yml` runs the emulator platform nightly, and
-skips the night when master has not moved since the last nightly. It runs
-only the images the change since the last passing nightly can reach, as
+`.github/workflows/emulator.yml` runs the emulator platform when started
+by hand from the Actions tab or with `gh workflow run emulator.yml`. It
+runs only the images the change since the last passing scheduled run can
+reach, or every image when there is none, as
 `test/rig/select.py` decides from the diff: a device's own files select its
 images, a harness engine (`spi_target`, `i2c_target`, `uart`, `gpio`)
 selects every device that declares a binding of that kind, documentation
 selects nothing, and anything else selects every image. `EMULATED_IMAGES`
-in the workflow limits that to the images the pinned Renode can run. A
-manual run takes the images, or the commit to diff against, as inputs.
+in the workflow limits that to the images the pinned Renode can run. A run
+takes the images, or the commit to diff against, as inputs. The workflow
+has no schedule; with one, a scheduled run skips itself when master has not
+moved since the last scheduled run.
 
 ## The DUT fixture
 

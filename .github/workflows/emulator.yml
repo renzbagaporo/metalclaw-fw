@@ -1,20 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# The rig on the emulator platform: the bench in Renode, nightly when master
-# has moved since the last nightly. Each run tests only the DUT images the
-# change since the last passing nightly can reach (test/rig/select.py).
+# The rig on the emulator platform: the bench in Renode, started by hand.
+# A run tests only the DUT images the change since the last passing
+# scheduled run can reach (test/rig/select.py), or every image when there
+# is none. A scheduled run is skipped when master has not moved since the
+# last one; adding a `schedule` trigger is all a nightly needs.
 
 name: emulator
 
 on:
-  schedule:
-    - cron: "0 18 * * *"
   workflow_dispatch:
     inputs:
       images:
         description: "Images to run, comma-separated; empty chooses from the diff"
         default: ""
       base:
-        description: "Commit to diff against; empty uses the last passing nightly"
+        description: "Commit to diff against; empty uses the last passing scheduled run"
         default: ""
 
 concurrency:
