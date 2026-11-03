@@ -79,7 +79,7 @@ jobs:
       - name: Host packages
         run: |
           sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y -o Acquire::Retries=3 ninja-build cmake python3-venv wget
+          sudo apt-get install -y -o Acquire::Retries=3 build-essential ninja-build cmake python3-venv wget
       - uses: actions/cache@v4
         with:
           path: ../.arm-none-eabi
