@@ -73,10 +73,13 @@ jobs:
       IMAGES: ${{ needs.plan.outputs.images }}
     steps:
       - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.40.0
       - name: Host packages
         run: |
           sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y -o Acquire::Retries=3 just ninja-build cmake python3-venv wget
+          sudo apt-get install -y -o Acquire::Retries=3 ninja-build cmake python3-venv wget
       - uses: actions/cache@v4
         with:
           path: ../.arm-none-eabi
@@ -112,12 +115,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.40.0
       - id: pins
         run: |
-          sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y -o Acquire::Retries=3 just
-          echo "renode=$(just --evaluate renode_commit)" >> "$GITHUB_OUTPUT"
-          echo "probe-rs=$(just --evaluate probe_rs_commit)-${{ hashFiles('test/rig/platforms/emulator/*.patch') }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          renode=$(just --evaluate renode_commit)
+          probe_rs=$(just --evaluate probe_rs_commit)
+          echo "renode=${renode}" >> "$GITHUB_OUTPUT"
+          echo "probe-rs=${probe_rs}-${{ hashFiles('test/rig/platforms/emulator/*.patch') }}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         id: renode
         with:
@@ -135,6 +142,7 @@ jobs:
       - name: Build packages
         if: steps.renode.outputs.cache-hit != 'true' || steps.probe-rs.outputs.cache-hit != 'true'
         run: |
+          sudo apt-get update -o Acquire::Retries=3
           sudo apt-get install -y -o Acquire::Retries=3 \
             git cmake build-essential automake autoconf libtool pkg-config libudev-dev
       - name: Renode, boot ROMs and probe-rs
@@ -152,12 +160,16 @@ jobs:
         image: ${{ fromJSON(needs.plan.outputs.images) }}
     steps:
       - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.40.0
       - id: pins
         run: |
-          sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y -o Acquire::Retries=3 just
-          echo "renode=$(just --evaluate renode_commit)" >> "$GITHUB_OUTPUT"
-          echo "probe-rs=$(just --evaluate probe_rs_commit)-${{ hashFiles('test/rig/platforms/emulator/*.patch') }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          renode=$(just --evaluate renode_commit)
+          probe_rs=$(just --evaluate probe_rs_commit)
+          echo "renode=${renode}" >> "$GITHUB_OUTPUT"
+          echo "probe-rs=${probe_rs}-${{ hashFiles('test/rig/platforms/emulator/*.patch') }}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@v4
         with:
           path: ../.renode
@@ -180,6 +192,7 @@ jobs:
       - name: USB/IP
         run: |
           set -euo pipefail
+          sudo apt-get update -o Acquire::Retries=3
           if ! sudo modprobe vhci-hcd 2>/dev/null; then
             sudo apt-get install -y -o Acquire::Retries=3 "linux-modules-extra-$(uname -r)"
             sudo modprobe vhci-hcd
