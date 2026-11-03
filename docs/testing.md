@@ -129,7 +129,9 @@ the target's own timing is unchanged. The platform stretches only host-side
 waits: the probe-rs download, reset and mailbox deadlines, and three timeouts the
 probe-rs patch in `test/rig/platforms/emulator/` makes configurable
 (`CMSIS_DAP_USB_TIMEOUT_MS`, `FLASH_ALGORITHM_TIMEOUT_MULTIPLIER`,
-`ARM_DEBUG_TIMEOUT_MULTIPLIER`; unset, probe-rs keeps its defaults).
+`ARM_DEBUG_TIMEOUT_MULTIPLIER`; unset, probe-rs keeps its defaults). The
+rig's own CMSIS-DAP client, which carries the mailbox, reads
+`CMSIS_DAP_USB_TIMEOUT_MS` too, defaulting to 1000.
 `just test emulator` uses that build, from `just setup-emulator-probe-rs`.
 
 The pinned Renode models what the `smoke` image needs: both cores, PIO

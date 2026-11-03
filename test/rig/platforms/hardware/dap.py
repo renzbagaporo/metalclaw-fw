@@ -7,6 +7,7 @@
 # lands on a modem's reply loses the bytes. This talks to the MEM-AP directly:
 # the core keeps running, DHCSR is never written.
 
+import os
 import struct
 import time
 
@@ -18,6 +19,8 @@ PRODUCT_ID = 0x0204
 INTERFACE_NAME = "CMSIS-DAP v2"
 PACKET = 64
 USB_TIMEOUT_MS = 1000
+# The variable patched probe-rs reads, so one setting covers both clients.
+USB_TIMEOUT_ENV = "CMSIS_DAP_USB_TIMEOUT_MS"
 DRAIN_TIMEOUT_MS = 20
 
 DAP_CONNECT = 0x02
@@ -79,6 +82,19 @@ class DapError(RuntimeError):
     pass
 
 
+def usb_timeout_ms():
+    value = os.environ.get(USB_TIMEOUT_ENV, "").strip()
+    if not value:
+        return USB_TIMEOUT_MS
+    try:
+        milliseconds = int(value)
+    except ValueError:
+        milliseconds = 0
+    if milliseconds <= 0:
+        raise DapError(f"invalid {USB_TIMEOUT_ENV} {value!r}; expected positive milliseconds")
+    return milliseconds
+
+
 class DapMemory:
     def __init__(self, serial, clock_hz=4_000_000):
         self.serial = serial
@@ -107,6 +123,7 @@ class _Link:
         self.out_ep = None
         self.in_ep = None
         self.select = None
+        self.timeout_ms = usb_timeout_ms()
 
     def __enter__(self):
         device = usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID, serial_number=self.serial)
@@ -154,11 +171,11 @@ class _Link:
                 return
 
     def _command(self, packet):
-        self.out_ep.write(packet, USB_TIMEOUT_MS)
+        self.out_ep.write(packet, self.timeout_ms)
         reply = b""
         # The harness may end a previous transfer with a zero-length packet.
         for _ in range(3):
-            reply = bytes(self.in_ep.read(PACKET, USB_TIMEOUT_MS))
+            reply = bytes(self.in_ep.read(PACKET, self.timeout_ms))
             if reply:
                 break
         if not reply or reply[0] != packet[0]:
