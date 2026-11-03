@@ -1,0 +1,205 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# The rig on the emulator platform: the bench in Renode, nightly when master
+# has moved since the last nightly. Each run tests only the DUT images the
+# change since the last passing nightly can reach (test/rig/select.py).
+
+name: emulator
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      images:
+        description: "Images to run, comma-separated; empty chooses from the diff"
+        default: ""
+      base:
+        description: "Commit to diff against; empty uses the last passing nightly"
+        default: ""
+
+concurrency:
+  group: emulator
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  # The images whose models the pinned Renode carries. Grows as they land.
+  EMULATED_IMAGES: smoke
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      images: ${{ steps.select.outputs.images }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          IMAGES: ${{ inputs.images }}
+          BASE: ${{ inputs.base }}
+        run: |
+          set -euo pipefail
+          nightlies() {
+            gh run list --workflow emulator.yml --branch master --event schedule --status "$1" \
+              --limit 1 --json headSha --jq '.[0].headSha // ""'
+          }
+          if [[ -n "${IMAGES}" ]]; then
+            images=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1].split(",")))' "${IMAGES}")
+          else
+            if [[ "${EVENT}" == schedule && "$(nightlies completed)" == "${GITHUB_SHA}" ]]; then
+              echo "master has not moved since the last nightly"
+              echo 'images=[]' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            base="${BASE:-$(nightlies success)}"
+            images=$(python3 test/rig/select.py ${base:+--base "$base"} --only "${EMULATED_IMAGES}")
+            echo "base: ${base:-none, every image}"
+          fi
+          echo "images: ${images}"
+          echo "images=${images}" >> "$GITHUB_OUTPUT"
+
+  firmware:
+    needs: plan
+    if: needs.plan.outputs.images != '[]'
+    runs-on: ubuntu-24.04
+    env:
+      IMAGES: ${{ needs.plan.outputs.images }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host packages
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 just ninja-build cmake python3-venv wget
+      - uses: actions/cache@v4
+        with:
+          path: ../.arm-none-eabi
+          key: arm-none-eabi-${{ hashFiles('justfile') }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/zephyr-sdk-1.0.1
+          key: zephyr-sdk-1.0.1-arm
+      - uses: actions/cache@v4
+        with:
+          path: ../.zephyr-workspace
+          key: zephyr-workspace-${{ hashFiles('test/rig/dut/west.yml') }}
+      - name: Harness firmware
+        run: just setup build
+      - name: DUT images
+        run: |
+          set -euo pipefail
+          just setup-zephyr-sdk setup-dut
+          for image in $(python3 -c 'import json,os; print(" ".join(json.loads(os.environ["IMAGES"])))'); do
+            just build-dut "$([[ "$image" == smoke ]] || echo "$image")"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            build/rp2/rpi_pi_pico/firmware.uf2
+            build/dut/**/zephyr/zephyr.elf
+          if-no-files-found: error
+
+  tools:
+    needs: plan
+    if: needs.plan.outputs.images != '[]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - id: pins
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 just
+          echo "renode=$(just --evaluate renode_commit)" >> "$GITHUB_OUTPUT"
+          echo "probe-rs=$(just --evaluate probe_rs_commit)-${{ hashFiles('test/rig/platforms/emulator/*.patch') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: renode
+        with:
+          path: ../.renode
+          key: renode-${{ steps.pins.outputs.renode }}
+      - uses: actions/cache@v4
+        id: probe-rs
+        with:
+          path: ../.probe-rs-emulation
+          key: probe-rs-emulation-${{ steps.pins.outputs.probe-rs }}
+      - if: steps.renode.outputs.cache-hit != 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build packages
+        if: steps.renode.outputs.cache-hit != 'true' || steps.probe-rs.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y -o Acquire::Retries=3 \
+            git cmake build-essential automake autoconf libtool pkg-config libudev-dev
+      - name: Renode, boot ROMs and probe-rs
+        run: |
+          just setup-emulator
+          rm -rf ../.renode/src ../.probe-rs-emulation/src
+
+  test:
+    needs: [plan, firmware, tools]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pins
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 just
+          echo "renode=$(just --evaluate renode_commit)" >> "$GITHUB_OUTPUT"
+          echo "probe-rs=$(just --evaluate probe_rs_commit)-${{ hashFiles('test/rig/platforms/emulator/*.patch') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        with:
+          path: ../.renode
+          key: renode-${{ steps.pins.outputs.renode }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: ../.probe-rs-emulation
+          key: probe-rs-emulation-${{ steps.pins.outputs.probe-rs }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: ../.arm-none-eabi
+          key: arm-none-eabi-${{ hashFiles('justfile') }}
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: build
+      - name: USB/IP
+        run: |
+          set -euo pipefail
+          if ! sudo modprobe vhci-hcd 2>/dev/null; then
+            sudo apt-get install -y -o Acquire::Retries=3 "linux-modules-extra-$(uname -r)"
+            sudo modprobe vhci-hcd
+          fi
+          sudo apt-get install -y -o Acquire::Retries=3 linux-tools-common linux-tools-generic usbutils python3-venv
+          usbip=(/usr/lib/linux-tools-*/usbip)
+          sudo ln -sf "${usbip[0]}" /usr/local/bin/usbip
+          usbip version
+      - name: Rig
+        env:
+          METALCLAW_DUT_DEVICE: ${{ matrix.image }}
+        run: just test emulator -v -p no:cacheprovider --junitxml=build/emulator/junit.xml
+      - if: always()
+        id: name
+        run: echo "artifact=rig-${MATRIX_IMAGE//\//-}" >> "$GITHUB_OUTPUT"
+        env:
+          MATRIX_IMAGE: ${{ matrix.image }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: build/emulator/
+          if-no-files-found: ignore
