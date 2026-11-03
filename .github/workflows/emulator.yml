@@ -144,7 +144,7 @@ jobs:
         run: |
           sudo apt-get update -o Acquire::Retries=3
           sudo apt-get install -y -o Acquire::Retries=3 \
-            git cmake build-essential automake autoconf libtool pkg-config libudev-dev
+            git cmake build-essential automake autoconf libtool python3-pip pkg-config libudev-dev
       - name: Renode, boot ROMs and probe-rs
         run: |
           just setup-emulator
