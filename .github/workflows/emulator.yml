@@ -29,6 +29,9 @@ env:
   # The images whose models the pinned Renode carries. Grows as they land.
   EMULATED_IMAGES: smoke
 
+# actions/cache refuses paths containing "..", so the tool directories live
+# in $HOME.
+
 jobs:
   plan:
     runs-on: ubuntu-24.04
@@ -76,13 +79,21 @@ jobs:
       - uses: extractions/setup-just@v4
         with:
           just-version: 1.40.0
+      - name: Tool directories
+        run: |
+          {
+            echo "METALCLAW_ARM_TOOLCHAIN_DIR=$HOME/.arm-none-eabi"
+            echo "METALCLAW_ZEPHYR_WORKSPACE=$HOME/.zephyr-workspace"
+            echo "METALCLAW_RENODE_HOME=$HOME/.renode"
+            echo "METALCLAW_PROBE_RS_EMULATION_DIR=$HOME/.probe-rs-emulation"
+          } >> "$GITHUB_ENV"
       - name: Host packages
         run: |
           sudo apt-get update -o Acquire::Retries=3
           sudo apt-get install -y -o Acquire::Retries=3 build-essential ninja-build cmake python3-venv wget
       - uses: actions/cache@v4
         with:
-          path: ../.arm-none-eabi
+          path: ~/.arm-none-eabi
           key: arm-none-eabi-${{ hashFiles('justfile') }}
       - uses: actions/cache@v4
         with:
@@ -90,7 +101,7 @@ jobs:
           key: zephyr-sdk-1.0.1-arm
       - uses: actions/cache@v4
         with:
-          path: ../.zephyr-workspace
+          path: ~/.zephyr-workspace
           key: zephyr-workspace-${{ hashFiles('test/rig/dut/west.yml') }}
       - name: Harness firmware
         run: just setup build
@@ -118,6 +129,14 @@ jobs:
       - uses: extractions/setup-just@v4
         with:
           just-version: 1.40.0
+      - name: Tool directories
+        run: |
+          {
+            echo "METALCLAW_ARM_TOOLCHAIN_DIR=$HOME/.arm-none-eabi"
+            echo "METALCLAW_ZEPHYR_WORKSPACE=$HOME/.zephyr-workspace"
+            echo "METALCLAW_RENODE_HOME=$HOME/.renode"
+            echo "METALCLAW_PROBE_RS_EMULATION_DIR=$HOME/.probe-rs-emulation"
+          } >> "$GITHUB_ENV"
       - id: pins
         run: |
           set -euo pipefail
@@ -128,12 +147,12 @@ jobs:
       - uses: actions/cache@v4
         id: renode
         with:
-          path: ../.renode
+          path: ~/.renode
           key: renode-${{ steps.pins.outputs.renode }}
       - uses: actions/cache@v4
         id: probe-rs
         with:
-          path: ../.probe-rs-emulation
+          path: ~/.probe-rs-emulation
           key: probe-rs-emulation-${{ steps.pins.outputs.probe-rs }}
       - if: steps.renode.outputs.cache-hit != 'true'
         uses: actions/setup-dotnet@v4
@@ -148,7 +167,7 @@ jobs:
       - name: Renode, boot ROMs and probe-rs
         run: |
           just setup-emulator
-          rm -rf ../.renode/src ../.probe-rs-emulation/src
+          rm -rf "$METALCLAW_RENODE_HOME/src" "$METALCLAW_PROBE_RS_EMULATION_DIR/src"
 
   test:
     needs: [plan, firmware, tools]
@@ -163,6 +182,14 @@ jobs:
       - uses: extractions/setup-just@v4
         with:
           just-version: 1.40.0
+      - name: Tool directories
+        run: |
+          {
+            echo "METALCLAW_ARM_TOOLCHAIN_DIR=$HOME/.arm-none-eabi"
+            echo "METALCLAW_ZEPHYR_WORKSPACE=$HOME/.zephyr-workspace"
+            echo "METALCLAW_RENODE_HOME=$HOME/.renode"
+            echo "METALCLAW_PROBE_RS_EMULATION_DIR=$HOME/.probe-rs-emulation"
+          } >> "$GITHUB_ENV"
       - id: pins
         run: |
           set -euo pipefail
@@ -172,17 +199,17 @@ jobs:
           echo "probe-rs=${probe_rs}-${{ hashFiles('test/rig/platforms/emulator/*.patch') }}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@v4
         with:
-          path: ../.renode
+          path: ~/.renode
           key: renode-${{ steps.pins.outputs.renode }}
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
-          path: ../.probe-rs-emulation
+          path: ~/.probe-rs-emulation
           key: probe-rs-emulation-${{ steps.pins.outputs.probe-rs }}
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
-          path: ../.arm-none-eabi
+          path: ~/.arm-none-eabi
           key: arm-none-eabi-${{ hashFiles('justfile') }}
           fail-on-cache-miss: true
       - uses: actions/download-artifact@v4
