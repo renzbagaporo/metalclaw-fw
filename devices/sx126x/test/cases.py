@@ -10,6 +10,8 @@ RAW_IMAGE = "sx126x/raw"
 
 EAGAIN = 11
 EIO = 5
+# The native driver's BUSY wait, SX126X_BUSY_DEFAULT_TIMEOUT, and a margin.
+NATIVE_BUSY_TIMEOUT_S = 1.2
 
 SYNC_PRIVATE = 0x1424
 SYNC_PUBLIC = 0x3444
@@ -113,7 +115,16 @@ def receive(dut, radio, timeout_ms, inject=None):
         time.sleep(0.3)
         payload, params = inject
         radio.inject(payload, **params)
-    return dut.finish(sequence, timeout_ms / 1000 + 10)
+    result = dut.finish(sequence, timeout_ms / 1000 + 10)
+    if result.get("errno") == EAGAIN and dut.image_name() == "sx126x/native":
+        # Zephyr v4.4.0's native driver gives the part the same timeout it
+        # waits on, so RxTimeout and its own timeout race: the receive puts
+        # the part to sleep while the IRQ work, handling the same timeout,
+        # waits up to SX126X_BUSY_DEFAULT_TIMEOUT for BUSY to drop before its
+        # own SetSleep. A command in that second wakes the part and the
+        # SetSleep lands under it. Wait the work out.
+        time.sleep(NATIVE_BUSY_TIMEOUT_S)
+    return result
 
 
 @pytest.fixture(scope="module")
