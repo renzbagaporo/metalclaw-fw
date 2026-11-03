@@ -228,6 +228,11 @@ jobs:
           usbip=(/usr/lib/linux-tools-*/usbip)
           sudo ln -sf "${usbip[0]}" /usr/local/bin/usbip
           usbip version
+          # The imported harness belongs to root otherwise: its tty for the rig,
+          # its USB device for probe-rs.
+          echo 'SUBSYSTEMS=="usb", ATTRS{idVendor}=="2fe3", MODE="0666"' \
+            | sudo tee /etc/udev/rules.d/70-metalclaw-harness.rules
+          sudo udevadm control --reload
       - name: Rig
         env:
           METALCLAW_DUT_DEVICE: ${{ matrix.image }}
