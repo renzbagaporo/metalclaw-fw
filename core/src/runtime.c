@@ -16,8 +16,11 @@
 #ifndef METALCLAW_INSTANCES_MAX
 #define METALCLAW_INSTANCES_MAX 8
 #endif
+// 16 KiB: a cellular model with CMUX, PPP and its IP stack takes about
+// 8 KiB on its own (devices/cellular), next to the SWD probe and others.
+// 256 pages of 64 bytes, so a page owner still fits a byte.
 #ifndef METALCLAW_ARENA_SIZE
-#define METALCLAW_ARENA_SIZE 8192
+#define METALCLAW_ARENA_SIZE 16384
 #endif
 
 static struct mclw_instance instances[METALCLAW_INSTANCES_MAX];

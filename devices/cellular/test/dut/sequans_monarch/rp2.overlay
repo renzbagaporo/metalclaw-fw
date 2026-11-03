@@ -1,0 +1,71 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
+
+/ {
+	chosen {
+		/delete-property/ zephyr,console;
+		/delete-property/ zephyr,shell-uart;
+	};
+
+	aliases {
+		modem = &modem;
+	};
+};
+
+&pinctrl {
+	uart0_fixture1: uart0_fixture1 {
+		group1 {
+			pinmux = <UART0_TX_P0>;
+		};
+		group2 {
+			pinmux = <UART0_RX_P1>;
+			input-enable;
+		};
+	};
+};
+
+/*
+ * RESET_N is driven released from the start. The driver configures the pin
+ * only in its init, which this image defers, and the RP2350 resets a pad
+ * with its pull-down on, which the harness's input, without a pull of its
+ * own, reads as low: a held reset. A DUT reset therefore still resets the
+ * part, the line low from the reset until the hog.
+ */
+&gpio0 {
+	reset_released {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_LOW>;
+		output-low;
+	};
+};
+
+/*
+ * The fixture's crossed pair: the DUT's GP0 drives the harness's GP1 and
+ * the harness's GP0 drives the DUT's GP1.
+ */
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart0_fixture1>;
+	pinctrl-names = "default";
+
+	/*
+	 * No `autostarts`: it is a devicetree boolean, so the driver's
+	 * DT_INST_PROP_OR(inst, autostarts, true) reads 0 when the node omits
+	 * it, and the binding's default reset behaviour (toggle on resume and
+	 * on recovery) then makes every resume a 100 ms RESET_N pulse followed
+	 * by 2 s of waiting. With `autostarts` a resume would skip the pulse
+	 * and run the init script on whatever state the modem was left in.
+	 *
+	 * Deferred for the same reason as the other cellular images: the rig
+	 * flashes and pings the DUT before a case attaches the model, so
+	 * `NET UP` runs the init.
+	 */
+	modem: modem {
+		compatible = "sqn,gm02s";
+		mdm-reset-gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
+		zephyr,deferred-init;
+		status = "okay";
+	};
+};

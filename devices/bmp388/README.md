@@ -285,5 +285,5 @@ and the conversion time a real part needs. Nothing the Zephyr driver does in
 this configuration depends on any of them.
 
 One instance's state is 2 076 bytes; the arena hands it out in 64-byte pages,
-so it takes 33 pages, 2 112 bytes, of the runtime's 8 KiB arena, almost all of
-it the register map's value and flag banks.
+so it takes 33 pages, 2 112 bytes, of the runtime's 16 KiB arena, almost all
+of it the register map's value and flag banks.

@@ -5,7 +5,7 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct mclw_model` and nothing else the
-runtime needs to know about. Seven exist:
+runtime needs to know about. Eight exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
 [`console_bridge`](../devices/console_bridge/README.md), a USB serial port on
 the board's console UART;
@@ -14,8 +14,15 @@ the board's console UART;
 [`icm4268x`](../devices/icm4268x/README.md), TDK InvenSense IMUs on SPI;
 [`neo_m8n`](../devices/neo_m8n/README.md), a u-blox GNSS receiver on UART that
 streams NMEA and speaks UBX;
-and [`sx126x`](../devices/sx126x/README.md), Semtech LoRa transceivers on
-SPI with their BUSY, DIO1 and NRESET lines and a simulated air side.
+[`sx126x`](../devices/sx126x/README.md), Semtech LoRa transceivers on
+SPI with their BUSY, DIO1 and NRESET lines and a simulated air side; and
+[`cellular`](../devices/cellular/README.md), cellular modems on UART with
+their PWRKEY or RESET_N and a small fake network behind them, one engine
+shared by four models: [`sim7080g`](../devices/cellular/sim7080g.md) and
+[`sim7000`](../devices/cellular/sim7000.md), SIMCom LTE-M/NB-IoT modems;
+[`a7672x`](../devices/cellular/a7672x.md), a SIMCom LTE Cat-1 modem; and
+[`sequans_monarch`](../devices/cellular/sequans_monarch.md), the Sequans
+Monarch LTE-M/NB-IoT modems.
 
 A device is written from its datasheet and contains no bus code. It declares
 which buses the part speaks, fills an image the datasheet describes (a
@@ -54,7 +61,8 @@ an ops table:
   `time_advanced`, `usb_rx`, `usb_control` are optional and report
   `ENOTSUP` when absent.
 - **config**: the model's own constant data, for one source that defines
-  several models (`icm4268x` picks its `WHO_AM_I` from it). The runtime never
+  several models (`icm4268x` picks its `WHO_AM_I` from it, `cellular` its
+  command tables, identity and timing). The runtime never
   reads it.
 
 A model owns its response image in its state, arms the bound engine from
@@ -82,7 +90,7 @@ table. Nothing else in the tree is edited to add a device.
 ## The runtime
 
 `core/include/metalclaw/runtime.h`. Instances live in a static arena sized
-at build time (`METALCLAW_ARENA_SIZE`, default 8 KiB, up to
+at build time (`METALCLAW_ARENA_SIZE`, default 16 KiB, up to
 `METALCLAW_INSTANCES_MAX`, default 8). `attach()` resolves each binding
 through the HAL, allocates state, and calls the model's `init`. `detach()`
 reverses it. Every instance is detached on a MicroPython soft reset.

@@ -1,0 +1,64 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
+
+/ {
+	chosen {
+		/delete-property/ zephyr,console;
+		/delete-property/ zephyr,shell-uart;
+	};
+
+	aliases {
+		modem = &modem;
+	};
+};
+
+&pinctrl {
+	uart0_fixture1: uart0_fixture1 {
+		group1 {
+			pinmux = <UART0_TX_P0>;
+		};
+		group2 {
+			pinmux = <UART0_RX_P1>;
+			input-enable;
+		};
+	};
+};
+
+/*
+ * PWRKEY is driven released from the start. The driver configures the pin
+ * only in its init, which this image defers, and the RP2350 resets a pad
+ * with its pull-down on, which the harness's input, without a pull of
+ * its own, reads as low: low for its Ton is a power-on press.
+ */
+&gpio0 {
+	pwrkey_released {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_LOW>;
+		output-low;
+	};
+};
+
+/*
+ * The fixture's crossed pair: the DUT's GP0 drives the harness's GP1 and
+ * the harness's GP0 drives the DUT's GP1.
+ */
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart0_fixture1>;
+	pinctrl-names = "default";
+
+	/*
+	 * Deferred: modem_cellular's init resumes the device at once, and a
+	 * resume is a 500 ms PWRKEY press followed by 20 s of waiting and an
+	 * init script retried with more presses. The rig flashes and pings the
+	 * DUT before a case attaches the model, so `NET UP` runs the init.
+	 */
+	modem: modem {
+		compatible = "simcom,a76xx";
+		mdm-power-gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
+		zephyr,deferred-init;
+		status = "okay";
+	};
+};

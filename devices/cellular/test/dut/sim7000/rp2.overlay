@@ -1,0 +1,63 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
+
+/*
+ * No modem driver: Zephyr has none for the SIM7000, so the cases speak AT
+ * through `UART modem-uart` and press PWRKEY through `GPIO pwrkey`.
+ */
+/ {
+	chosen {
+		/delete-property/ zephyr,console;
+		/delete-property/ zephyr,shell-uart;
+	};
+
+	aliases {
+		modem-uart = &uart0;
+	};
+
+	zephyr,user {
+		pwrkey-gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
+	};
+};
+
+/*
+ * RX is pulled up so the line idles high before the harness attaches the
+ * model; a pad left on its reset pull-down reads as a break.
+ */
+&pinctrl {
+	uart0_fixture1: uart0_fixture1 {
+		group1 {
+			pinmux = <UART0_TX_P0>;
+		};
+		group2 {
+			pinmux = <UART0_RX_P1>;
+			input-enable;
+			bias-pull-up;
+		};
+	};
+};
+
+/*
+ * PWRKEY is driven released from the start: the RP2350 resets a pad with
+ * its pull-down on, and a level the model reads as low for its Ton is a
+ * power-on press. `GPIO pwrkey` reconfigures the pin when a case presses.
+ */
+&gpio0 {
+	pwrkey_released {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_LOW>;
+		output-low;
+	};
+};
+
+/*
+ * The fixture's crossed pair: the DUT's GP0 drives the harness's GP1 and
+ * the harness's GP0 drives the DUT's GP1.
+ */
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart0_fixture1>;
+	pinctrl-names = "default";
+};

@@ -32,7 +32,9 @@ FIXTURE = {
         "miso": 16,
         "cs": {"ads7883": 21, "icm4268x": 17, "bmp388": 22, "sx126x": 21},
     },
-    "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6}},
+    # GP6 is also the modem's control line: PWRKEY or RESET_N, as the
+    # cellular model names it.
+    "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6}, "pwrkey": 6, "reset": 6},
 }
 
 

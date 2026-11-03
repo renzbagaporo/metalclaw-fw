@@ -7,11 +7,15 @@ every case, and runs them with pytest. Cases never know which platform they
 are on; they get a `harness` and a `dut` from the rig and speak to them.
 
 ```sh
-just setup-rig                        # .venv with pytest and pyserial
+just setup-rig                        # .venv with pytest, pyserial and pyusb
 just setup-dut                        # Zephyr workspace in ../.zephyr-workspace
 just build-dut                        # build/dut/smoke/zephyr/zephyr.elf
 just build-dut bmp388                 # build/dut/bmp388/, with Zephyr's bmp388 driver
 just build-dut bmp388/spi             # build/dut/bmp388/spi/, the SPI variant of that image
+just build-dut cellular/sim7080g      # build/dut/cellular/sim7080g/, Zephyr's offloaded sim7080 driver
+just build-dut cellular/a7672x        # modem_cellular over CMUX and PPP, Zephyr's IP stack
+just build-dut cellular/sequans_monarch  # the same, the part on RESET_N
+just build-dut cellular/sim7000       # no modem driver: the cases speak AT through the DUT's UART
 METALCLAW_HARNESS_SERIAL=<serial> just test hardware
 ```
 
@@ -23,7 +27,9 @@ names the probe-rs executable when it is not on `PATH`.
 ## Where cases live
 
 - `test/cases/` for the harness as a whole.
-- `devices/<name>/test/cases.py` (or `cases/`) for one device.
+- `devices/<name>/test/cases.py`, or a `cases/` directory of `test_*.py`
+  files, for one device; `devices/cellular/test/cases/` has one per model
+  and a `common.py` they import relatively (`from .common import ...`).
 
 A case is a pytest function taking `harness`, `dut`, `probe` or `fixture`:
 
@@ -71,7 +77,8 @@ platform it is
  "uart1": {"tx": 9, "rx": 8},
  "spi": {"sck": 18, "mosi": 19, "miso": 16,
          "cs": {"ads7883": 21, "icm4268x": 17, "bmp388": 22, "sx126x": 21}},
- "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6}}}
+ "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6},
+          "pwrkey": 6, "reset": 6}}
 ```
 
 and the platform attaches its own probe on `fixture["swd"]`.
@@ -100,25 +107,36 @@ per Zephyr subsystem, not per part: `SENSOR <alias> <channel>...` fetches
 through the sensor API, `SPI <alias> [hz] [bytes] [count] [gap_us]` clocks
 master windows, `RAW` clocks a window of given bytes (repeated, for a burst),
 `PULSE` holds a reset line active for a while, `GNSS` reads the GNSS API and
-`LORA` configures, sends and receives through the LoRa API; what a value
-means is the case's business. A device package
+`LORA` configures, sends and receives through the LoRa API, `DNS`, `TCP`,
+`UDP`, `HTTP` and `SOCK` go through the socket API, `MODEM` calls the vendor
+API of Zephyr's offloaded modem driver, `NET` powers the device behind the
+network interface and brings the interface up or down, `CELLULAR` reads the
+cellular driver API, `UART` exchanges raw bytes with a part no Zephyr driver
+speaks, and `GPIO` drives a pin the image declares; what a value means is
+the case's business. A device package
 adds a devicetree overlay and a Kconfig fragment under
 `devices/<name>/test/dut/rp2.{overlay,conf}` so that Zephyr's real driver for
 that part exercises the simulated one; `just build-dut <name>` applies them and
 builds `build/dut/<name>/`. A variant lives one level down,
 `test/dut/<variant>/rp2.{overlay,conf}`, is built with
-`just build-dut <name>/<variant>` and names itself `<name>/<variant>`.
+`just build-dut <name>/<variant>` and names itself `<name>/<variant>`; a
+package of several models keeps one variant per model, so `cellular` has
+no image of its own, only `cellular/<model>`.
 Images exist for `bmp388` (I2C) and `bmp388/spi`, `ads7883`, `icm4268x`,
 `neo_m8n` (UART0), `neo_m8n/uart1` and `neo_m8n/nmea` (Zephyr's generic NMEA
 driver on UART1), `sx126x` (Zephyr's loramac-node driver), `sx126x/native`
 (its native driver) and `sx126x/raw` (a bare SPI device for byte-level
-cases), and `console_bridge`, whose image echoes its console UART.
+cases), `console_bridge`, whose image echoes its console UART, and
+`cellular/sim7080g`, `cellular/a7672x`, `cellular/sequans_monarch` and
+`cellular/sim7000`.
 
 The overlays follow the `fixture` description above: the SPI bus is
 GP18/GP19/GP16 with one GPIO chip select per part (the PL022's own chip
 select drops whenever its transmit FIFO drains), I2C is GP4/GP5, the
 crossed UART pair is GP0/GP1, and the DUT's UART1 is GP8/GP9, which the
-harness serves as TX GP9, RX GP8. The rig's burst cases leave 20 µs between
+harness serves as TX GP9, RX GP8. GP6 is the sx126x's NRESET and also
+carries a modem's PWRKEY or RESET_N, whichever the model has (`gpio.pwrkey`
+and `gpio.reset` both name it). The rig's burst cases leave 20 µs between
 windows, above the engine's re-arm time.
 
 The workspace is created from `test/rig/dut/west.yml`, which pins Zephyr

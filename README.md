@@ -28,23 +28,24 @@ model's own descriptors.
 
 ## Devices
 
-Seven device packages exist; `icm4268x` defines two models and `sx126x`
-four, so `models()` lists eleven. The SWD debug probe: attaching it adds a CMSIS-DAP v2
-interface to the USB device, and `probe-rs` then drives the board under test
-through the harness. The console bridge: attaching it adds a serial port to
-the USB device that carries the board under test's console UART. And five
-simulated parts the board under test's own
-Zephyr drivers read as the real thing: a BMP388 barometer on I²C or SPI, an
-ADS7883 ADC on SPI, ICM-42688/42686 IMUs on SPI, a NEO-M8N GNSS receiver
-on UART, and SX1262-family LoRa transceivers on SPI, whose transmissions the
-harness captures and whose receptions it injects. A device is written from its datasheet with no bus code; the SPI,
-I²C and UART engines live in the port and serve every transfer with no CPU in
-the byte path.
+Eight device packages exist; `icm4268x` defines two models and `sx126x` and
+`cellular` four each, so `models()` lists fifteen. The SWD debug probe:
+attaching it adds a CMSIS-DAP v2 interface to the USB device, and `probe-rs`
+then drives the board under test through the harness. The console bridge:
+attaching it adds a serial port to the USB device that carries the board
+under test's console UART. And six simulated parts the board under test's
+own Zephyr drivers read as the real thing: a BMP388 barometer on I²C or SPI,
+an ADS7883 ADC on SPI, ICM-42688/42686 IMUs on SPI, a NEO-M8N GNSS receiver
+on UART, SX1262-family LoRa transceivers on SPI, whose transmissions the
+harness captures and whose receptions it injects, and SIMCom and Sequans
+cellular modems on UART with a small fake network behind them. A device is
+written from its datasheet with no bus code; the SPI, I²C and UART engines
+live in the port and serve every transfer with no CPU in the byte path.
 
 ```python
 >>> import metalclaw
 >>> metalclaw.models()
-('ads7883', 'bmp388', 'console_bridge', 'icm42688', 'icm42686', 'neo_m8n', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68')
+('ads7883', 'bmp388', 'sim7080g', 'sim7000', 'a7672x', 'sequans_monarch', 'console_bridge', 'icm42688', 'icm42686', 'neo_m8n', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68')
 >>> probe = metalclaw.attach("swd_probe", "dut", swd=(2, 3, 28))
 >>> baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
 >>> baro.pressure = 101325
