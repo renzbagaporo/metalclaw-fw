@@ -207,8 +207,8 @@ port exists.
   image's opcode, offset and address lookups are a chain of DMA control
   blocks that patch each other, which is what bounds its clock. Two targets
   may share one bus; each keeps its own chip select. At 125 MHz, back-to-back
-  14-byte register reads stay clean down to a 15 µs gap between windows and
-  start failing at about 14 µs, so drivers that read back-to-back without a
+  14-byte register reads stay clean down to a 12 µs gap between windows and
+  start failing at about 10 µs, so drivers that read back-to-back without a
   BUSY line rely on a chip-select setup delay in their overlay.
 - `uart.h`: a UART with `send()` that queues and returns, `set_baud`,
   `set_format`, and a receive callback delivered on the worker under the
