@@ -328,6 +328,23 @@ def ensure_connected(dut, modem):
     return up
 
 
+def restart_driver(dut, modem):
+    # Zephyr v4.4.0's PPP L2 stays wedged after the driver gave up on a lost
+    # network: LCP no longer sends Terminate-Request on net_if_down, which
+    # then waits CONFIG_NET_L2_PPP_TIMEOUT and returns -EAGAIN, until the DUT
+    # resets. Power the part off (the wedge only costs the wait), since a
+    # fresh driver's PWRKEY press would turn a powered part off; then reset
+    # the DUT and bring the interface up as the class fixture does, so the
+    # cases after start from a fresh driver.
+    net(dut, "DOWN", NET_DOWN_TIMEOUT_S)
+    dut.reset()
+    dut.ping()
+    # A part on RESET_N takes the DUT's reset for its own; let it boot.
+    time.sleep(2.0)
+    up = net(dut, f"UP {NET_UP_WAIT_MS}", NET_UP_TIMEOUT_S)
+    assert up["status"] == "ok" and up["l4"] and modem.get("ppp_up"), up
+
+
 def rsrp_dbm(rssi):
     # A model's AT+CESQ puts RSRP 10 dB below the rssi's -113 + 2n dBm
     # and codes it as 27.007 tables it, index n for [-141 + n, -140 + n)
@@ -553,26 +570,29 @@ class PppModelCases:
 
     def test_a_long_loss_of_registration_powers_down_until_resumed(self, dut, connected):
         cycles = connected.get("power_cycles")
-        connected.set(registration=0)
         try:
-            assert net(dut, "WAIT DOWN 15000", 20.0)["status"] == "ok"
-            # Three failed dials and the driver suspends itself: CMUX closes.
-            assert connected.wait_for("cmux", False, DIAL_GIVE_UP_S) is False
-            assert connected.wait_for("powered", self.POWERED_AFTER_SUSPEND, 10.0) is self.POWERED_AFTER_SUSPEND
+            connected.set(registration=0)
+            try:
+                assert net(dut, "WAIT DOWN 15000", 20.0)["status"] == "ok"
+                # Three failed dials and the driver suspends itself: CMUX closes.
+                assert connected.wait_for("cmux", False, DIAL_GIVE_UP_S) is False
+                assert connected.wait_for("powered", self.POWERED_AFTER_SUSPEND, 10.0) is self.POWERED_AFTER_SUSPEND
+            finally:
+                connected.set(registration=1)
+            time.sleep(PERIODIC_S)
+            # The driver stays down, and PM still thinks it is active.
+            state = net(dut, "STATE")
+            assert state["l4"] is False and state["pm"] == "active", state
+            down = net(dut, "DOWN", NET_DOWN_TIMEOUT_S)
+            assert down["down_rc"] == self.LONG_LOSS_DOWN_RC, down
+            assert down["pm_rc"] == 0 and down["pm"] == "suspended" and down["l4"] is False, down
+            up = net(dut, f"UP {NET_UP_WAIT_MS}", NET_UP_TIMEOUT_S)
+            assert up["status"] == "ok" and up["pm_op"] == "resume", up
+            assert connected.get("power_cycles") == cycles + 1
+            assert echo(dut, "TCP", "echo.test", "len=64", 1, ECHO_RING)["status"] == "ok"
+            assert connected.get("unknown_commands") == 0
         finally:
-            connected.set(registration=1)
-        time.sleep(PERIODIC_S)
-        # The driver stays down, and PM still thinks it is active.
-        state = net(dut, "STATE")
-        assert state["l4"] is False and state["pm"] == "active", state
-        down = net(dut, "DOWN", NET_DOWN_TIMEOUT_S)
-        assert down["down_rc"] == self.LONG_LOSS_DOWN_RC, down
-        assert down["pm_rc"] == 0 and down["pm"] == "suspended" and down["l4"] is False, down
-        up = net(dut, f"UP {NET_UP_WAIT_MS}", NET_UP_TIMEOUT_S)
-        assert up["status"] == "ok" and up["pm_op"] == "resume", up
-        assert connected.get("power_cycles") == cycles + 1
-        assert echo(dut, "TCP", "echo.test", "len=64", 1, ECHO_RING)["status"] == "ok"
-        assert connected.get("unknown_commands") == 0
+            restart_driver(dut, connected)
 
     def test_power_off_and_on(self, dut, connected):
         cycles = connected.get("power_cycles")

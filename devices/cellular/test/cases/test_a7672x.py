@@ -31,7 +31,12 @@ class TestA7672x(PppModelCases):
     def test_without_app_rdy_the_driver_waits_out_its_startup(self, dut, connected):
         connected.set(ready_urc=False)
         try:
-            assert net(dut, "DOWN", NET_DOWN_TIMEOUT_S)["status"] == "ok"
+            # Only the power-off matters here. After a resume, Zephyr v4.4.0
+            # sometimes sends no LCP Terminate-Request on net_if_down and
+            # returns -EAGAIN after waiting for the link to terminate; the
+            # driver powers the part off either way.
+            down = net(dut, "DOWN", NET_DOWN_TIMEOUT_S)
+            assert down["pm"] == "suspended" and connected.get("powered") is False, down
             up = net(dut, f"UP {NET_UP_WAIT_MS}", NET_UP_TIMEOUT_S)
         finally:
             connected.set(ready_urc=True)
