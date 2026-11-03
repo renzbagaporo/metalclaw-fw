@@ -144,7 +144,8 @@ v4.4.0, the five modules the board needs and `loramac-node`, which the
 `sx126x` image's driver is built from. `METALCLAW_ZEPHYR_WORKSPACE`
 moves it; `METALCLAW_ZEPHYR_REFERENCE` names local clones to borrow objects
 from so nothing is downloaded twice. The Zephyr SDK is expected at
-`ZEPHYR_SDK_INSTALL_DIR`, default `~/zephyr-sdk-1.0.1`.
+`ZEPHYR_SDK_INSTALL_DIR`, default `~/zephyr-sdk-1.0.1`; `just setup-zephyr-sdk`
+installs it there with only the Arm toolchain.
 
 ## probe-rs
 

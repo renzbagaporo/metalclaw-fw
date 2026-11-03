@@ -25,6 +25,8 @@ pico_sdk_commit := "a1438dff1d38bd9c65dbd693f0e5db4b9ae91779"      # 2.2.0, as p
 zephyr_workspace := env_var_or_default("METALCLAW_ZEPHYR_WORKSPACE", project_dir / "../.zephyr-workspace")
 zephyr_base := zephyr_workspace / "zephyr"
 zephyr_sdk := env_var_or_default("ZEPHYR_SDK_INSTALL_DIR", env_var("HOME") / "zephyr-sdk-1.0.1")
+zephyr_sdk_url := "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v1.0.1/zephyr-sdk-1.0.1_linux-x86_64_minimal.tar.xz"
+zephyr_sdk_sha256 := "ca9bc0ff66fafca1dac9d592a36d953cf16d096a9d09b1c0357f021cf9f6a7eb"
 dut_board := "rpi_pico2/rp2350a/m33"
 
 # Toolchain state lives outside the repository, next to it.
@@ -115,6 +117,21 @@ setup-dut: setup-rig
     "{{rig_python}}" -m pip install --quiet -r "{{zephyr_base}}/scripts/requirements-base.txt"
     "{{venv}}/bin/west" -v list
     echo "Zephyr $(git -C "{{zephyr_base}}" describe --tags)"
+
+# Install the Zephyr SDK with only the Arm toolchain, at ZEPHYR_SDK_INSTALL_DIR.
+setup-zephyr-sdk:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -x "{{zephyr_sdk}}/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc" ]]; then exit 0; fi
+    part="{{zephyr_sdk}}.part"
+    rm -rf "$part"; mkdir -p "$part"
+    curl -fL --retry 3 --no-progress-meter -o "$part/sdk.tar.xz" "{{zephyr_sdk_url}}"
+    echo "{{zephyr_sdk_sha256}}  $part/sdk.tar.xz" | sha256sum --check --status
+    tar -xJf "$part/sdk.tar.xz" -C "$part" --strip-components=1
+    rm "$part/sdk.tar.xz"
+    (cd "$part" && ./setup.sh -t arm-zephyr-eabi)
+    mv "$part" "{{zephyr_sdk}}"
+    "{{zephyr_sdk}}/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc" -dumpversion
 
 # Build the DUT fixture firmware for the Pico 2. With a DEVICE, its
 # devices/<DEVICE>/test/dut/rp2.{overlay,conf} are applied so Zephyr's real

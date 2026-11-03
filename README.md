@@ -109,7 +109,8 @@ justfile                      setup and build recipes
   `just setup` fetches the pinned submodules and ARM toolchain.
 - A J-Link to flash over SWD, optional: the bootloader route needs none.
 - For the hardware tests: probe-rs 0.30, Ninja, and the Zephyr SDK 1.0.1
-  at `ZEPHYR_SDK_INSTALL_DIR` (default `~/zephyr-sdk-1.0.1`).
+  at `ZEPHYR_SDK_INSTALL_DIR` (default `~/zephyr-sdk-1.0.1`), which
+  `just setup-zephyr-sdk` installs.
 
 ## Building and flashing
 
