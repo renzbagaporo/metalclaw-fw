@@ -36,6 +36,22 @@ arm_toolchain_bin := arm_toolchain_dir / arm_toolchain_name / "bin"
 arm_toolchain_url := "https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz"
 arm_toolchain_sha256 := "62a63b981fe391a9cbad7ef51b17e49aeaa3e7b0d029b36ca1e9c3b2a9b78823"
 
+# The emulator platform: Renode from the fork that carries the RP2040 and
+# RP2350 models and the bench script, the two boot ROMs, and probe-rs with
+# host timeouts that stretch for emulated SWD.
+renode_repo := env_var_or_default("METALCLAW_RENODE_REPO", "https://github.com/renzbagaporo/renode.git")
+renode_commit := "cc771de86aee07a6c06aa8a81fab3e77c62ce7f1"
+renode_home := env_var_or_default("METALCLAW_RENODE_HOME", project_dir / "../.renode")
+renode_dir := env_var_or_default("METALCLAW_RENODE_DIR", renode_home / renode_commit)
+renode_roms := env_var_or_default("METALCLAW_RENODE_ROMS", renode_home / "roms")
+rp2040_rom_url := "https://raw.githubusercontent.com/matgla/Renode_RP2040/5aca847c9f57ed96603e55d28e8ceeefa09e55f6/bootroms/rp2040/b2.elf"
+rp2040_rom_sha256 := "3a3c4c617d83bc9b910a6fa7bfdffa11ce26ff89370271d861507be821cc49aa"
+rp2350_rom_url := "https://github.com/raspberrypi/pico-bootrom-rp2350/releases/download/A2/bootrom-combined.bin"
+rp2350_rom_sha256 := "196c503fbb17b2ad21a1f496574786af698f9376af9a5f79e5e75293c9e12191"
+probe_rs_commit := "eab9c5e0ecb0eb7875050070719cf5370ac62d32"   # v0.30.0
+probe_rs_patch := project_dir / "test/rig/platforms/emulator/probe_rs_0.30.0_emulation_timeouts.patch"
+probe_rs_emulation_dir := env_var_or_default("METALCLAW_PROBE_RS_EMULATION_DIR", project_dir / "../.probe-rs-emulation")
+
 default:
     @just --list
 
@@ -94,8 +110,72 @@ setup-rig:
 
 # Run the cases on a platform. Extra arguments go to pytest.
 test PLATFORM="hardware" *ARGS: setup-rig
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "{{PLATFORM}}" == emulator ]]; then
+        export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
+        export METALCLAW_PROBE_RS="${METALCLAW_PROBE_RS:-{{probe_rs_emulation_dir}}/bin/probe-rs}"
+        echo "probe-rs: $("$METALCLAW_PROBE_RS" --version | head -1), patched with $(basename "{{probe_rs_patch}}")"
+    fi
     cd "{{project_dir}}" && METALCLAW_ARM_TOOLCHAIN_DIR="{{arm_toolchain_dir}}" \
         "{{rig_python}}" test/rig/run.py --platform {{PLATFORM}} {{ARGS}}
+
+# The emulator platform's tools: the boot ROMs, patched probe-rs and Renode.
+setup-emulator: setup-emulator-roms setup-emulator-probe-rs setup-renode
+
+setup-emulator-roms:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{renode_roms}}"
+    fetch() {
+        local url=$1 sha=$2 out="{{renode_roms}}/$(basename "$1")"
+        if ! echo "$sha  $out" | sha256sum --check --status 2>/dev/null; then
+            curl -fL --retry 3 --no-progress-meter -o "$out.part" "$url"
+            echo "$sha  $out.part" | sha256sum --check --status
+            mv "$out.part" "$out"
+        fi
+    }
+    fetch "{{rp2040_rom_url}}" "{{rp2040_rom_sha256}}"
+    fetch "{{rp2350_rom_url}}" "{{rp2350_rom_sha256}}"
+    ls -l "{{renode_roms}}"
+
+# probe-rs 0.30.0 with three host-side timeouts made configurable; unset,
+# they keep upstream's defaults. Needs cargo.
+setup-emulator-probe-rs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    stamp="{{probe_rs_emulation_dir}}/built-from"
+    want="{{probe_rs_commit}} $(sha256sum "{{probe_rs_patch}}" | cut -d' ' -f1)"
+    if [[ -x "{{probe_rs_emulation_dir}}/bin/probe-rs" && "$(cat "$stamp" 2>/dev/null)" == "$want" ]]; then
+        "{{probe_rs_emulation_dir}}/bin/probe-rs" --version; exit 0
+    fi
+    src="{{probe_rs_emulation_dir}}/src"
+    rm -rf "$src"
+    git init --quiet "$src"
+    git -C "$src" fetch --quiet --depth 1 https://github.com/probe-rs/probe-rs.git "{{probe_rs_commit}}"
+    git -C "$src" checkout --quiet FETCH_HEAD
+    git -C "$src" -c user.name=metalclaw -c user.email=metalclaw@localhost am --quiet "{{probe_rs_patch}}"
+    cargo install --quiet --locked --path "$src/probe-rs-tools" --bin probe-rs --root "{{probe_rs_emulation_dir}}"
+    echo "$want" > "$stamp"
+    "{{probe_rs_emulation_dir}}/bin/probe-rs" --version
+
+# Renode at the pinned commit, built as its portable package. Needs the
+# .NET 8 SDK, cmake and a host C toolchain.
+setup-renode:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -x "{{renode_dir}}/renode" ]]; then "{{renode_dir}}/renode" --version; exit 0; fi
+    src="{{renode_home}}/src"
+    if [[ ! -d "$src/.git" ]]; then git clone --quiet "{{renode_repo}}" "$src"; fi
+    git -C "$src" fetch --quiet origin "{{renode_commit}}"
+    git -C "$src" checkout --quiet --detach "{{renode_commit}}"
+    git -C "$src" submodule update --quiet --init --recursive
+    (cd "$src" && ./build.sh --no-gui -t)
+    package=$(ls -t "$src"/output/packages/renode-*.linux-portable*.tar.gz | head -1)
+    mkdir -p "{{renode_dir}}.part"
+    tar -xzf "$package" -C "{{renode_dir}}.part" --strip-components=1
+    mv "{{renode_dir}}.part" "{{renode_dir}}"
+    "{{renode_dir}}/renode" --version
 
 # Create the Zephyr workspace for the DUT fixture from test/rig/dut/west.yml.
 # METALCLAW_ZEPHYR_REFERENCE may name a directory holding local clones

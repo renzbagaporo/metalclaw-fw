@@ -40,8 +40,9 @@ def test_dut_answers_ping(dut):
 
 ## Platforms
 
-Only `hardware` exists. It refuses to run without `METALCLAW_HARNESS_SERIAL`
-and never scans for ports. Bringing it up means: wait for the harness to
+Two platforms exist: `hardware`, the bench, and `emulator`, the same bench
+in Renode (see [The emulator](#the-emulator)). `hardware` refuses to run
+without `METALCLAW_HARNESS_SERIAL` and never scans for ports. Bringing it up means: wait for the harness to
 enumerate, attach the `swd_probe` device from the REPL if the CMSIS-DAP
 interface is not already present, flash the DUT image through that probe with
 `probe-rs download --verify`, reset it, and wait for the mailbox to answer
@@ -95,6 +96,45 @@ pins a case needs. If one of them had a USB interface, the harness
 re-enumerates and the fixture waits it out. The simulation clock runs by default; a case that counts
 what a part sends per interval pauses it and steps it with `advance_us()`,
 as `neo_m8n`'s do.
+
+## The emulator
+
+`just test emulator` runs the same cases against both Picos emulated in
+Renode, built from the fork that carries the RP2040 and RP2350 models.
+Its bench script (`scripts/multi-node/metalclaw_fixture.resc` in that fork)
+wires the two machines pin to pin. The harness's USB is exported over
+USB/IP and imported into this host's kernel, so the harness, its CMSIS-DAP
+probe and the DUT are driven exactly as on the bench. Every re-enumeration
+unplugs it; the platform imports it again, as a cable that stays in would.
+
+```sh
+just setup-emulator      # boot ROMs, patched probe-rs and Renode, next to the repository
+just build               # build/rp2/rpi_pi_pico/firmware.uf2, the harness image
+just build-dut           # the DUT image, as for the bench
+just test emulator
+```
+
+The host needs `vhci_hcd` loaded and `usbip` runnable with `sudo -n`,
+which imports a device into the running kernel: run it in a disposable VM
+or CI runner, not on a workstation. `METALCLAW_RENODE_DIR`,
+`METALCLAW_RENODE_ROMS` and `METALCLAW_HARNESS_IMAGE` override the Renode
+package, the boot ROM directory and the harness UF2; `METALCLAW_RENODE_REPO`
+names another clone of the fork to build from, and
+`METALCLAW_RENODE_QUANTUM` overrides the bench's synchronisation quantum
+in seconds. The harness's serial is the emulated flash's unique ID,
+`0123456789ABCDEF`.
+
+Emulated SWD runs about 30 times slower than the bench in host time while
+the target's own timing is unchanged. The platform stretches only host-side
+waits: the probe-rs download and mailbox deadlines, and three timeouts the
+probe-rs patch in `test/rig/platforms/emulator/` makes configurable
+(`CMSIS_DAP_USB_TIMEOUT_MS`, `FLASH_ALGORITHM_TIMEOUT_MULTIPLIER`,
+`ARM_DEBUG_TIMEOUT_MULTIPLIER`; unset, probe-rs keeps its defaults).
+`just test emulator` uses that build, from `just setup-emulator-probe-rs`.
+
+The pinned Renode models what the `smoke` image needs: both cores, PIO
+and DMA on the RP2040, its USB device, and the RP2350's debug port behind
+the wired SWD pins. Device images run as their models land.
 
 ## The DUT fixture
 

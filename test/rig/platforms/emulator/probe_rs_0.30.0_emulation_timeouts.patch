@@ -1,0 +1,260 @@
+From c94ac3b2b8902fd3d6fcc3ba5c53d33ec1a93e7f Mon Sep 17 00:00:00 2001
+From: renzbagaporo <renz.bagaporo@gmail.com>
+Date: Fri, 30 Oct 2026 06:59:54 +0900
+Subject: [PATCH 1/3] cmsisdap: Allow configuring the host USB transport
+ timeout
+
+---
+ probe-rs/src/probe/cmsisdap/commands/mod.rs | 21 ++++++++++++++++++---
+ 1 file changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/probe-rs/src/probe/cmsisdap/commands/mod.rs b/probe-rs/src/probe/cmsisdap/commands/mod.rs
+index b949587..65327a7 100644
+--- a/probe-rs/src/probe/cmsisdap/commands/mod.rs
++++ b/probe-rs/src/probe/cmsisdap/commands/mod.rs
+@@ -10,13 +10,28 @@ use crate::probe::usb_util::InterfaceExt;
+ use crate::probe::{ProbeError, WireProtocol};
+ use std::io::ErrorKind;
+ use std::str::Utf8Error;
++use std::sync::LazyLock;
+ use std::time::Duration;
+ 
+ use self::general::host_status::HostStatusRequest;
+ use self::swj::clock::SWJClockRequest;
+ use self::transfer::InnerTransferBlockRequest;
+ 
+-const USB_TIMEOUT: Duration = Duration::from_millis(1000);
++// Slow USB transports can configure their host deadline without changing the
++// target's protocol timing. Keep the HID millisecond argument within i32.
++static USB_TIMEOUT: LazyLock<Duration> = LazyLock::new(|| {
++    let configured = std::env::var("CMSIS_DAP_USB_TIMEOUT_MS").ok();
++    let milliseconds = configured
++        .as_deref()
++        .and_then(|value| value.parse::<u32>().ok())
++        .filter(|value| *value > 0 && *value <= i32::MAX as u32);
++    if configured.is_some() && milliseconds.is_none() {
++        tracing::warn!("CMSIS_DAP_USB_TIMEOUT_MS must be in 1..=2147483647; using 1000 ms");
++    }
++    let milliseconds = milliseconds.unwrap_or(1000);
++    tracing::debug!(milliseconds, "CMSIS-DAP host USB timeout");
++    Duration::from_millis(u64::from(milliseconds))
++});
+ 
+ #[derive(Debug, thiserror::Error, docsplay::Display)]
+ pub enum CmsisDapError {
+@@ -204,7 +219,7 @@ impl CmsisDapDevice {
+                 }
+             }
+             CmsisDapDevice::V2 { handle, in_ep, .. } => {
+-                Ok(handle.read_bulk(*in_ep, buf, USB_TIMEOUT)?)
++                Ok(handle.read_bulk(*in_ep, buf, *USB_TIMEOUT)?)
+             }
+         }
+     }
+@@ -216,7 +231,7 @@ impl CmsisDapDevice {
+             CmsisDapDevice::V1 { handle, .. } => Ok(handle.write(buf)?),
+             CmsisDapDevice::V2 { handle, out_ep, .. } => {
+                 // Skip first byte as it's set to 0 for HID transfers
+-                Ok(handle.write_bulk(*out_ep, &buf[1..], USB_TIMEOUT)?)
++                Ok(handle.write_bulk(*out_ep, &buf[1..], *USB_TIMEOUT)?)
+             }
+         }
+     }
+-- 
+2.47.3
+
+
+From db434a31c0a362a30888f6999f47ba5ce2da882c Mon Sep 17 00:00:00 2001
+From: renzbagaporo <renz.bagaporo@gmail.com>
+Date: Fri, 30 Oct 2026 08:26:17 +0900
+Subject: [PATCH 2/3] flashing: Allow configuring the host routine watchdog
+
+---
+ probe-rs/src/flashing/flasher.rs | 31 +++++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/probe-rs/src/flashing/flasher.rs b/probe-rs/src/flashing/flasher.rs
+index 96acd68..c7087b3 100644
+--- a/probe-rs/src/flashing/flasher.rs
++++ b/probe-rs/src/flashing/flasher.rs
+@@ -13,6 +13,7 @@ use crate::{Core, InstructionSet, core::CoreRegisters, session::Session};
+ use crate::{CoreStatus, Target};
+ use std::borrow::Cow;
+ use std::marker::PhantomData;
++use std::sync::LazyLock;
+ use std::{
+     fmt::Debug,
+     time::{Duration, Instant},
+@@ -21,6 +22,20 @@ use std::{
+ /// The timeout for init/uninit routines.
+ const INIT_TIMEOUT: Duration = Duration::from_secs(2);
+ 
++// Emulated targets can take longer in host time while retaining their normal
++// target timing. This scales only the host watchdog for flash routine calls.
++static FLASH_TIMEOUT_MULTIPLIER: LazyLock<u32> = LazyLock::new(|| {
++    let configured = std::env::var("FLASH_ALGORITHM_TIMEOUT_MULTIPLIER").ok();
++    let multiplier = configured
++        .as_deref()
++        .and_then(|value| value.parse::<u32>().ok())
++        .filter(|value| *value > 0);
++    if configured.is_some() && multiplier.is_none() {
++        tracing::warn!("FLASH_ALGORITHM_TIMEOUT_MULTIPLIER must be in 1..=4294967295; using 1");
++    }
++    multiplier.unwrap_or(1)
++});
++
+ pub(super) trait Operation {
+     const OPERATION: u32;
+     const NAME: &'static str;
+@@ -974,6 +989,22 @@ impl<O: Operation> ActiveFlasher<'_, '_, O> {
+ 
+     #[tracing::instrument(skip(self))]
+     pub(super) fn wait_for_completion(&mut self, timeout: Duration) -> Result<u32, FlashError> {
++        let original_timeout = timeout;
++        let multiplier = *FLASH_TIMEOUT_MULTIPLIER;
++        let timeout = timeout.checked_mul(multiplier).unwrap_or_else(|| {
++            tracing::warn!(
++                ?original_timeout,
++                multiplier,
++                "Flash watchdog overflow; using original timeout"
++            );
++            original_timeout
++        });
++        tracing::debug!(
++            ?original_timeout,
++            ?timeout,
++            multiplier,
++            "Flash routine host watchdog"
++        );
+         tracing::debug!("Waiting for routine call completion.");
+         let regs = self.core.registers();
+ 
+-- 
+2.47.3
+
+
+From f40987239102873dc4ffd14272f8ab80c99dce59 Mon Sep 17 00:00:00 2001
+From: renzbagaporo <renz.bagaporo@gmail.com>
+Date: Fri, 30 Oct 2026 15:09:30 +0900
+Subject: [PATCH 3/3] arm: Allow configuring debug polling deadlines
+
+---
+ probe-rs/src/architecture/arm/core/armv6m.rs |  1 +
+ probe-rs/src/architecture/arm/core/armv7m.rs |  1 +
+ probe-rs/src/architecture/arm/core/armv8m.rs |  1 +
+ probe-rs/src/architecture/arm/core/mod.rs    | 63 ++++++++++++++++++++
+ 4 files changed, 66 insertions(+)
+
+diff --git a/probe-rs/src/architecture/arm/core/armv6m.rs b/probe-rs/src/architecture/arm/core/armv6m.rs
+index 71efdf5..e1f474c 100644
+--- a/probe-rs/src/architecture/arm/core/armv6m.rs
++++ b/probe-rs/src/architecture/arm/core/armv6m.rs
+@@ -464,6 +464,7 @@ impl<'probe> Armv6m<'probe> {
+         timeout: Duration,
+         predicate: impl Fn(CoreStatus) -> bool,
+     ) -> Result<(), Error> {
++        let timeout = super::cortex_m_debug_timeout(timeout);
+         let start = Instant::now();
+ 
+         while !predicate(self.status()?) {
+diff --git a/probe-rs/src/architecture/arm/core/armv7m.rs b/probe-rs/src/architecture/arm/core/armv7m.rs
+index 16ee2c8..7f691be 100644
+--- a/probe-rs/src/architecture/arm/core/armv7m.rs
++++ b/probe-rs/src/architecture/arm/core/armv7m.rs
+@@ -649,6 +649,7 @@ impl<'probe> Armv7m<'probe> {
+         timeout: Duration,
+         predicate: impl Fn(CoreStatus) -> bool,
+     ) -> Result<(), Error> {
++        let timeout = super::cortex_m_debug_timeout(timeout);
+         let start = Instant::now();
+ 
+         while !predicate(self.status()?) {
+diff --git a/probe-rs/src/architecture/arm/core/armv8m.rs b/probe-rs/src/architecture/arm/core/armv8m.rs
+index 1c6de5f..a7b728e 100644
+--- a/probe-rs/src/architecture/arm/core/armv8m.rs
++++ b/probe-rs/src/architecture/arm/core/armv8m.rs
+@@ -88,6 +88,7 @@ impl<'probe> Armv8m<'probe> {
+         timeout: Duration,
+         predicate: impl Fn(CoreStatus) -> bool,
+     ) -> Result<(), Error> {
++        let timeout = super::cortex_m_debug_timeout(timeout);
+         let start = Instant::now();
+ 
+         while !predicate(self.status()?) {
+diff --git a/probe-rs/src/architecture/arm/core/mod.rs b/probe-rs/src/architecture/arm/core/mod.rs
+index a2c45f9..4b27812 100644
+--- a/probe-rs/src/architecture/arm/core/mod.rs
++++ b/probe-rs/src/architecture/arm/core/mod.rs
+@@ -23,6 +23,69 @@ pub(crate) mod cortex_m;
+ pub(crate) mod instructions;
+ pub mod registers;
+ 
++// Cortex-M debugging over a slow transport can exceed hardware-oriented host
++// deadlines while the target still completes normal halt/step operations. This
++// changes only host polling deadlines when explicitly configured.
++static ARM_DEBUG_TIMEOUT_MULTIPLIER: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
++    parse_arm_debug_timeout_multiplier(
++        std::env::var("ARM_DEBUG_TIMEOUT_MULTIPLIER")
++            .ok()
++            .as_deref(),
++    )
++});
++
++fn parse_arm_debug_timeout_multiplier(configured: Option<&str>) -> u32 {
++    let multiplier = configured
++        .and_then(|value| value.parse::<u32>().ok())
++        .filter(|value| *value > 0);
++    if configured.is_some() && multiplier.is_none() {
++        tracing::warn!("ARM_DEBUG_TIMEOUT_MULTIPLIER must be in 1..=4294967295; using 1");
++    }
++    multiplier.unwrap_or(1)
++}
++
++fn cortex_m_debug_timeout(timeout: std::time::Duration) -> std::time::Duration {
++    timeout.saturating_mul(*ARM_DEBUG_TIMEOUT_MULTIPLIER)
++}
++
++#[cfg(test)]
++mod debug_timeout_tests {
++    use super::{cortex_m_debug_timeout, parse_arm_debug_timeout_multiplier};
++    use std::time::Duration;
++
++    #[test]
++    fn preserves_default_and_rejects_invalid_host_configuration() {
++        for value in [
++            None,
++            Some(""),
++            Some("0"),
++            Some("-1"),
++            Some("abc"),
++            Some("4294967296"),
++        ] {
++            assert_eq!(parse_arm_debug_timeout_multiplier(value), 1, "{value:?}");
++        }
++    }
++
++    #[test]
++    fn scales_the_requested_deadline_without_overflowing() {
++        assert_eq!(parse_arm_debug_timeout_multiplier(Some("30")), 30);
++        let expected_ms = std::env::var("EXPECTED_ARM_DEBUG_TIMEOUT_MILLIS")
++            .map(|value| value.parse::<u64>().expect("invalid test expectation"))
++            .unwrap_or(100);
++        assert_eq!(
++            cortex_m_debug_timeout(Duration::from_millis(100)),
++            Duration::from_millis(expected_ms)
++        );
++        assert_eq!(
++            parse_arm_debug_timeout_multiplier(Some("4294967295")),
++            u32::MAX
++        );
++        assert_eq!(cortex_m_debug_timeout(Duration::MAX), Duration::MAX);
++        assert_eq!(cortex_m_debug_timeout(Duration::ZERO), Duration::ZERO);
++    }
++}
++
+ /// Core information data which is downloaded from the target, represents its state and can be used for debugging.
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+ pub struct Dump {
+-- 
+2.47.3
+
