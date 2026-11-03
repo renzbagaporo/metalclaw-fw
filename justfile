@@ -40,7 +40,7 @@ arm_toolchain_sha256 := "62a63b981fe391a9cbad7ef51b17e49aeaa3e7b0d029b36ca1e9c3b
 # RP2350 models and the bench script, the two boot ROMs, and probe-rs with
 # host timeouts that stretch for emulated SWD.
 renode_repo := env_var_or_default("METALCLAW_RENODE_REPO", "https://github.com/renzbagaporo/renode.git")
-renode_commit := "fda5ad271ae9f947e7bf95ddfadb62fde609d001"
+renode_commit := "fcd2739720aaf33f5c56a8bc5fd9fa2061e3ad18"
 renode_home := env_var_or_default("METALCLAW_RENODE_HOME", project_dir / "../.renode")
 renode_dir := env_var_or_default("METALCLAW_RENODE_DIR", renode_home / renode_commit)
 renode_roms := env_var_or_default("METALCLAW_RENODE_ROMS", renode_home / "roms")

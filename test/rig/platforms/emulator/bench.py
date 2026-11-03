@@ -12,6 +12,7 @@ from pathlib import Path
 
 BENCH_SCRIPT = "scripts/multi-node/metalclaw_fixture.resc"
 UF2_EXTRACTOR = "scripts/multi-node/extract_pico1_uf2.py"
+MASK_ROM_EXTRACTOR = "scripts/multi-node/extract_rp2040_mask_rom.py"
 MONITOR_PORT = 1234
 USBIP_PORT = 3240
 USBIP_BUSID = "1-0"
@@ -89,12 +90,13 @@ class Bench:
         self.cable = None
         self.log = None
 
-    def _flash_payload(self) -> Path:
-        payload = self.work / "harness_flash.bin"
-        payload.unlink(missing_ok=True)
-        subprocess.run(["python3", str(self.renode_dir / UF2_EXTRACTOR), str(self.harness_uf2), str(payload)],
+    # Both extractors are the bench script's own and refuse to overwrite.
+    def _extract(self, extractor: str, source: Path, name: str) -> Path:
+        out = self.work / name
+        out.unlink(missing_ok=True)
+        subprocess.run(["python3", str(self.renode_dir / extractor), str(source), str(out)],
                        check=True, capture_output=True, text=True)
-        return payload
+        return out
 
     def start(self) -> None:
         for path in (self.renode_dir / "renode", self.renode_dir / BENCH_SCRIPT, self.harness_uf2,
@@ -102,10 +104,11 @@ class Bench:
             if not path.is_file():
                 raise BenchError(f"missing {path}")
         self.work.mkdir(parents=True, exist_ok=True)
-        payload = self._flash_payload()
+        payload = self._extract(UF2_EXTRACTOR, self.harness_uf2, "harness_flash.bin")
+        mask_rom = self._extract(MASK_ROM_EXTRACTOR, self.harness_rom, "harness_rom.bin")
         self.log = (self.work / "renode.log").open("w")
         commands = [
-            f"$harness_rom=@{self.harness_rom}",
+            f"$harness_rom=@{mask_rom}",
             f"$harness_flash=@{payload}",
             f"$dut_rom=@{self.dut_rom}",
             f"$usbip_port={USBIP_PORT}",
