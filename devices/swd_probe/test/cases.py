@@ -12,6 +12,11 @@ def test_probe_reads_the_dut(dut):
     assert (words[0] >> 4) & 0xFFF == 0xD21, hex(words[0])
 
 
+def test_the_dap_client_reads_the_dut(dut):
+    words = dut.memory.read_words(0xE000ED00, 1)
+    assert (words[0] >> 4) & 0xFFF == 0xD21, hex(words[0])
+
+
 def test_probe_counts_transfers(harness, dut):
     before = int(harness.run("import metalclaw\nprint(metalclaw.instances()[0].transfers)"))
     dut.probe.read_words(0xE000ED00, 1)

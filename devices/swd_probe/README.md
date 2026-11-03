@@ -91,6 +91,8 @@ and no queue exists.
 rig's hardware platform attaches this device itself, on the pins its fixture
 description gives as `swd`, because every other case reaches the DUT through
 it. The cases check that the instance is there and that the harness advertises
-its CMSIS-DAP interface on USB, that probe-rs reads the DUT's `CPUID` through
-it without halting the core, and that such a read moves the model's
-`transfers` counter.
+its CMSIS-DAP interface on USB, that probe-rs and the rig's own DAP client
+(`test/rig/platforms/hardware/dap.py`) both read the DUT's `CPUID` through
+it, and that such a read moves the model's `transfers` counter. probe-rs
+halts the DUT while its session attaches and detaches; the DAP client goes
+straight to the memory access port and does not.

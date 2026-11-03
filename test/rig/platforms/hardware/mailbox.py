@@ -8,6 +8,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import usb.core
+
+from test.rig.platforms.hardware.dap import DapError
 from test.rig.platforms.hardware.probe import ProbeError
 
 COMMAND_SYMBOL = "mclw_dut_mailbox_command"
@@ -138,8 +141,10 @@ def parse_result_line(line):
 
 
 class Mailbox:
-    def __init__(self, probe, elf, toolchain_dir=None):
-        self.probe = probe
+    # `memory` reads and writes DUT RAM: DapMemory, which never halts the
+    # core, or anything with the same read_words/write_words.
+    def __init__(self, memory, elf, toolchain_dir=None):
+        self.memory = memory
         self.elf = Path(elf)
         addresses = symbol_addresses(
             self.elf, (COMMAND_SYMBOL, RESULT_SYMBOL), toolchain_dir
@@ -153,11 +158,11 @@ class Mailbox:
         for attempt in range(2):
             try:
                 return call()
-            except ProbeError as error:
+            except (ProbeError, DapError, usb.core.USBError) as error:
                 text = str(error)
-                if attempt == 0 and any(
+                if attempt == 0 and (not isinstance(error, ProbeError) or any(
                     marker in text for marker in TRANSIENT_PROBE_ERRORS
-                ):
+                )):
                     time.sleep(POLL_S)
                     continue
                 raise MailboxError(text) from error
@@ -165,7 +170,7 @@ class Mailbox:
 
     def _snapshot(self):
         words = self._access(
-            lambda: self.probe.read_words(self.result_address, RESULT_WORDS)
+            lambda: self.memory.read_words(self.result_address, RESULT_WORDS)
         )
         try:
             return True, decode_result(words)
@@ -199,7 +204,7 @@ class Mailbox:
         self.next_command += 1
         words = pack_command(sequence, line)
         self._access(
-            lambda: self.probe.write_words(self.command_address, words)
+            lambda: self.memory.write_words(self.command_address, words)
         )
         return sequence
 

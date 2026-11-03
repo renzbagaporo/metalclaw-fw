@@ -50,7 +50,14 @@ and returns the parsed result; a command that blocks the DUT while the
 harness has to act (a radio receive waiting for a frame the case injects)
 is sent with `dut.start(line)` and collected with `dut.finish(sequence)`;
 `dut.reset()` resets the DUT through the probe;
-`dut.probe.read_words(addr, n)` reads DUT memory without halting it.
+`dut.memory.read_words(addr, n)` reads DUT memory without halting it.
+
+Flashing and resetting go through probe-rs. Everything else goes through
+`test/rig/platforms/hardware/dap.py`, which drives the harness's CMSIS-DAP
+interface directly: a probe-rs session halts the DUT's cores while it
+attaches and again when it ends, about 13 ms each on the RP2350, which is
+long enough for a UART part's reply to overrun the DUT's 32-byte receive
+FIFO.
 
 `fixture` is the platform's description of the wiring: which pin carries
 which bus role, and where each part sits on the shared buses. A case builds

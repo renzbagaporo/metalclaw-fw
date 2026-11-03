@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from test.rig.platforms.hardware.dap import DapMemory
 from test.rig.platforms.hardware.mailbox import Mailbox, MailboxError
 from test.rig.platforms.hardware.probe import ProbeRs
 from test.rig.platforms.hardware.repl import Repl
@@ -115,8 +116,11 @@ class Dut:
     def __init__(self, harness: Harness, image: Path, toolchain_dir: str):
         self.harness = harness
         self.image = image
+        # probe-rs flashes and resets; the mailbox goes through DapMemory,
+        # because every probe-rs session halts the DUT (see dap.py).
         self.probe = ProbeRs(harness.probe_id, ROOT / "test/rig/platforms/hardware/rp2350_core0.yaml")
-        self.mailbox = Mailbox(self.probe, image, toolchain_dir)
+        self.memory = DapMemory(harness.serial)
+        self.mailbox = Mailbox(self.memory, image, toolchain_dir)
 
     # probe-rs 0.30 has no `download --reset`; flashing and resetting are two
     # sessions. A reset restarts the DUT's result sequence, so the mailbox
