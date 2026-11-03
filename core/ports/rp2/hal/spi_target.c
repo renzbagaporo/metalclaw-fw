@@ -267,6 +267,30 @@ static union spi_table table_pool[SPI_TABLE_SLOTS] __attribute__((aligned(SPI_TA
 
 static const uint8_t wait_slots[] = { 6u, 7u, 18u, 19u };
 
+// pico-sdk's dma_channel_get_default_config and gpio_get are static inline,
+// but at -Os GCC emits one out-of-line copy of each, in flash, and the
+// engine's RAM functions call it there: a re-arm then waits on an XIP cache
+// miss whenever core 0 has evicted it. These are the same, forced inline.
+static __force_inline dma_channel_config default_config(uint channel) {
+    dma_channel_config c = { 0 };
+    channel_config_set_read_increment(&c, true);
+    channel_config_set_write_increment(&c, false);
+    channel_config_set_dreq(&c, DREQ_FORCE);
+    channel_config_set_chain_to(&c, channel);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
+    channel_config_set_ring(&c, false, 0);
+    channel_config_set_bswap(&c, false);
+    channel_config_set_irq_quiet(&c, false);
+    channel_config_set_enable(&c, true);
+    channel_config_set_sniff_enable(&c, false);
+    channel_config_set_high_priority(&c, false);
+    return c;
+}
+
+static __force_inline bool pin_high(uint pin) {
+    return (sio_hw->gpio_in & (1u << pin)) != 0u;
+}
+
 static uint8_t __not_in_flash_func(reverse_byte)(uint8_t value) {
     uint32_t v = value;
 
@@ -536,7 +560,7 @@ static volatile void *__not_in_flash_func(tx_fifo_msb)(const struct mclw_spi_tar
 }
 
 static void __not_in_flash_func(arm_capture)(struct mclw_spi_target *t, bool trigger) {
-    dma_channel_config c = dma_channel_get_default_config((uint)t->rx_dma);
+    dma_channel_config c = default_config((uint)t->rx_dma);
 
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_high_priority(&c, true);
@@ -575,7 +599,7 @@ static void __not_in_flash_func(regmap_prepare)(struct mclw_spi_target *t, bool 
     dma_channel_set_irq1_enabled((uint)t->rx_dma, false);
     dma_irqn_acknowledge_channel(1u, (uint)t->rx_dma);
 
-    c = dma_channel_get_default_config((uint)t->tx_dma);
+    c = default_config((uint)t->tx_dma);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_high_priority(&c, true);
     channel_config_set_read_increment(&c, t->framing.auto_increment);
@@ -583,7 +607,7 @@ static void __not_in_flash_func(regmap_prepare)(struct mclw_spi_target *t, bool 
     channel_config_set_dreq(&c, pio_get_dreq(SPI_PIO, t->sm, true));
     dma_channel_configure((uint)t->tx_dma, &c, tx_fifo_msb(t), t->tx_buf, SPI_BUFFER_BYTES, false);
 
-    c = dma_channel_get_default_config((uint)t->loader_dma);
+    c = default_config((uint)t->loader_dma);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
     channel_config_set_high_priority(&c, true);
     channel_config_set_read_increment(&c, true);
@@ -591,7 +615,7 @@ static void __not_in_flash_func(regmap_prepare)(struct mclw_spi_target *t, bool 
     dma_channel_configure((uint)t->loader_dma, &c,
         &dma_channel_hw_addr((uint)t->tx_dma)->al3_transfer_count, table, 2u, false);
 
-    c = dma_channel_get_default_config((uint)t->rx_dma);
+    c = default_config((uint)t->rx_dma);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
     channel_config_set_high_priority(&c, true);
     channel_config_set_read_increment(&c, false);
@@ -610,7 +634,7 @@ static void __not_in_flash_func(regmap_prepare)(struct mclw_spi_target *t, bool 
 
 
     {
-        bool low = !gpio_get(t->cs);
+        bool low = !pin_high(t->cs);
 
         idle_wait = !join && low;
         active = join && low;
@@ -656,7 +680,7 @@ static void __not_in_flash_func(stream_prepare)(struct mclw_spi_target *t, bool 
 
     set_autoshift(t, true, true, 8u, 8u);
     {
-        bool active = join && !gpio_get(t->cs);
+        bool active = join && !pin_high(t->cs);
 
         if (active) {
             pio_sm_exec_wait_blocking(SPI_PIO, t->sm, pio_encode_out(pio_pins, 1u));
@@ -683,7 +707,7 @@ static uint8_t (*command_pages(const struct mclw_spi_target *t))[MCLW_COMMAND_PA
 
 static uint32_t command_ctrl(uint channel, uint chain_to, enum dma_channel_transfer_size size, bool read_increment,
     bool write_increment, uint dreq) {
-    dma_channel_config c = dma_channel_get_default_config(channel);
+    dma_channel_config c = default_config(channel);
 
     channel_config_set_transfer_data_size(&c, size);
     channel_config_set_read_increment(&c, read_increment);
@@ -847,7 +871,7 @@ static void command_build(struct mclw_spi_target *t) {
 
 static void __not_in_flash_func(command_prepare)(struct mclw_spi_target *t) {
     struct spi_command_block *b = command_block(t);
-    dma_channel_config c = dma_channel_get_default_config((uint)t->loader_dma);
+    dma_channel_config c = default_config((uint)t->loader_dma);
 
     pio_sm_set_enabled(SPI_PIO, t->sm, false);
     stop_dma(t);
@@ -949,7 +973,7 @@ static void __not_in_flash_func(command_finalize)(struct mclw_spi_target *t) {
 static bool command_idle(const struct mclw_spi_target *t) {
     uint8_t pc = (uint8_t)(pio_sm_get_pc(SPI_PIO, t->sm) - t->bus->program_offset);
 
-    return pc < SPI_STREAM_ACTIVE_ENTRY && gpio_get(t->cs) &&
+    return pc < SPI_STREAM_ACTIVE_ENTRY && pin_high(t->cs) &&
         *(volatile uint8_t *)&command_block(t)->jump == SPI_COMMAND_NO_OPCODE;
 }
 
@@ -1259,7 +1283,7 @@ static void __not_in_flash_func(spi_target_release_handler)(void) {
 // finished unfinalized, chip select is low, or one ended a moment ago and
 // the next is likely about to start.
 static bool __not_in_flash_func(stream_busy)(const struct mclw_spi_target *t) {
-    return t->window_open || !gpio_get(t->cs) || window_evidence(t) ||
+    return t->window_open || !pin_high(t->cs) || window_evidence(t) ||
         (t->released && (uint32_t)(time_us_32() - t->last_release_us) < SPI_STREAM_BURST_US);
 }
 
@@ -1821,7 +1845,7 @@ int mclw_hal_spi_target_arm_stream(struct mclw_spi_target *t,
     configure_sm(t, SPI_IMAGE_STREAM);
     memset(t->tx_buf, wire_byte(t, s->filler), sizeof(t->tx_buf));
     {
-        dma_channel_config c = dma_channel_get_default_config((uint)t->tx_dma);
+        dma_channel_config c = default_config((uint)t->tx_dma);
 
         channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
         channel_config_set_high_priority(&c, true);
@@ -1908,10 +1932,10 @@ void mclw_hal_spi_target_poll(void) {
             continue;
         }
         if (t->wait_idle) {
-            if (gpio_get(t->cs)) {
+            if (pin_high(t->cs)) {
                 uint32_t state = mclw_hal_critical_enter();
 
-                if (t->wait_idle && gpio_get(t->cs)) {
+                if (t->wait_idle && pin_high(t->cs)) {
                     t->wait_idle = false;
                     pio_sm_exec(SPI_PIO, t->sm,
                         pio_encode_jmp(t->bus->program_offset + SPI_REGMAP_ENTRY));
@@ -1934,7 +1958,7 @@ void mclw_hal_spi_target_poll(void) {
         if (!t->window_open) {
             continue;
         }
-        if (!gpio_get(t->cs)) {
+        if (!pin_high(t->cs)) {
             t->release_polls = 0;
             continue;
         }
@@ -1943,7 +1967,7 @@ void mclw_hal_spi_target_poll(void) {
             continue;
         }
         busy_wait_us_32(SPI_RELEASE_SETTLE_US);
-        if (gpio_get(t->cs)) {
+        if (pin_high(t->cs)) {
             finalize(t);
         }
     }

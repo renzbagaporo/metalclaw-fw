@@ -83,9 +83,19 @@ void MCLW_RAM_FUNC(mclw_regmap_bus_write)(struct mclw_regmap *map, uint8_t reg, 
 
 void MCLW_RAM_FUNC(mclw_regmap_bus_read_burst)(struct mclw_regmap *map, uint8_t reg, size_t count,
     bool increment) {
-    for (size_t i = 0; i < count; i++) {
-        (void)read_one(map, reg);
-        reg = (uint8_t)(reg + (increment ? 1u : 0u));
+    // A read never moves the bank, so the bank's rows are found once; the
+    // byte stores below could alias active_bank and would make the compiler
+    // reload it per byte. Only each read's side effect is left to do.
+    uint8_t bank = map->active_bank;
+    const uint8_t *flags = map->flags[bank];
+    uint8_t *value = map->value[bank];
+    uint8_t step = increment ? 1u : 0u;
+
+    for (; count > 0; count--) {
+        if (flags[reg] & MCLW_REG_CLEAR_ON_READ) {
+            value[reg] = 0;
+        }
+        reg = (uint8_t)(reg + step);
     }
 }
 
