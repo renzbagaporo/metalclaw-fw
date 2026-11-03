@@ -12,8 +12,9 @@ PROBE_RS_ENV = "METALCLAW_PROBE_RS"
 FORBIDDEN_FLAGS = ("--connect-under-reset",)
 DOWNLOAD_TIMEOUT_S = 180.0
 DOWNLOAD_TIMEOUT_ENV = "METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S"
-_DEFAULT_DOWNLOAD_TIMEOUT = object()
 RESET_TIMEOUT_S = 30.0
+RESET_TIMEOUT_ENV = "METALCLAW_PROBE_RESET_TIMEOUT_S"
+_FROM_ENVIRONMENT = object()
 ACCESS_TIMEOUT_S = 30.0
 ADDRESSED_LINE = re.compile(r"\s*([0-9a-fA-F]{8}):\s*(.*?)\s*")
 WORD = re.compile(r"[0-9a-fA-F]{8}")
@@ -26,6 +27,18 @@ class ProbeError(RuntimeError):
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
+
+
+def _deadline(operation, timeout, environment, default):
+    value = os.environ.get(environment, default) if timeout is _FROM_ENVIRONMENT else timeout
+    invalid = f"invalid {operation} timeout {value!r}; expected positive finite seconds"
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ProbeError(invalid) from error
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ProbeError(invalid)
+    return seconds
 
 
 def decode_words(output, count, address):
@@ -128,22 +141,11 @@ class ProbeRs:
             )
         return completed.stdout
 
-    def download(self, image, verify=True, reset=True, timeout=_DEFAULT_DOWNLOAD_TIMEOUT):
+    def download(self, image, verify=True, reset=True, timeout=_FROM_ENVIRONMENT):
         image = Path(image)
         if not image.is_file():
             raise ProbeError(f"no DUT image at {image}")
-        value = (
-            os.environ.get(DOWNLOAD_TIMEOUT_ENV, DOWNLOAD_TIMEOUT_S)
-            if timeout is _DEFAULT_DOWNLOAD_TIMEOUT
-            else timeout
-        )
-        invalid_timeout = f"invalid download timeout {value!r}; expected positive finite seconds"
-        try:
-            timeout = float(value)
-        except (TypeError, ValueError, OverflowError) as error:
-            raise ProbeError(invalid_timeout) from error
-        if not math.isfinite(timeout) or timeout <= 0:
-            raise ProbeError(invalid_timeout)
+        timeout = _deadline("download", timeout, DOWNLOAD_TIMEOUT_ENV, DOWNLOAD_TIMEOUT_S)
         arguments = []
         if image.suffix.lower() == ".hex":
             arguments.extend(("--binary-format", "hex"))
@@ -154,7 +156,8 @@ class ProbeRs:
         arguments.append(str(image))
         return self._run(self._argv("download", *arguments), timeout)
 
-    def reset(self, timeout=RESET_TIMEOUT_S):
+    def reset(self, timeout=_FROM_ENVIRONMENT):
+        timeout = _deadline("reset", timeout, RESET_TIMEOUT_ENV, RESET_TIMEOUT_S)
         return self._run(self._argv("reset"), timeout)
 
     def read_words(self, address, count, timeout=ACCESS_TIMEOUT_S):

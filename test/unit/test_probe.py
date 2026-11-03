@@ -11,6 +11,7 @@ from test.rig.platforms.hardware.probe import (
     ACCESS_TIMEOUT_S,
     DOWNLOAD_TIMEOUT_ENV,
     DOWNLOAD_TIMEOUT_S,
+    RESET_TIMEOUT_ENV,
     RESET_TIMEOUT_S,
     ProbeError,
     ProbeRs,
@@ -25,6 +26,7 @@ def probe_files(tmp_path, monkeypatch):
         monkeypatch.setenv(name, str(directory))
     monkeypatch.setenv("PYTHONNOUSERSITE", "1")
     monkeypatch.delenv(DOWNLOAD_TIMEOUT_ENV, raising=False)
+    monkeypatch.delenv(RESET_TIMEOUT_ENV, raising=False)
     description = tmp_path / "chip.yaml"
     description.write_text("test-only chip description\n")
     image = tmp_path / "image.elf"
@@ -108,6 +110,41 @@ def test_download_environment_does_not_change_other_deadlines(probe_files, runs,
         ("write", ACCESS_TIMEOUT_S),
     ]
     assert RESET_TIMEOUT_S == ACCESS_TIMEOUT_S == 30.0
+
+
+@pytest.mark.parametrize("value,expected", [("600", 600.0), (" 0.5 ", 0.5)])
+def test_reset_environment_deadline(probe_files, runs, monkeypatch, value, expected):
+    probe, _, _ = probe_files
+    monkeypatch.setenv(RESET_TIMEOUT_ENV, value)
+    probe.reset()
+    assert runs[0][1]["timeout"] == expected
+
+
+@pytest.mark.parametrize("value", ["", "nope", "0", "-1", "nan", "inf"])
+def test_reset_rejects_invalid_environment_deadline(probe_files, runs, monkeypatch, value):
+    probe, _, _ = probe_files
+    monkeypatch.setenv(RESET_TIMEOUT_ENV, value)
+    with pytest.raises(ProbeError, match="invalid reset timeout .* expected positive finite seconds"):
+        probe.reset()
+    assert not runs
+
+
+def test_explicit_reset_deadline_has_priority(probe_files, runs, monkeypatch):
+    probe, _, _ = probe_files
+    monkeypatch.setenv(RESET_TIMEOUT_ENV, "malformed")
+    probe.reset(timeout=2.5)
+    assert runs[0][1]["timeout"] == 2.5
+
+
+def test_reset_environment_does_not_change_other_deadlines(probe_files, runs, monkeypatch):
+    probe, image, _ = probe_files
+    monkeypatch.setenv(RESET_TIMEOUT_ENV, "malformed")
+    probe.download(image)
+    probe.read_words(0x20001000, 1)
+    assert [(argv[1], kwargs["timeout"]) for argv, kwargs in runs] == [
+        ("download", DOWNLOAD_TIMEOUT_S),
+        ("read", ACCESS_TIMEOUT_S),
+    ]
 
 
 @pytest.mark.parametrize("suffix", [".elf", ".HEX"])

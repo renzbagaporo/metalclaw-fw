@@ -126,7 +126,7 @@ in seconds. The harness's serial is the emulated flash's unique ID,
 
 Emulated SWD runs about 30 times slower than the bench in host time while
 the target's own timing is unchanged. The platform stretches only host-side
-waits: the probe-rs download and mailbox deadlines, and three timeouts the
+waits: the probe-rs download, reset and mailbox deadlines, and three timeouts the
 probe-rs patch in `test/rig/platforms/emulator/` makes configurable
 (`CMSIS_DAP_USB_TIMEOUT_MS`, `FLASH_ALGORITHM_TIMEOUT_MULTIPLIER`,
 `ARM_DEBUG_TIMEOUT_MULTIPLIER`; unset, probe-rs keeps its defaults).
@@ -219,6 +219,8 @@ METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S=900 just test hardware
 ```
 
 This setting applies only to downloading the DUT image.
+`METALCLAW_PROBE_RESET_TIMEOUT_S` does the same for each `probe-rs reset`,
+defaulting to 30.
 
 `METALCLAW_DUT_MAILBOX_TIMEOUT_S` sets the configured host per-stage mailbox
 budget in seconds when `Dut.ping()` or `Dut.command()` omits its timeout. It
