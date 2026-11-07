@@ -10,6 +10,7 @@
 import os
 import struct
 import time
+from dataclasses import dataclass
 
 import usb.core
 import usb.util
@@ -31,6 +32,7 @@ DAP_TRANSFER_BLOCK = 0x06
 DAP_SWJ_CLOCK = 0x11
 DAP_SWJ_SEQUENCE = 0x12
 DAP_SWD_CONFIGURE = 0x13
+DAP_SWD_SEQUENCE = 0x1D
 DAP_OK = 0x00
 PORT_SWD = 0x01
 
@@ -47,13 +49,9 @@ ABORT_CLEAR_ALL = 0x1E
 POWER_UP_REQUEST = 0x50000000
 POWER_UP_ACK = 0xA0000000
 
-# RP2350 is an ADIv6 target: an AP register is addressed by its full offset,
-# the 4 KiB-aligned AP base plus the register, through SELECT. Core 0's
-# AHB MEM-AP sits at 0x2000 on this fixture (see rp2350_core0.yaml).
-MEM_AP_BASE = 0x2000
-AP_CSW = 0xD00
-AP_TAR = 0xD04
-AP_DRW = 0xD0C
+AP_CSW = 0x00
+AP_TAR = 0x04
+AP_DRW = 0x0C
 CSW_SIZE_MASK = 0x7
 CSW_SIZE_32 = 0x2
 CSW_ADDRINC_MASK = 0x30
@@ -76,6 +74,30 @@ SELECTION_ALERT = (128, bytes([
 # Four low cycles, then the SWD activation code 0x1A.
 ACTIVATE_SWD = (12, bytes([0xA0, 0x01]))
 DP_SELECT1_BANK = 0x5
+# A TARGETSEL write: the request, five undriven cycles where the ACK would
+# be (no target answers it), then 32 data bits and parity.
+TARGETSEL_REQUEST = 0x99
+TARGETSEL_ACK_CYCLES = 0x80 | 5
+
+
+@dataclass(frozen=True)
+class DebugPort:
+    """How the probe reaches core 0's AHB MEM-AP on a DUT chip."""
+
+    # SELECT for the MEM-AP's register bank 0.
+    ap_select: int
+    # The multidrop target to select after every line reset; None for a
+    # point-to-point DP.
+    targetsel: int | None = None
+
+
+# RP2350 is an ADIv6 target: an AP register is addressed by its full offset,
+# the 4 KiB-aligned AP base plus the register, through SELECT. Core 0's
+# AHB MEM-AP sits at 0x2000 on fixture 1's Pico 2 (see rp2350_core0.yaml).
+RP2350 = DebugPort(ap_select=0x2D00)
+# RP2040 is ADIv5 on an SWD multidrop bus: core 0's DP is TARGETSEL
+# 0x01002927 and its MEM-AP is APSEL 0.
+RP2040 = DebugPort(ap_select=0x0, targetsel=0x01002927)
 
 
 class DapError(RuntimeError):
@@ -96,28 +118,30 @@ def usb_timeout_ms():
 
 
 class DapMemory:
-    def __init__(self, serial, clock_hz=4_000_000):
+    def __init__(self, serial, debug_port=RP2350, clock_hz=4_000_000):
         self.serial = serial
+        self.debug_port = debug_port
         self.clock_hz = int(clock_hz)
 
     def read_words(self, address, count, timeout=None):
         if address <= 0 or address % 4 or count <= 0:
             raise DapError(f"invalid read of {count} words at {address:#x}")
-        with _Link(self.serial, self.clock_hz) as link:
+        with _Link(self.serial, self.clock_hz, self.debug_port) as link:
             return link.read_words(address, count)
 
     def write_words(self, address, words, timeout=None):
         values = [value & 0xFFFFFFFF for value in words]
         if address <= 0 or address % 4 or not values:
             raise DapError(f"invalid write of {len(values)} words at {address:#x}")
-        with _Link(self.serial, self.clock_hz) as link:
+        with _Link(self.serial, self.clock_hz, self.debug_port) as link:
             link.write_words(address, values)
 
 
 class _Link:
-    def __init__(self, serial, clock_hz):
+    def __init__(self, serial, clock_hz, debug_port):
         self.serial = serial
         self.clock_hz = clock_hz
+        self.port = debug_port
         self.device = None
         self.interface = None
         self.out_ep = None
@@ -193,24 +217,24 @@ class _Link:
         self._command(bytes([DAP_SWJ_CLOCK]) + struct.pack("<I", self.clock_hz))
         self._command(bytes([DAP_TRANSFER_CONFIGURE, 0, 64, 0, 0, 0]))
         self._command(bytes([DAP_SWD_CONFIGURE, 0]))
-        self._sequence(*LINE_RESET)
-        self._sequence(*JTAG_TO_SWD)
-        self._sequence(*LINE_RESET)
-        self._sequence(*IDLE)
-        try:
-            self._dp_read(DP_DPIDR)
-        except DapError:
+        if self.port.targetsel is None:
             self._sequence(*LINE_RESET)
-            self._sequence(*SWD_TO_DORMANT)
-            self._sequence(*WAKE_CYCLES)
-            self._sequence(*SELECTION_ALERT)
-            self._sequence(*ACTIVATE_SWD)
+            self._sequence(*JTAG_TO_SWD)
             self._sequence(*LINE_RESET)
             self._sequence(*IDLE)
+            try:
+                self._dp_read(DP_DPIDR)
+            except DapError:
+                self._wake()
+                self._dp_read(DP_DPIDR)
+        else:
+            # A multidrop DP answers nothing until it is selected.
+            self._wake()
             self._dp_read(DP_DPIDR)
         self._dp_write(DP_ABORT, ABORT_CLEAR_ALL)
-        self._dp_write(DP_SELECT, DP_SELECT1_BANK)
-        self._dp_write(DP_CTRL_STAT, 0)
+        if self.port.targetsel is None:
+            self._dp_write(DP_SELECT, DP_SELECT1_BANK)
+            self._dp_write(DP_CTRL_STAT, 0)
         self._dp_write(DP_SELECT, 0)
         self.select = 0
         status = self._dp_read(DP_CTRL_STAT)
@@ -223,6 +247,26 @@ class _Link:
         csw = self._ap_read(AP_CSW)
         csw = (csw & ~(CSW_SIZE_MASK | CSW_ADDRINC_MASK)) | CSW_SIZE_32 | CSW_ADDRINC_SINGLE
         self._ap_write(AP_CSW, csw)
+
+    def _wake(self):
+        self._sequence(*LINE_RESET)
+        self._sequence(*SWD_TO_DORMANT)
+        self._sequence(*WAKE_CYCLES)
+        self._sequence(*SELECTION_ALERT)
+        self._sequence(*ACTIVATE_SWD)
+        self._sequence(*LINE_RESET)
+        self._sequence(*IDLE)
+        if self.port.targetsel is not None:
+            # The first packet after the line reset and its idle cycles.
+            self._targetsel(self.port.targetsel)
+            self._sequence(*IDLE)
+
+    def _targetsel(self, value):
+        parity = bin(value).count("1") & 1
+        packet = bytes([DAP_SWD_SEQUENCE, 3, 8, TARGETSEL_REQUEST, TARGETSEL_ACK_CYCLES, 33])
+        reply = self._command(packet + struct.pack("<I", value) + bytes([parity]))
+        if reply[1] != DAP_OK:
+            raise DapError("TARGETSEL sequence failed")
 
     def _transfer(self, requests):
         packet = bytearray([DAP_TRANSFER, 0, len(requests)])
@@ -245,7 +289,7 @@ class _Link:
         self._transfer([(register, value)])
 
     def _select_ap(self, register):
-        select = MEM_AP_BASE | (register & 0xFF0)
+        select = self.port.ap_select | (register & 0xF0)
         if select != self.select:
             self._dp_write(DP_SELECT, select)
             self.select = select
