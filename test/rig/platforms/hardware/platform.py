@@ -58,6 +58,13 @@ METALCLAW_PICO_RP2_FIXTURE = {
         "cs": {"ads7883": 41, "icm4268x": 37, "bmp388": 33, "sx126x": 41},
     },
     "gpio": {"sx126x": {"busy": 22, "dio1": 40, "nreset": 14}, "pwrkey": 14, "reset": 14},
+    # Every Pico GPIO net has a 5.1 kOhm pull-up to the Pico's 3.3 V, so a
+    # line nothing drives reads high, the Pico's reset pull-downs included.
+    "pulls": "up",
+    # Levels the harness holds while the part on a line is absent, where
+    # the pull-up would make it look active: an unattached sx126x is not
+    # busy, or the DUT's driver waits for it from boot.
+    "idle": {22: 0},
 }
 
 # The fixture by the harness's MicroPython board.
@@ -316,7 +323,7 @@ def probe(harness: Harness, fixture: dict):
 
 
 @pytest.fixture(scope="session")
-def dut(harness: Harness, probe) -> Dut:
+def dut(harness: Harness, probe, fixture: dict) -> Dut:
     # The DUT image is built per device: `just build-dut bmp388` puts Zephyr's
     # bmp388 driver in it. METALCLAW_DUT_DEVICE picks that image; the default
     # is the smoke image with no device.
@@ -325,6 +332,9 @@ def dut(harness: Harness, probe) -> Dut:
     if not image.is_file():
         pytest.exit(f"no DUT image at {image}; run `just build-dut {'' if device == 'smoke' else device}` or set METALCLAW_DUT_IMAGE", returncode=2)
     d = Dut(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
+    idle = fixture.get("idle", {})
+    if idle:
+        harness.run("from machine import Pin\n" + "".join(f"Pin({p}, Pin.OUT, value={v})\n" for p, v in idle.items()))
     d.flash()
     d.ping()
     return d
