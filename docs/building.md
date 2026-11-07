@@ -31,6 +31,17 @@ in-tree default is `core/ports/rp2/boards/rpi_pi_pico`. A board is a
 MicroPython board directory whose `mpconfigboard.h` sets its identity and then
 includes `metalclaw_port.h`.
 
+`core/ports/rp2/boards/metalclaw_pico_rp2` is the MetalClaw Pico RP2 v1.r1
+carrier, an RP2354B with 2 MB of flash for a Pico or Pico 2 DUT; pico-sdk
+has no header for it, so the board directory carries its own. GPIO47 is the
+PSRAM's chip select and is reserved; every other GPIO reaches the DUT, so the
+board has no LED and `machine.I2C`, `SPI` and `UART` take their pins as
+arguments.
+
+```sh
+METALCLAW_BOARD_DIR=$PWD/core/ports/rp2/boards/metalclaw_pico_rp2 just build
+```
+
 ## Warnings
 
 Nothing may warn. MicroPython and pico-sdk already build with `-Wall -Werror`.
