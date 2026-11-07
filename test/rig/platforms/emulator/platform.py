@@ -56,10 +56,11 @@ class EmulatedHarness(Harness):
 
 
 # Cases give DUT deadlines in bench seconds. The emulated DUT does the same
-# work in the same emulated time, which passes this many times slower than
-# host time; a boot that waits out an absent part takes minutes.
+# work in the same emulated time, which passes about 80 times slower than
+# host time even while the DUT idles; a boot that waits out an absent part
+# takes ten minutes.
 TIME_SCALE_ENV = "METALCLAW_EMULATOR_TIME_SCALE"
-TIME_SCALE = 60.0
+TIME_SCALE = 150.0
 
 
 def _time_scale() -> float:
