@@ -26,20 +26,24 @@ class TestSequansMonarch(PppModelCases):
     # Terminate-Request: LCP closes from both ends and stays down.
     LONG_LOSS_DOWN_RC = 0
 
-    def test_a_dut_reset_restarts_the_part_through_reset_n(self, dut, connected):
-        # The DUT's reset holds RESET_N low on the RP2350's reset pull-down
+    def test_a_dut_reset_restarts_the_part_through_reset_n(self, dut, connected, fixture):
+        # The DUT's reset holds RESET_N low on the Pico's reset pull-down
         # until the image's hog: the part in CMUX with PPP up resets with
-        # it. The fresh driver then pulses RESET_N itself.
-        cycles = connected.get("power_cycles")
+        # it. Where the fixture pulls every line up, RESET_N stays high and
+        # the part keeps running. Either way the fresh driver then pulses
+        # RESET_N itself.
+        held = fixture.get("pulls") != "up"
+        cycles = connected.get("power_cycles") + held
         dut.reset()
         dut.ping()
         dut.harness.sleep(2.0)
-        assert connected.get("power_cycles") == cycles + 1
-        assert connected.get("cmux") is False and connected.get("ppp_up") is False
+        assert connected.get("power_cycles") == cycles
+        if held:
+            assert connected.get("cmux") is False and connected.get("ppp_up") is False
         state = net(dut, "STATE")
         assert state["initialized"] is False and state["l4"] is False, state
         up = net(dut, f"UP {NET_UP_WAIT_MS}", NET_UP_TIMEOUT_S)
         assert up["status"] == "ok" and up["pm_op"] == "init", up
-        assert connected.get("power_cycles") == cycles + 2
+        assert connected.get("power_cycles") == cycles + 1
         assert echo(dut, "TCP", "echo.test", "len=64", 1, ECHO_RING)["status"] == "ok"
         assert connected.get("unknown_commands") == 0
