@@ -65,3 +65,11 @@ def test_an_invalid_time_scale_is_refused(monkeypatch, value):
     monkeypatch.setenv(platform.TIME_SCALE_ENV, value)
     with pytest.raises(ValueError, match="positive finite factor"):
         platform._time_scale()
+
+
+def test_the_emulated_harness_scales_repl_deadlines(monkeypatch):
+    seen = []
+    monkeypatch.setattr(platform.Harness, "run", lambda self, code, timeout=5.0: seen.append(timeout) or "")
+    monkeypatch.setenv(platform.TIME_SCALE_ENV, "4")
+    platform.EmulatedHarness("0123456789ABCDEF").run("pass", 2.5)
+    assert seen == [10.0]

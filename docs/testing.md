@@ -38,6 +38,11 @@ def test_dut_answers_ping(dut):
     assert dut.ping()["status"] == "ok"
 ```
 
+A case that lets the bench act for a while, or times what it did, uses the
+harness's clock: `harness.sleep(seconds)` and `harness.clock()`. That clock
+is real time on the bench and emulated time in Renode, so the case means the
+same on both; host time does not.
+
 ## Platforms
 
 Two platforms exist: `hardware`, the bench, and `emulator`, the same bench

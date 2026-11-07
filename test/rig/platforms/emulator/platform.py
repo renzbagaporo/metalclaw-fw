@@ -54,6 +54,11 @@ class EmulatedHarness(Harness):
     def serial_port(self, interface: str, timeout: float = ENUMERATION_TIMEOUT_S) -> str:
         return super().serial_port(interface, timeout)
 
+    # REPL deadlines are in bench seconds too, and the harness runs in the
+    # same emulated time as the DUT.
+    def run(self, code: str, timeout: float = 5.0) -> str:
+        return super().run(code, timeout * _time_scale())
+
 
 # Cases give DUT deadlines in bench seconds. The emulated DUT does the same
 # work in the same emulated time, which passes about 80 times slower than

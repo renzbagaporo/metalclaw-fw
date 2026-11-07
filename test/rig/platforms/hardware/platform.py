@@ -68,10 +68,16 @@ def _mailbox_timeout(value):
     return timeout
 
 
+# MicroPython's ticks_us wraps at this period.
+TICKS_PERIOD_US = 1 << 30
+
+
 class Harness:
     def __init__(self, serial: str):
         self.serial = serial
         self.probe_id = f"2fe3:0204:{serial}"
+        self._ticks = None
+        self._elapsed_us = 0
 
     def repl(self) -> Repl:
         return Repl(self.serial)
@@ -79,6 +85,24 @@ class Harness:
     def run(self, code: str, timeout: float = 5.0) -> str:
         with self.repl() as r:
             return r.run(code, timeout)
+
+    # Seconds on the harness's own clock: real time on the bench, emulated
+    # time on an emulated bench. A case that waits for the bench to act, or
+    # times what it did, uses this clock so it means the same on both.
+    # Intervals between reads must stay under the ticks period.
+    def clock(self) -> float:
+        ticks = int(self.run("import time\nprint(time.ticks_us())\n").strip())
+        if self._ticks is not None:
+            self._elapsed_us += (ticks - self._ticks) % TICKS_PERIOD_US
+        self._ticks = ticks
+        return self._elapsed_us / 1e6
+
+    def sleep(self, seconds: float) -> None:
+        end = self.clock() + seconds
+        remaining = seconds
+        while remaining > 0:
+            time.sleep(remaining)
+            remaining = end - self.clock()
 
     def usb_interfaces(self) -> list[str]:
         out = subprocess.run(["lsusb", "-v", "-d", f"2fe3:0204"], capture_output=True, text=True).stdout
