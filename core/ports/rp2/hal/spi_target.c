@@ -313,8 +313,9 @@ static void encode_program(struct spi_bus *bus, uint8_t sck, uint8_t cls) {
     uint16_t *p = bus->program_words;
     bool lead = cls != 0u;
 
-    // WAIT GPIO encodes the pin relative to the block's GPIO base.
-    sck = (uint8_t)(sck - pio_get_gpio_base(SPI_PIO));
+    // A program's WAIT GPIO holds the pin's low five bits; pio_add_program
+    // rebases it to the block's GPIO base, program_patch does the same.
+    sck = (uint8_t)(sck % 32u);
 
     p[0] = (uint16_t)pio_encode_out(pio_pins, 1u);
     p[1] = (uint16_t)pio_encode_jmp_pin(3u);
@@ -376,7 +377,8 @@ static void program_patch(struct spi_bus *bus, uint8_t sck, uint8_t cls) {
     for (size_t i = 0; i < sizeof(wait_slots); i++) {
         uint8_t slot = wait_slots[i];
 
-        SPI_PIO->instr_mem[bus->program_offset + slot] = bus->program_words[slot];
+        SPI_PIO->instr_mem[bus->program_offset + slot] =
+            bus->program_words[slot] ^ (uint16_t)pio_get_gpio_base(SPI_PIO);
     }
     bus->program_sck = sck;
     bus->program_class = cls;
