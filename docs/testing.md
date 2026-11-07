@@ -110,7 +110,10 @@ probe and the DUT are driven exactly as on the bench. Every re-enumeration
 unplugs it; the platform imports it again, as a cable that stays in would.
 The kernel's descriptor timeouts run in host time, so it can give up on a
 harness that is busy in emulated time; an import that has not enumerated
-after 120 s is replugged.
+after 120 s is replugged. The harness flash boots with its filesystem
+already formatted, as a bench harness's is after its first boot, at the
+range the UF2 declares for it; formatting erases sectors with interrupts
+off while USB is coming up.
 
 ```sh
 just setup-emulator      # boot ROMs, patched probe-rs and Renode, next to the repository

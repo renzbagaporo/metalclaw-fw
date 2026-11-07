@@ -10,6 +10,8 @@ import threading
 import time
 from pathlib import Path
 
+from . import storage
+
 BENCH_SCRIPT = "scripts/multi-node/metalclaw_fixture.resc"
 UF2_EXTRACTOR = "scripts/multi-node/extract_pico1_uf2.py"
 MASK_ROM_EXTRACTOR = "scripts/multi-node/extract_rp2040_mask_rom.py"
@@ -152,6 +154,7 @@ class Bench:
                 raise BenchError(f"missing {path}")
         self.work.mkdir(parents=True, exist_ok=True)
         payload = self._extract(UF2_EXTRACTOR, self.harness_uf2, "harness_flash.bin")
+        payload.write_bytes(storage.with_storage(payload.read_bytes()))
         mask_rom = self._extract(MASK_ROM_EXTRACTOR, self.harness_rom, "harness_rom.bin")
         self.log = (self.work / "renode.log").open("w")
         commands = [
