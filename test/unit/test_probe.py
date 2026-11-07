@@ -192,6 +192,17 @@ def test_download_enforces_real_subprocess_deadline(probe_files, monkeypatch):
     assert caught.value.argv[-1] == str(image)
 
 
+def test_a_timed_out_download_keeps_what_probe_rs_printed(probe_files, monkeypatch):
+    probe, image, executable = probe_files
+    fake_executable(executable, "import sys, time\nprint('Erasing', flush=True)\n"
+                    "print('page write failed', file=sys.stderr, flush=True)\ntime.sleep(5)\n")
+    monkeypatch.setenv(DOWNLOAD_TIMEOUT_ENV, "0.5")
+    with pytest.raises(ProbeError, match="timed out after 0.5 s: page write failed") as caught:
+        probe.download(image)
+    assert caught.value.stdout.strip() == "Erasing"
+    assert caught.value.stderr.strip() == "page write failed"
+
+
 def test_fake_subprocess_receives_isolated_paths(probe_files):
     probe, image, executable = probe_files
     names = ["HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "TMPDIR"]

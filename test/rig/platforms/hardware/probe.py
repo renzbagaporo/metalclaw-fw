@@ -29,6 +29,10 @@ class ProbeError(RuntimeError):
         self.stderr = stderr
 
 
+def _text(output):
+    return output.decode(errors="replace") if isinstance(output, bytes) else output or ""
+
+
 def _deadline(operation, timeout, environment, default):
     value = os.environ.get(environment, default) if timeout is _FROM_ENVIRONMENT else timeout
     invalid = f"invalid {operation} timeout {value!r}; expected positive finite seconds"
@@ -127,8 +131,13 @@ class ProbeRs:
         except FileNotFoundError as error:
             raise ProbeError(f"cannot run {self.executable}: {error}", argv) from error
         except subprocess.TimeoutExpired as error:
+            stdout, stderr = _text(error.stdout), _text(error.stderr)
             raise ProbeError(
-                f"{' '.join(argv)} timed out after {timeout} s", argv
+                f"{' '.join(argv)} timed out after {timeout} s: {(stderr or stdout).strip()}",
+                argv,
+                None,
+                stdout,
+                stderr,
             ) from error
         if completed.returncode != 0:
             raise ProbeError(
