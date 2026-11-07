@@ -68,6 +68,18 @@ def _mailbox_timeout(value):
     return timeout
 
 
+# A re-enumerated harness gets a new tty node, which the by-id link then
+# names; the held descriptor still points at the old one.
+def _port_alive(port) -> bool:
+    try:
+        node = os.stat(port.port)
+        held = os.fstat(port.fileno())
+        port.reset_input_buffer()
+    except Exception:
+        return False
+    return (node.st_ino, node.st_rdev) == (held.st_ino, held.st_rdev)
+
+
 # MicroPython's ticks_us wraps at this period.
 TICKS_PERIOD_US = 1 << 30
 
@@ -78,13 +90,36 @@ class Harness:
         self.probe_id = f"2fe3:0204:{serial}"
         self._ticks = None
         self._elapsed_us = 0
+        self._held = None
 
     def repl(self) -> Repl:
         return Repl(self.serial)
 
+    # One raw REPL is held for the session: entering it costs about a quarter
+    # second on the bench, longer than the short waits cases time. A harness
+    # that re-enumerated left the held port dead; that is found before the
+    # code goes out, so code is never sent twice.
     def run(self, code: str, timeout: float = 5.0) -> str:
-        with self.repl() as r:
-            return r.run(code, timeout)
+        for attempt in range(2):
+            if self._held is None:
+                self._held = self.repl().__enter__()
+            if not _port_alive(self._held.port):
+                self._drop()
+                if attempt:
+                    raise RuntimeError(f"harness {self.serial} REPL port is gone")
+                continue
+            try:
+                return self._held.run(code, timeout)
+            except Exception:
+                self._drop()
+                raise
+
+    def _drop(self) -> None:
+        held, self._held = self._held, None
+        try:
+            held.__exit__(None, None, None)
+        except Exception:
+            pass
 
     # Seconds on the harness's own clock: real time on the bench, emulated
     # time on an emulated bench. A case that waits for the bench to act, or
