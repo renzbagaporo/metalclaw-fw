@@ -12,6 +12,7 @@ import pytest
 import usb.core
 import usb.util
 
+from test.rig.platforms.hardware import dap
 from test.rig.platforms.hardware.dap import DapMemory
 from test.rig.platforms.hardware.mailbox import Mailbox, MailboxError
 from test.rig.platforms.hardware.probe import ProbeRs
