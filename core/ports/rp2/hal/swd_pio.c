@@ -13,6 +13,7 @@
 
 #include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/swd.h"
+#include "pio_window.h"
 
 #define PROBE_TIMEOUT_US 20000u
 
@@ -234,7 +235,8 @@ static int probe_acquire_sm(struct mclw_swd *swd) {
         PIO pio = pio_get_instance(i);
         int sm;
 
-        if (!pio_can_add_program(pio, &probe_program)) {
+        if (!pio_can_add_program(pio, &probe_program) ||
+            !mclw_pio_window(pio, MCLW_PIO_PIN(swd->swclk) | MCLW_PIO_PIN(swd->swdio))) {
             continue;
         }
         sm = pio_claim_unused_sm(pio, false);
@@ -263,7 +265,7 @@ struct mclw_swd *mclw_hal_swd_open(uint8_t swclk, uint8_t swdio, uint8_t nreset,
         *err = -EBUSY;
         return NULL;
     }
-    if (owner == NULL || swclk >= 32u || swdio >= 32u || swclk == swdio ||
+    if (owner == NULL || swclk == swdio ||
         (nreset != MCLW_PIN_NONE && (nreset == swclk || nreset == swdio))) {
         *err = -EINVAL;
         return NULL;
@@ -328,7 +330,7 @@ void mclw_hal_swd_close(struct mclw_swd *swd) {
 
 int mclw_hal_swd_port_on(struct mclw_swd *swd) {
     pio_sm_config config = pio_get_default_sm_config();
-    uint32_t pin_mask;
+    uint64_t pin_mask;
     int ret;
 
     if (swd == NULL || swd->owner == NULL) {
@@ -353,8 +355,8 @@ int mclw_hal_swd_port_on(struct mclw_swd *swd) {
     sm_config_set_out_shift(&config, true, false, 0u);
     sm_config_set_in_shift(&config, true, false, 0u);
 
-    pin_mask = (1u << swd->swclk) | (1u << swd->swdio);
-    pio_sm_set_pindirs_with_mask(swd->pio, swd->sm, pin_mask, pin_mask);
+    pin_mask = MCLW_PIO_PIN(swd->swclk) | MCLW_PIO_PIN(swd->swdio);
+    pio_sm_set_pindirs_with_mask64(swd->pio, swd->sm, pin_mask, pin_mask);
     ret = pio_sm_init(swd->pio, swd->sm, (uint)swd->offset, &config);
     if (ret != 0) {
         probe_release_pads(swd);
@@ -552,8 +554,8 @@ int mclw_hal_swd_transfer(struct mclw_swd *swd, uint8_t request, uint32_t *data,
 }
 
 int mclw_hal_swd_set_pins(struct mclw_swd *swd, uint8_t mask, uint8_t values) {
-    uint32_t pin_mask = 0u;
-    uint32_t levels = 0u;
+    uint64_t pin_mask = 0u;
+    uint64_t levels = 0u;
 
     if (swd == NULL || swd->owner == NULL) {
         return -EINVAL;
@@ -568,21 +570,21 @@ int mclw_hal_swd_set_pins(struct mclw_swd *swd, uint8_t mask, uint8_t values) {
         return -EACCES;
     }
     if ((mask & MCLW_SWD_PIN_SWCLK) != 0u) {
-        pin_mask |= 1u << swd->swclk;
+        pin_mask |= MCLW_PIO_PIN(swd->swclk);
         if ((values & MCLW_SWD_PIN_SWCLK) != 0u) {
-            levels |= 1u << swd->swclk;
+            levels |= MCLW_PIO_PIN(swd->swclk);
         }
     }
     if ((mask & MCLW_SWD_PIN_SWDIO) != 0u) {
-        pin_mask |= 1u << swd->swdio;
+        pin_mask |= MCLW_PIO_PIN(swd->swdio);
         if ((values & MCLW_SWD_PIN_SWDIO) != 0u) {
-            levels |= 1u << swd->swdio;
+            levels |= MCLW_PIO_PIN(swd->swdio);
         }
     }
     (void)probe_wait_idle(swd);
     pio_sm_set_enabled(swd->pio, swd->sm, false);
-    pio_sm_set_pins_with_mask(swd->pio, swd->sm, levels, pin_mask);
-    pio_sm_set_pindirs_with_mask(swd->pio, swd->sm, pin_mask, pin_mask);
+    pio_sm_set_pins_with_mask64(swd->pio, swd->sm, levels, pin_mask);
+    pio_sm_set_pindirs_with_mask64(swd->pio, swd->sm, pin_mask, pin_mask);
     probe_resync(swd);
     return 0;
 }

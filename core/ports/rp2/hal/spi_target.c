@@ -17,6 +17,7 @@
 #include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/platform.h"
 #include "metalclaw/hal/spi_target.h"
+#include "pio_window.h"
 
 #define SPI_PIO pio1
 #define SPI_TARGET_COUNT 2u
@@ -288,7 +289,7 @@ static __force_inline dma_channel_config default_config(uint channel) {
 }
 
 static __force_inline bool pin_high(uint pin) {
-    return (sio_hw->gpio_in & (1u << pin)) != 0u;
+    return gpio_get(pin);
 }
 
 static uint8_t __not_in_flash_func(reverse_byte)(uint8_t value) {
@@ -311,6 +312,9 @@ static uint8_t __not_in_flash_func(wire_byte)(const struct mclw_spi_target *t, u
 static void encode_program(struct spi_bus *bus, uint8_t sck, uint8_t cls) {
     uint16_t *p = bus->program_words;
     bool lead = cls != 0u;
+
+    // WAIT GPIO encodes the pin relative to the block's GPIO base.
+    sck = (uint8_t)(sck - pio_get_gpio_base(SPI_PIO));
 
     p[0] = (uint16_t)pio_encode_out(pio_pins, 1u);
     p[1] = (uint16_t)pio_encode_jmp_pin(3u);
@@ -1455,7 +1459,11 @@ static int bus_claim_pins(struct spi_bus *bus, uint8_t sck, uint8_t mosi, uint8_
 static void bus_release_pins(struct spi_bus *bus) {
     const uint8_t pins[3] = { bus->sck, bus->mosi, bus->miso };
 
-    hw_clear_bits(&SPI_PIO->input_sync_bypass, 1u << bus->sck);
+    uint base = pio_get_gpio_base(SPI_PIO);
+
+    if (bus->sck >= base && bus->sck - base < 32u) {
+        hw_clear_bits(&SPI_PIO->input_sync_bypass, 1u << (bus->sck - base));
+    }
     for (size_t i = 0; i < 3u; i++) {
         gpio_set_function(pins[i], GPIO_FUNC_SIO);
         gpio_set_dir(pins[i], GPIO_IN);
@@ -1564,6 +1572,11 @@ struct mclw_spi_target *mclw_hal_spi_target_open(uint8_t sck, uint8_t mosi, uint
         return NULL;
     }
 
+    if (!mclw_pio_window(SPI_PIO, MCLW_PIO_PIN(sck) | MCLW_PIO_PIN(mosi) | MCLW_PIO_PIN(miso) |
+        MCLW_PIO_PIN(cs))) {
+        *err = -EINVAL;
+        goto fail_pins;
+    }
     sm = pio_claim_unused_sm(SPI_PIO, false);
     if (sm < 0) {
         *err = -EBUSY;
@@ -1873,6 +1886,9 @@ int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_comma
     }
     if (image->page_count > MCLW_COMMAND_PAGES_MAX ||
         image->response_count > MCLW_COMMAND_RESPONSES_MAX) {
+        return -EINVAL;
+    }
+    if (busy != NULL && !mclw_pio_window(SPI_PIO, MCLW_PIO_PIN(mclw_hal_gpio_pin(busy)))) {
         return -EINVAL;
     }
     mclw_hal_spi_target_disarm(t);

@@ -26,6 +26,7 @@
 #include "metalclaw/hal/platform.h"
 #include "metalclaw/hal/uart.h"
 
+#include "pio_window.h"
 #include "uart_internal.h"
 
 #define UART_PIO_COUNT 2u
@@ -313,14 +314,15 @@ static void uart_pio_poll(void *ctx) {
 // Programs are shared by every UART on one PIO; the first loads them and
 // the last unloads them. PIO0 is tried first: PIO1 is where the SPI target
 // engine needs all of its instruction memory.
-static int acquire_pio(struct uart_pio *u) {
+static int acquire_pio(struct uart_pio *u, uint8_t tx, uint8_t rx) {
     int err = -ENOSPC;
 
     for (uint32_t i = 0; i < NUM_PIOS; i++) {
         PIO pio = pio_get_instance(i);
         struct pio_programs *p = &programs[i];
 
-        if (p->users == 0u && !pio_can_add_program(pio, &tx_program)) {
+        if ((p->users == 0u && !pio_can_add_program(pio, &tx_program)) ||
+            !mclw_pio_window(pio, MCLW_PIO_PIN(tx) | MCLW_PIO_PIN(rx))) {
             continue;
         }
         int tx_sm = pio_claim_unused_sm(pio, false);
@@ -385,8 +387,8 @@ static void start_machines(struct uart_pio *u, uint32_t div256) {
 
     // The line idles high before PIO takes the pin, so the DUT never sees
     // a start bit from the hand-over.
-    pio_sm_set_pins_with_mask(pio, u->tx_sm, 1u << u->tx_pin, 1u << u->tx_pin);
-    pio_sm_set_pindirs_with_mask(pio, u->tx_sm, 1u << u->tx_pin, 1u << u->tx_pin);
+    pio_sm_set_pins_with_mask64(pio, u->tx_sm, MCLW_PIO_PIN(u->tx_pin), MCLW_PIO_PIN(u->tx_pin));
+    pio_sm_set_pindirs_with_mask64(pio, u->tx_sm, MCLW_PIO_PIN(u->tx_pin), MCLW_PIO_PIN(u->tx_pin));
     pio_gpio_init(pio, u->tx_pin);
     c = pio_get_default_sm_config();
     sm_config_set_wrap(&c, p->tx_offset, tx_wrap(u));
@@ -569,7 +571,7 @@ struct mclw_uart *mclw_uart_pio_open(uint8_t tx, uint8_t rx, uint32_t baud,
     if (tx_instructions[TX_STOP] == 0u) {
         encode_programs();
     }
-    *err = acquire_pio(u);
+    *err = acquire_pio(u, tx, rx);
     if (*err != 0) {
         dma_channel_unclaim((uint)tx_dma);
         dma_channel_unclaim((uint)rx_dma);
