@@ -23,7 +23,11 @@ SLOW_HOST_DEFAULTS = {
     "METALCLAW_PROBE_RESET_TIMEOUT_S": "600",
     "METALCLAW_DUT_MAILBOX_TIMEOUT_S": "120",
     "CMSIS_DAP_USB_TIMEOUT_MS": "10000",
-    "FLASH_ALGORITHM_TIMEOUT_MULTIPLIER": "30",
+    # The last page's routine has no next page to overlap with, so its
+    # whole run lands on one watchdog: 10-14 s of host time, past 30 s on a
+    # loaded host. A timed-out routine is abandoned while it runs, and the
+    # DUT locks up when it returns to a breakpoint with debug off.
+    "FLASH_ALGORITHM_TIMEOUT_MULTIPLIER": "150",
     "ARM_DEBUG_TIMEOUT_MULTIPLIER": "30",
 }
 # Room for the cable to replug a few times (bench.REPLUG_AFTER_S).
