@@ -44,7 +44,7 @@ static void slave_stop(void *ctx) {
 static i2c_inst_t *instance_for(uint8_t sda, uint8_t scl) {
     // GPIO function I2C maps even pins to SDA and odd to SCL; the block is
     // (pin / 2) % 2, the same for both pins of one bus.
-    if (sda >= 30 || scl >= 30 || (sda & 1u) != 0 || (scl & 1u) != 1 || ((sda / 2) & 1u) != ((scl / 2) & 1u)) {
+    if (sda >= NUM_BANK0_GPIOS || scl >= NUM_BANK0_GPIOS || (sda & 1u) != 0 || (scl & 1u) != 1 || ((sda / 2) & 1u) != ((scl / 2) & 1u)) {
         return NULL;
     }
     return ((sda / 2) & 1u) ? i2c1 : i2c0;
