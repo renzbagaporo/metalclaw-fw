@@ -2,11 +2,12 @@
 
 #include <errno.h>
 
+#include "hardware/platform_defs.h"
 #include "py/mpconfig.h"
 #include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/platform.h"
 
-#define PIN_COUNT 30
+#define PIN_COUNT NUM_BANK0_GPIOS
 
 static const uint8_t reserved[] = { METALCLAW_RESERVED_PINS MCLW_PIN_NONE };
 static const void *owners[PIN_COUNT];
