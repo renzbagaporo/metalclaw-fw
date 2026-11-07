@@ -24,10 +24,9 @@ def test_the_clock_counts_harness_ticks_across_their_wrap():
     assert harness.clock() == pytest.approx(0.8)
 
 
-def test_sleep_waits_until_the_harness_clock_has_moved_on(monkeypatch):
-    harness = TickingHarness([0, 100_000, 400_000, 1_000_000])
-    slept = []
-    monkeypatch.setattr(platform.time, "sleep", slept.append)
-    harness.sleep(1.0)
-    assert slept == [1.0, pytest.approx(0.9), pytest.approx(0.6)]
-    assert harness.ticks == []
+def test_sleep_waits_on_the_harness_in_one_call(monkeypatch):
+    calls = []
+    harness = platform.Harness("0123456789ABCDEF")
+    monkeypatch.setattr(platform.Harness, "run", lambda self, code, timeout=5.0: calls.append((code, timeout)) or "")
+    harness.sleep(0.2)
+    assert calls == [("import time\ntime.sleep_us(200000)\n", 5.2)]

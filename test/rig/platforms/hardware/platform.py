@@ -97,12 +97,11 @@ class Harness:
         self._ticks = ticks
         return self._elapsed_us / 1e6
 
+    # The wait happens on the harness in one REPL call: each call costs a
+    # round trip of about a quarter second on the bench, so timing it from
+    # here would overshoot a short wait several times over.
     def sleep(self, seconds: float) -> None:
-        end = self.clock() + seconds
-        remaining = seconds
-        while remaining > 0:
-            time.sleep(remaining)
-            remaining = end - self.clock()
+        self.run(f"import time\ntime.sleep_us({round(seconds * 1e6)})\n", seconds + 5.0)
 
     def usb_interfaces(self) -> list[str]:
         out = subprocess.run(["lsusb", "-v", "-d", f"2fe3:0204"], capture_output=True, text=True).stdout
