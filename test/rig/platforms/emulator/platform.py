@@ -3,6 +3,7 @@
 # host over USB/IP, so the harness, probe and DUT are driven exactly as on the
 # hardware platform; only bringing the bench up differs.
 
+import math
 import os
 import time
 from pathlib import Path
@@ -10,7 +11,16 @@ from pathlib import Path
 import pytest
 
 from test.rig.platforms.emulator.bench import Bench, BenchError
-from test.rig.platforms.hardware.platform import DETACH_ALL_BUT_PROBE, FIXTURE, ROOT, Dut, Harness, _required
+from test.rig.platforms.hardware.platform import (
+    _DEFAULT_MAILBOX_TIMEOUT,
+    DETACH_ALL_BUT_PROBE,
+    FIXTURE,
+    ROOT,
+    Dut,
+    Harness,
+    _mailbox_timeout,
+    _required,
+)
 
 # The emulated W25Q's default unique ID, which MicroPython reports as the USB
 # serial.
@@ -21,7 +31,6 @@ HARNESS_SERIAL = "0123456789ABCDEF"
 SLOW_HOST_DEFAULTS = {
     "METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S": "1800",
     "METALCLAW_PROBE_RESET_TIMEOUT_S": "600",
-    "METALCLAW_DUT_MAILBOX_TIMEOUT_S": "120",
     # A single transfer block can stall past 10 s while the emulated harness
     # runs a flash routine on a loaded host.
     "CMSIS_DAP_USB_TIMEOUT_MS": "60000",
@@ -44,6 +53,42 @@ class EmulatedHarness(Harness):
 
     def serial_port(self, interface: str, timeout: float = ENUMERATION_TIMEOUT_S) -> str:
         return super().serial_port(interface, timeout)
+
+
+# Cases give DUT deadlines in bench seconds. The emulated DUT does the same
+# work in the same emulated time, which passes this many times slower than
+# host time; a boot that waits out an absent part takes minutes.
+TIME_SCALE_ENV = "METALCLAW_EMULATOR_TIME_SCALE"
+TIME_SCALE = 60.0
+
+
+def _time_scale() -> float:
+    value = os.environ.get(TIME_SCALE_ENV, TIME_SCALE)
+    try:
+        scale = float(value)
+    except (TypeError, ValueError, OverflowError):
+        scale = math.nan
+    if not math.isfinite(scale) or scale <= 0:
+        raise ValueError(f"invalid {TIME_SCALE_ENV} {value!r}; expected a positive finite factor")
+    return scale
+
+
+class EmulatedDut(Dut):
+    def __init__(self, harness: Harness, image: Path, toolchain_dir: str, scale: float):
+        super().__init__(harness, image, toolchain_dir)
+        self.scale = scale
+
+    def ping(self, timeout=_DEFAULT_MAILBOX_TIMEOUT) -> dict:
+        return super().ping(_mailbox_timeout(timeout) * self.scale)
+
+    def command(self, line: str, timeout=_DEFAULT_MAILBOX_TIMEOUT) -> dict:
+        return super().command(line, _mailbox_timeout(timeout) * self.scale)
+
+    def start(self, line: str, timeout: float = 10.0) -> int:
+        return super().start(line, timeout * self.scale)
+
+    def finish(self, sequence: int, timeout: float = 10.0) -> dict:
+        return super().finish(sequence, timeout * self.scale)
 
 
 def _serial() -> str:
@@ -109,7 +154,7 @@ def dut(harness: Harness, probe) -> Dut:
     image = Path(os.environ.get("METALCLAW_DUT_IMAGE", ROOT / f"build/dut/{device}/zephyr/zephyr.elf"))
     if not image.is_file():
         pytest.exit(f"no DUT image at {image}; run `just build-dut {'' if device == 'smoke' else device}` or set METALCLAW_DUT_IMAGE", returncode=2)
-    d = Dut(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
+    d = EmulatedDut(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"), _time_scale())
     d.flash()
     d.ping()
     return d
