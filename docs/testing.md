@@ -16,6 +16,7 @@ just build-dut cellular/sim7080g      # build/dut/cellular/sim7080g/, Zephyr's o
 just build-dut cellular/a7672x        # modem_cellular over CMUX and PPP, Zephyr's IP stack
 just build-dut cellular/sequans_monarch  # the same, the part on RESET_N
 just build-dut cellular/sim7000       # no modem driver: the cases speak AT through the DUT's UART
+METALCLAW_DUT_BOARD=rpi_pico just build-dut   # the same images for a Pico 1 DUT
 METALCLAW_HARNESS_SERIAL=<serial> just test hardware
 ```
 
@@ -73,8 +74,10 @@ FIFO.
 
 `fixture` is the platform's description of the wiring: which pin carries
 which bus role, and where each part sits on the shared buses. A case builds
-its attach line from it and carries no pin number of its own. On the hardware
-platform it is
+its attach line from it and carries no pin number of its own. The hardware
+platform picks it by the harness's MicroPython board
+(`sys.implementation._build`). For fixture 1, a Pico harness (`fixture1_pico`
+or `rpi_pi_pico`) with the DUT stacked on it, it is
 
 ```python
 {"swd": (2, 3, 28),
@@ -88,6 +91,34 @@ platform it is
 ```
 
 and the platform attaches its own probe on `fixture["swd"]`.
+
+On the MetalClaw Pico RP2 carrier (`metalclaw_pico_rp2`) the DUT's Pico
+pins are the same, reached through the carrier's GPIOs. A Pico pin with two
+carrier branches gets the one with the pin function its role needs; the
+other stays an input:
+
+```python
+{"swd": (17, 25, 9),
+ "i2c": {"sda": 12, "scl": 13, "address": {"bmp388": 0x76}},
+ "uart": {"tx": 2, "rx": 3},
+ "uart1": {"tx": 18, "rx": 19},
+ "spi": {"sck": 38, "mosi": 32, "miso": 35,
+         "cs": {"ads7883": 41, "icm4268x": 37, "bmp388": 33, "sx126x": 41}},
+ "gpio": {"sx126x": {"busy": 22, "dio1": 40, "nreset": 14},
+          "pwrkey": 14, "reset": 14},
+ "pulls": "up",
+ "idle": {22: 0}}
+```
+
+Both UART pairs are the RP2350's UART_AUX function on UART0, so one of them
+falls back to the PIO UART when both are attached. The SPI bus is GPIO32-39,
+which puts the SPI engine's PIO block at GPIO base 16; the sx126x's BUSY,
+which that block drives, is Pico GP10 through GPIO22. The carrier pulls every
+Pico GPIO net up with 5.1 kOhm (`pulls`), so a line nothing drives reads high,
+even through the DUT's reset; `idle` names the levels the harness holds
+before it flashes the DUT, so that a part not yet attached does not look
+active (an unattached sx126x would read busy and hold the DUT's driver in
+its boot).
 
 `METALCLAW_DUT_DEVICE` picks which device's DUT image to flash, default
 `smoke`; `METALCLAW_DUT_IMAGE` names an image path outright. Every image
@@ -170,7 +201,9 @@ moved since the last scheduled run.
 ## The DUT fixture
 
 `test/rig/dut/` is a Zephyr application for the Pico 2
-(`rpi_pico2/rp2350a/m33`). It boots, publishes a banner line, and serves
+(`rpi_pico2/rp2350a/m33`) or, with `METALCLAW_DUT_BOARD=rpi_pico`, the
+Pico 1; `test/rig/dut/boards/rpi_pico.conf` gives the RP2040 the timer-based
+random source and the 16 KiB heap the Pico 2 board brings itself. It boots, publishes a banner line, and serves
 one-line commands through a RAM mailbox the host reads and writes over SWD
 without halting the core. The record layout, the protocol and the commands
 are in [test/rig/dut/README.md](../test/rig/dut/README.md). The commands are
@@ -205,7 +238,7 @@ The overlays follow the `fixture` description above: the SPI bus is
 GP18/GP19/GP16 with one GPIO chip select per part (the PL022's own chip
 select drops whenever its transmit FIFO drains), I2C is GP4/GP5, the
 crossed UART pair is GP0/GP1, and the DUT's UART1 is GP8/GP9, which the
-harness serves as TX GP9, RX GP8. GP6 is the sx126x's NRESET and also
+harness serves as TX GP9, RX GP8. GP10 is the sx126x's BUSY. GP6 is its NRESET and also
 carries a modem's PWRKEY or RESET_N, whichever the model has (`gpio.pwrkey`
 and `gpio.reset` both name it). The rig's burst cases leave 20 µs between
 windows, above the engine's re-arm time.
@@ -222,9 +255,13 @@ installs it there with only the Arm toolchain.
 
 The installed probe-rs 0.30 has no `download --reset`, so flashing and
 resetting are two sessions. `--connect-under-reset` is refused in the rig's
-probe wrapper. The DUT is described to probe-rs as `RP2350_Core0`, a
-core-0-only description shipped in `test/rig/platforms/hardware/`; probe-rs
-picks the RP2350 debug sequence by variant name prefix, so the name matters.
+probe wrapper. The rig reads the DUT's chip from the image's
+`CONFIG_SOC_SERIES` (`zephyr/.config` next to `zephyr.elf`). An RP2350 is
+described to probe-rs as `RP2350_Core0`, a core-0-only description shipped
+in `test/rig/platforms/hardware/`; probe-rs picks the RP2350 debug sequence
+by variant name prefix, so the name matters. An RP2040 uses probe-rs's own
+`RP2040`, and `dap.py` selects its core 0 on the multidrop bus with
+TARGETSEL `0x01002927`.
 
 `METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S` sets the host deadline in seconds for each
 `probe-rs download`, including verification. It defaults to 180 and must be a

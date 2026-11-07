@@ -4,7 +4,7 @@
 
 The board under test the rig uses to judge the harness: a Zephyr application
 for the Raspberry Pi Pico 2 (`rpi_pico2/rp2350a/m33`, the in-tree board with
-no Metalclaw changes), built with `just build-dut [<name>]` into
+no Metalclaw changes) or the Pico 1 (`METALCLAW_DUT_BOARD=rpi_pico`), built with `just build-dut [<name>]` into
 `build/dut/<name>/zephyr/zephyr.elf`, `<name>` being the device the image was
 built for or `smoke` for none.
 
@@ -21,6 +21,7 @@ while it attaches and detaches, long enough to lose UART bytes.
 ```text
 CMakeLists.txt      the Zephyr application
 prj.conf            what is switched off, which is nearly everything
+boards/rpi_pico.conf  what the Pico 1 needs that the Pico 2 board brings
 src/mailbox.[ch]    the RAM mailbox
 src/main.c          the banner and the commands below
 src/uart_echo.c     the UART echo, for an image whose devicetree asks for it
