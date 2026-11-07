@@ -29,6 +29,7 @@ class ScriptedSerial:
         self.events = []
         self.entry_ready_at = 0.0
         self.closed = False
+        self.in_waiting = 0
 
     def write(self, data):
         self.events.append(("write", data, self.clock.now))

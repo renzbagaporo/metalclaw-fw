@@ -23,7 +23,7 @@ class Repl:
         entry = b""
         try:
             while not entry.endswith(b"raw REPL; CTRL-B to exit\r\n>"):
-                entry += self.port.read(4096)
+                entry += self._read()
                 if time.monotonic() >= deadline:
                     raise RuntimeError(f"raw REPL entry prompt timed out: {entry!r}")
         except Exception:
@@ -37,13 +37,18 @@ class Repl:
         finally:
             self.port.close()
 
+    # What has arrived, or one byte once it does: a fixed-size read waits out
+    # the port timeout whenever the reply is shorter.
+    def _read(self) -> bytes:
+        return self.port.read(self.port.in_waiting or 1)
+
     def run(self, code: str, timeout: float = 5.0) -> str:
         self.port.reset_input_buffer()
         self.port.write(code.encode() + b"\x04")
         out = b""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            out += self.port.read(4096)
+            out += self._read()
             if out.count(b"\x04") >= 2:
                 break
         if not out.startswith(b"OK"):
