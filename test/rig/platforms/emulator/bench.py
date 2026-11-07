@@ -38,6 +38,21 @@ def _wait_port(port: int, timeout: float) -> None:
             time.sleep(0.5)
 
 
+VHCI_STATUS = Path("/sys/devices/platform/vhci_hcd.0/status")
+VHCI_PORT_USED = 6
+
+
+# The vhci ports holding an import, from the kernel's own table: `usbip port`
+# stopped listing an import once the kernel gave up enumerating it.
+def _imported_ports() -> list[int]:
+    ports = []
+    for line in VHCI_STATUS.read_text().splitlines()[1:]:
+        fields = line.split()
+        if len(fields) >= 3 and int(fields[2]) == VHCI_PORT_USED:
+            ports.append(int(fields[1]))
+    return ports
+
+
 def _enumerated(serial: str) -> bool:
     for device in Path("/sys/bus/usb/devices").iterdir():
         try:
@@ -64,7 +79,7 @@ class Cable(threading.Thread):
         self.log = log
         self.stopping = threading.Event()
         self.imported = threading.Event()
-        self.attached_at = None
+        self.unenumerated_since = None
 
     def _usbip(self, *args):
         try:
@@ -75,20 +90,23 @@ class Cable(threading.Thread):
 
     def run(self):
         while not self.stopping.is_set():
-            status, ports = self._usbip("port")
-            if status == 0 and self.target not in ports:
+            ports = _imported_ports()
+            if not ports:
+                self.unenumerated_since = None
                 status, detail = self._usbip("attach", "-r", "127.0.0.1", "-b", self.busid)
                 if status == 0:
-                    self.attached_at = time.monotonic()
                     self._note(f"imported {self.target}")
                     self.imported.set()
-            elif status == 0:
+            else:
                 self.imported.set()
+                now = time.monotonic()
                 if _enumerated(self.serial):
-                    self.attached_at = None
-                elif self.attached_at is not None and time.monotonic() - self.attached_at > REPLUG_AFTER_S:
+                    self.unenumerated_since = None
+                elif self.unenumerated_since is None:
+                    self.unenumerated_since = now
+                elif now - self.unenumerated_since > REPLUG_AFTER_S:
                     self._note(f"not enumerated after {REPLUG_AFTER_S:.0f} s; replugging")
-                    self.attached_at = None
+                    self.unenumerated_since = None
                     self._detach(ports)
             self.stopping.wait(0.25)
 
@@ -97,17 +115,13 @@ class Cable(threading.Thread):
         self.log.flush()
 
     def _detach(self, ports):
-        for line in ports.splitlines():
-            if line.startswith("Port ") and ":" in line:
-                current = line.split()[1].rstrip(":")
-            elif self.target in line:
-                self._usbip("detach", "-p", current)
+        for port in ports:
+            self._usbip("detach", "-p", str(port))
 
     def stop(self):
         self.stopping.set()
         self.join(timeout=5)
-        status, ports = self._usbip("port")
-        self._detach(ports)
+        self._detach(_imported_ports())
 
 
 class Bench:
