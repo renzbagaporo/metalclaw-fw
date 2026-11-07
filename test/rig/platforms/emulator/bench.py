@@ -28,6 +28,14 @@ class BenchError(RuntimeError):
     pass
 
 
+def _listening(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
 def _wait_port(port: int, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     while True:
@@ -152,6 +160,11 @@ class Bench:
                      self.harness_rom, self.dut_rom):
             if not path.is_file():
                 raise BenchError(f"missing {path}")
+        # A Renode left from an earlier run would answer on these ports, and
+        # the run would drive its bench instead of this one.
+        for port in (MONITOR_PORT, USBIP_PORT):
+            if _listening(port):
+                raise BenchError(f"port {port} is already in use; another Renode is running")
         self.work.mkdir(parents=True, exist_ok=True)
         payload = self._extract(UF2_EXTRACTOR, self.harness_uf2, "harness_flash.bin")
         payload.write_bytes(storage.with_storage(payload.read_bytes()))
