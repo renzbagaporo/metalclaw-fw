@@ -43,19 +43,25 @@ struct pl011 {
 static struct pl011 blocks[UART_BLOCK_COUNT];
 static struct mclw_work rx_work[UART_BLOCK_COUNT];
 
-static uart_inst_t *instance_for(uint8_t tx, uint8_t rx) {
-    bool uart0_tx = tx == 0u || tx == 12u || tx == 16u;
-    bool uart0_rx = rx == 1u || rx == 13u || rx == 17u;
-    bool uart1_tx = tx == 4u || tx == 8u || tx == 20u;
-    bool uart1_rx = rx == 5u || rx == 9u || rx == 21u;
+// The UART function puts TX on GPIO 4n and RX on 4n+1; the RP2350's
+// UART_AUX function adds TX on 4n+2 and RX on 4n+3. Either way the block
+// alternates every eight pins starting at GPIO4: 0-3 UART0, 4-11 UART1,
+// 12-19 UART0, and so on.
+static bool uart_pin(uint8_t pin, uint8_t phase) {
+#if PICO_RP2040
+    return pin < NUM_BANK0_GPIOS && pin % 4u == phase;
+#else
+    return pin < NUM_BANK0_GPIOS && pin % 2u == phase;
+#endif
+}
 
-    if (uart0_tx && uart0_rx) {
-        return uart0;
+static uart_inst_t *instance_for(uint8_t tx, uint8_t rx) {
+    uint8_t block = (uint8_t)(((tx + 4u) / 8u) % 2u);
+
+    if (!uart_pin(tx, 0u) || !uart_pin(rx, 1u) || block != ((rx + 4u) / 8u) % 2u) {
+        return NULL;
     }
-    if (uart1_tx && uart1_rx) {
-        return uart1;
-    }
-    return NULL;
+    return UART_INSTANCE(block);
 }
 
 static bool parity_for(enum mclw_uart_parity parity, uart_parity_t *out) {
