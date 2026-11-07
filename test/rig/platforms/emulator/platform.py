@@ -36,9 +36,14 @@ SLOW_HOST_DEFAULTS = {
 ENUMERATION_TIMEOUT_S = 600.0
 
 
+# Attaching a device that adds a USB function re-enumerates the harness, so
+# its serial ports reappear on the same schedule as the harness itself.
 class EmulatedHarness(Harness):
     def wait_enumerated(self, timeout: float = ENUMERATION_TIMEOUT_S) -> None:
         super().wait_enumerated(timeout)
+
+    def serial_port(self, interface: str, timeout: float = ENUMERATION_TIMEOUT_S) -> str:
+        return super().serial_port(interface, timeout)
 
 
 def _serial() -> str:
