@@ -81,23 +81,24 @@ class ProbeRs:
         executable=None,
     ):
         self.probe_id = probe_id
-        self.chip_description = Path(chip_description)
+        # None uses probe-rs's built-in description of the chip.
+        self.chip_description = None if chip_description is None else Path(chip_description)
         self.speed_khz = int(speed_khz)
         self.chip = chip
         self.executable = str(executable or os.environ.get(PROBE_RS_ENV) or "probe-rs")
         if not self.probe_id:
             raise ProbeError("a probe id is required; the rig never scans for a probe")
-        if not self.chip_description.is_file():
+        if self.chip_description is not None and not self.chip_description.is_file():
             raise ProbeError(f"no chip description at {self.chip_description}")
         if self.speed_khz <= 0:
             raise ProbeError(f"invalid SWD speed {self.speed_khz} kHz")
 
     def _argv(self, operation, *arguments):
+        description = [] if self.chip_description is None else ["--chip-description-path", str(self.chip_description)]
         argv = [
             self.executable,
             operation,
-            "--chip-description-path",
-            str(self.chip_description),
+            *description,
             "--chip",
             self.chip,
             "--probe",

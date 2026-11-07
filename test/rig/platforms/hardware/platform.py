@@ -6,6 +6,7 @@ import glob
 import math
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,59 @@ FIXTURE = {
     # cellular model names it.
     "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6}, "pwrkey": 6, "reset": 6},
 }
+
+# The MetalClaw Pico RP2 carrier (v1.r1 schematic) with a Pico on it: the
+# same Pico pins as fixture 1, reached through the carrier's GPIO branches.
+# Where a Pico pin has two branches, each role takes the one with the pin
+# function it needs; the other branch stays an input. SPI is GPIO32-39,
+# so the SPI engine's PIO block sits at GPIO base 16.
+METALCLAW_PICO_RP2_FIXTURE = {
+    "swd": (17, 25, 9),
+    "i2c": {"sda": 12, "scl": 13, "address": {"bmp388": 0x76}},
+    "uart": {"tx": 2, "rx": 3},
+    "uart1": {"tx": 18, "rx": 19},
+    "spi": {
+        "sck": 38,
+        "mosi": 32,
+        "miso": 35,
+        "cs": {"ads7883": 41, "icm4268x": 37, "bmp388": 33, "sx126x": 41},
+    },
+    "gpio": {"sx126x": {"busy": 8, "dio1": 40, "nreset": 14}, "pwrkey": 14, "reset": 14},
+}
+
+# The fixture by the harness's MicroPython board.
+FIXTURES = {
+    "fixture1_pico": FIXTURE,
+    "rpi_pi_pico": FIXTURE,
+    "metalclaw_pico_rp2": METALCLAW_PICO_RP2_FIXTURE,
+}
+
+
+@dataclass(frozen=True)
+class DutChip:
+    probe_chip: str
+    chip_description: Path | None
+    debug_port: dap.DebugPort
+
+
+# By the DUT image's CONFIG_SOC_SERIES.
+DUT_CHIPS = {
+    "rp2350": DutChip("RP2350_Core0", ROOT / "test/rig/platforms/hardware/rp2350_core0.yaml", dap.RP2350),
+    # probe-rs's own RP2040 description selects each core's multidrop DP.
+    "rp2040": DutChip("RP2040", None, dap.RP2040),
+}
+
+
+def dut_chip(image: Path) -> DutChip:
+    config = image.parent / ".config"
+    series = None
+    if config.is_file():
+        for line in config.read_text().splitlines():
+            if line.startswith("CONFIG_SOC_SERIES="):
+                series = line.split("=", 1)[1].strip('"')
+    if series not in DUT_CHIPS:
+        pytest.exit(f"{config} names no DUT chip the rig knows (CONFIG_SOC_SERIES={series!r})", returncode=2)
+    return DUT_CHIPS[series]
 
 
 DETACH_ALL_BUT_PROBE = """import metalclaw
@@ -96,6 +150,9 @@ class Harness:
 
     def repl(self) -> Repl:
         return Repl(self.serial)
+
+    def board(self) -> str:
+        return self.run("import sys\nprint(sys.implementation._build)").strip()
 
     # One raw REPL is held for the session: entering it costs about a quarter
     # second on the bench, longer than the short waits cases time. A harness
@@ -182,8 +239,9 @@ class Dut:
         self.image = image
         # probe-rs flashes and resets; the mailbox goes through DapMemory,
         # because every probe-rs session halts the DUT (see dap.py).
-        self.probe = ProbeRs(harness.probe_id, ROOT / "test/rig/platforms/hardware/rp2350_core0.yaml")
-        self.memory = DapMemory(harness.serial)
+        chip = dut_chip(image)
+        self.probe = ProbeRs(harness.probe_id, chip.chip_description, chip=chip.probe_chip)
+        self.memory = DapMemory(harness.serial, chip.debug_port)
         self.mailbox = Mailbox(self.memory, image, toolchain_dir)
 
     # probe-rs 0.30 has no `download --reset`; flashing and resetting are two
@@ -223,8 +281,11 @@ class Dut:
 
 
 @pytest.fixture(scope="session")
-def fixture() -> dict:
-    return FIXTURE
+def fixture(harness: Harness) -> dict:
+    board = harness.board()
+    if board not in FIXTURES:
+        pytest.exit(f"harness board {board!r} has no fixture description", returncode=2)
+    return FIXTURES[board]
 
 
 @pytest.fixture(scope="session")
