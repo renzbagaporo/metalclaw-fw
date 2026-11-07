@@ -17,6 +17,9 @@ MONITOR_PORT = 1234
 USBIP_PORT = 3240
 USBIP_BUSID = "1-0"
 STARTUP_TIMEOUT_S = 120.0
+# Linux gives up enumerating after about 90 s of descriptor reads that time
+# out; past this, an import with no device behind it is replugged.
+REPLUG_AFTER_S = 120.0
 
 
 class BenchError(RuntimeError):
@@ -35,18 +38,33 @@ def _wait_port(port: int, timeout: float) -> None:
             time.sleep(0.5)
 
 
+def _enumerated(serial: str) -> bool:
+    for device in Path("/sys/bus/usb/devices").iterdir():
+        try:
+            if (device / "idVendor").read_text().strip() == "2fe3" and (device / "serial").read_text().strip() == serial:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 class Cable(threading.Thread):
     # Re-enumeration (attaching a USB-facing device) unplugs the harness; on
     # the bench the cable stays in, so the import is renewed whenever the
-    # exported bus is back and not imported.
-    def __init__(self, busid: str, port: int, log):
+    # exported bus is back and not imported. The kernel's descriptor timeouts
+    # run in host time and the emulated harness is much slower, so while it
+    # is busy the kernel can give up on it for good; then the cable is pulled
+    # and plugged again, as on the bench.
+    def __init__(self, busid: str, port: int, serial: str, log):
         super().__init__(daemon=True)
         self.target = f"usbip://127.0.0.1:{port}/{busid}"
         self.base = ["sudo", "-n", "usbip", "--tcp-port", str(port)]
         self.busid = busid
+        self.serial = serial
         self.log = log
         self.stopping = threading.Event()
         self.imported = threading.Event()
+        self.attached_at = None
 
     def _usbip(self, *args):
         try:
@@ -61,27 +79,42 @@ class Cable(threading.Thread):
             if status == 0 and self.target not in ports:
                 status, detail = self._usbip("attach", "-r", "127.0.0.1", "-b", self.busid)
                 if status == 0:
-                    self.log.write(f"usbip: imported {self.target}\n")
-                    self.log.flush()
+                    self.attached_at = time.monotonic()
+                    self._note(f"imported {self.target}")
                     self.imported.set()
             elif status == 0:
                 self.imported.set()
+                if _enumerated(self.serial):
+                    self.attached_at = None
+                elif self.attached_at is not None and time.monotonic() - self.attached_at > REPLUG_AFTER_S:
+                    self._note(f"not enumerated after {REPLUG_AFTER_S:.0f} s; replugging")
+                    self.attached_at = None
+                    self._detach(ports)
             self.stopping.wait(0.25)
 
-    def stop(self):
-        self.stopping.set()
-        self.join(timeout=5)
-        status, ports = self._usbip("port")
+    def _note(self, message):
+        self.log.write(f"usbip: {message}\n")
+        self.log.flush()
+
+    def _detach(self, ports):
         for line in ports.splitlines():
             if line.startswith("Port ") and ":" in line:
                 current = line.split()[1].rstrip(":")
             elif self.target in line:
                 self._usbip("detach", "-p", current)
 
+    def stop(self):
+        self.stopping.set()
+        self.join(timeout=5)
+        status, ports = self._usbip("port")
+        self._detach(ports)
+
 
 class Bench:
-    def __init__(self, renode_dir: Path, harness_uf2: Path, harness_rom: Path, dut_rom: Path, work: Path):
+    def __init__(self, renode_dir: Path, harness_uf2: Path, harness_rom: Path, dut_rom: Path, work: Path,
+                 serial: str):
         self.renode_dir = renode_dir
+        self.serial = serial
         self.harness_uf2 = harness_uf2
         self.harness_rom = harness_rom
         self.dut_rom = dut_rom
@@ -123,7 +156,7 @@ class Bench:
         self.process = subprocess.Popen(argv, cwd=self.renode_dir, stdout=self.log, stderr=subprocess.STDOUT,
                                         start_new_session=True)
         _wait_port(USBIP_PORT, STARTUP_TIMEOUT_S)
-        self.cable = Cable(USBIP_BUSID, USBIP_PORT, self.log)
+        self.cable = Cable(USBIP_BUSID, USBIP_PORT, self.serial, self.log)
         self.cable.start()
         if not self.cable.imported.wait(STARTUP_TIMEOUT_S):
             raise BenchError(f"the harness's USB/IP bus {USBIP_BUSID} was never imported")

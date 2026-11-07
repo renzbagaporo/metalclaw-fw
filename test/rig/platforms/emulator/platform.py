@@ -26,12 +26,17 @@ SLOW_HOST_DEFAULTS = {
     "FLASH_ALGORITHM_TIMEOUT_MULTIPLIER": "30",
     "ARM_DEBUG_TIMEOUT_MULTIPLIER": "30",
 }
-ENUMERATION_TIMEOUT_S = 300.0
+# Room for the cable to replug a few times (bench.REPLUG_AFTER_S).
+ENUMERATION_TIMEOUT_S = 600.0
 
 
 class EmulatedHarness(Harness):
     def wait_enumerated(self, timeout: float = ENUMERATION_TIMEOUT_S) -> None:
         super().wait_enumerated(timeout)
+
+
+def _serial() -> str:
+    return os.environ.get("METALCLAW_HARNESS_SERIAL", HARNESS_SERIAL)
 
 
 @pytest.fixture(scope="session")
@@ -50,6 +55,7 @@ def bench():
         harness_rom=roms / "b2.elf",
         dut_rom=roms / "bootrom-combined.bin",
         work=Path(os.environ.get("METALCLAW_RENODE_WORK", ROOT / "build/emulator")),
+        serial=_serial(),
     )
     try:
         b.start()
@@ -62,7 +68,7 @@ def bench():
 
 @pytest.fixture(scope="session")
 def harness(bench) -> Harness:
-    h = EmulatedHarness(os.environ.get("METALCLAW_HARNESS_SERIAL", HARNESS_SERIAL))
+    h = EmulatedHarness(_serial())
     h.wait_enumerated()
     out = h.run(DETACH_ALL_BUT_PROBE)
     if "usb" in out.split():
