@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
 import datetime
-import time
 import zlib
 
 import pytest
@@ -205,7 +204,7 @@ def test_losing_registration_closes_the_socket_and_pdp(dut, networking):
         received = dut.command("SOCK RECV 0 32", 30.0)
         assert received["received"] == 32 and received["crc32"] == zlib.crc32(pattern(32)), received
         networking.set(registration=0)
-        time.sleep(URC_SETTLE_S)
+        networking.harness.sleep(URC_SETTLE_S)
         assert networking.get("pdp") is False
         # +CASTATE: 0,0 marked the socket disconnected (sim7080_handle_sock_state),
         # so send fails before any AT traffic.

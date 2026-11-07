@@ -105,10 +105,10 @@ class Modem:
         return name in self._properties
 
     def wait_for(self, name, value, timeout):
-        deadline = time.monotonic() + timeout
+        deadline = self.harness.clock() + timeout
         while True:
             current = self.get(name)
-            if current == value or time.monotonic() >= deadline:
+            if current == value or self.harness.clock() >= deadline:
                 return current
             time.sleep(0.2)
 
@@ -340,7 +340,7 @@ def restart_driver(dut, modem):
     dut.reset()
     dut.ping()
     # A part on RESET_N takes the DUT's reset for its own; let it boot.
-    time.sleep(2.0)
+    dut.harness.sleep(2.0)
     up = net(dut, f"UP {NET_UP_WAIT_MS}", NET_UP_TIMEOUT_S)
     assert up["status"] == "ok" and up["l4"] and modem.get("ppp_up"), up
 
@@ -385,7 +385,7 @@ class PppModelCases:
             # APP RDY ends the driver's 20 s startup wait early.
             m.set(ready_urc=True)
         # A part on RESET_N boots from attach; let that boot finish.
-        time.sleep(2.0)
+        harness.sleep(2.0)
         m.before_up = {k: m.get(k) for k in ("powered", "power_cycles")}
         m.up = net(dut, f"UP {NET_UP_WAIT_MS}", NET_UP_TIMEOUT_S)
         m.after_up = {k: m.get(k) for k in ("powered", "power_cycles", "pdp", "cmux", "ppp_up", "unknown_commands")}
@@ -449,7 +449,7 @@ class PppModelCases:
 
     def test_the_driver_reports_its_events(self, dut, connected):
         before = cellular(dut, "EVENTS")
-        time.sleep(2 * PERIODIC_S)
+        dut.harness.sleep(2 * PERIODIC_S)
         events = cellular(dut, "EVENTS")
         assert events["subscribed"] is True
         assert events["registration"] >= 1 and events["last_registration"] == 1, events
@@ -579,7 +579,7 @@ class PppModelCases:
                 assert connected.wait_for("powered", self.POWERED_AFTER_SUSPEND, 10.0) is self.POWERED_AFTER_SUSPEND
             finally:
                 connected.set(registration=1)
-            time.sleep(PERIODIC_S)
+            dut.harness.sleep(PERIODIC_S)
             # The driver stays down, and PM still thinks it is active.
             state = net(dut, "STATE")
             assert state["l4"] is False and state["pm"] == "active", state

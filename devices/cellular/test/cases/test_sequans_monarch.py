@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
-import time
 
 from .common import ECHO_RING, NET_UP_TIMEOUT_S, NET_UP_WAIT_MS, PppModelCases, echo, net
 
@@ -34,7 +33,7 @@ class TestSequansMonarch(PppModelCases):
         cycles = connected.get("power_cycles")
         dut.reset()
         dut.ping()
-        time.sleep(2.0)
+        dut.harness.sleep(2.0)
         assert connected.get("power_cycles") == cycles + 1
         assert connected.get("cmux") is False and connected.get("ppp_up") is False
         state = net(dut, "STATE")

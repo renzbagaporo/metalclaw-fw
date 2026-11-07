@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
-import time
 
 import pytest
 
@@ -112,7 +111,7 @@ def receive(dut, radio, timeout_ms, inject=None):
     """LORA RECV on the DUT; `inject` (payload, kwargs) goes on air once the DUT listens."""
     sequence = dut.start(f"LORA RECV {timeout_ms}")
     if inject is not None:
-        time.sleep(0.3)
+        radio.harness.sleep(0.3)
         payload, params = inject
         radio.inject(payload, **params)
     result = dut.finish(sequence, timeout_ms / 1000 + 10)
@@ -123,7 +122,7 @@ def receive(dut, radio, timeout_ms, inject=None):
         # waits up to SX126X_BUSY_DEFAULT_TIMEOUT for BUSY to drop before its
         # own SetSleep. A command in that second wakes the part and the
         # SetSleep lands under it. Wait the work out.
-        time.sleep(NATIVE_BUSY_TIMEOUT_S)
+        radio.harness.sleep(NATIVE_BUSY_TIMEOUT_S)
     return result
 
 
@@ -342,7 +341,7 @@ def test_a_transmission_raises_tx_done_after_its_air_time(dut, raw):
     for frame in ["8a01", "8b07040100", "8c000800050100", "080001000100000000", "0e0048656c6c6f", "8f0000",
                   "02ffff", "83000000"]:
         raw_window(dut, frame, write=True)
-    time.sleep(0.2)
+    raw.harness.sleep(0.2)
     # TxDone, with the command status "TX done" until the next command.
     assert raw_window(dut, "1200000000")["rx"] == "acac000100"
     assert raw_window(dut, "c00000")["rx"] == "acac2c"
@@ -385,7 +384,7 @@ def test_a_frame_received_raises_the_receive_irqs_in_order(dut, raw):
     raw_lora(dut, raw)
     raw_window(dut, "82ffffff", write=True)
     raw.inject(b"hello raw", rssi=-80, snr=575, signal_rssi=-82)
-    time.sleep(0.3)
+    raw.harness.sleep(0.3)
     # RX mode, "data available" through every read, PreambleDetected |
     # HeaderValid | RxDone.
     assert raw_window(dut, "1200000000")["rx"] == "d4d4001600"
@@ -398,7 +397,7 @@ def test_a_frame_received_raises_the_receive_irqs_in_order(dut, raw):
 def test_a_single_receive_times_out(dut, raw):
     raw_lora(dut, raw)
     raw_window(dut, "82000400", write=True)
-    time.sleep(0.3)
+    raw.harness.sleep(0.3)
     assert raw_window(dut, "1200000000")["rx"] == "a2a2020000", "Timeout, back in STBY_RC"
 
 
@@ -406,12 +405,12 @@ def test_channel_activity_detection_sees_a_frame_on_air(dut, raw):
     raw_lora(dut, raw, sf=12)
     raw_window(dut, "8802160a00000000", write=True)
     raw_window(dut, "c5", write=True)
-    time.sleep(0.3)
+    raw.harness.sleep(0.3)
     assert raw_window(dut, "1200000000")["rx"] == "a2a2008000", "CadDone alone with nothing on air"
     raw_window(dut, "02ffff", write=True)
     raw.inject(bytes(120))
     raw_window(dut, "c5", write=True)
-    time.sleep(0.3)
+    raw.harness.sleep(0.3)
     assert raw_window(dut, "1200000000")["rx"] == "a2a2018000", "CadDone | CadDetected"
 
 
@@ -420,7 +419,7 @@ def test_a_duty_cycled_receiver_hears_a_frame(dut, raw):
     raw_window(dut, "94000100000100", write=True)
     assert raw.get("mode") == 6
     raw.inject(b"sniffed")
-    time.sleep(0.3)
+    raw.harness.sleep(0.3)
     assert raw_window(dut, "1200000000")["rx"][4:] == "001600"
     assert raw.get("mode") == 1, "back in STBY_RC after the packet"
 
@@ -443,10 +442,10 @@ def test_a_frame_cut_short_by_standby_is_missed(dut, raw):
     raw_window(dut, "82ffffff", write=True)
     missed, received = raw.get("rx_missed"), raw.get("rx_received")
     raw.inject(bytes(120))
-    time.sleep(0.2)
+    raw.harness.sleep(0.2)
     raw_window(dut, "8000", write=True)
     assert raw.get("rx_missed") == missed + 1
-    time.sleep(lora_airtime_us(9, 125000, 1, 12, 120) / 1e6)
+    raw.harness.sleep(lora_airtime_us(9, 125000, 1, 12, 120) / 1e6)
     assert raw.get("rx_received") == received
 
 
@@ -489,7 +488,7 @@ def test_a_reset_pulse_shorter_than_a_tick_resets_the_part(dut, raw):
     raw_window(dut, "8000", write=True)
     resets = raw.get("resets")
     pulse_reset(dut, 100)
-    time.sleep(0.05)
+    raw.harness.sleep(0.05)
     assert raw.get("resets") == resets + 1
     assert raw_window(dut, "c00000")["rx"] == "aaaa2a"
     raw_window(dut, "8000", write=True)
@@ -513,7 +512,7 @@ def test_a_reset_pulse_while_the_clock_is_paused_resets_the_part(dut, raw):
 
 def test_a_reset_while_nreset_is_held_low_leaves_the_part_in_reset(dut, raw):
     sequence = dut.start("PULSE 2000000")
-    time.sleep(0.3)
+    raw.harness.sleep(0.3)
     resets, after, mode = map(int, raw.run("""import time
 before = radio.resets
 radio.reset()
@@ -523,6 +522,6 @@ print(before, radio.resets, radio.mode)
     assert mode == 8 and after == resets
     result = dut.finish(sequence, 10)
     assert result["test"] == "test_pulse" and result["status"] == "ok", result
-    time.sleep(0.05)
+    raw.harness.sleep(0.05)
     assert raw.get("mode") == 1
     raw_window(dut, "8000", write=True)

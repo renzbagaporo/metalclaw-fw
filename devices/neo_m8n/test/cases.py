@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
-import time
 
 import pytest
 
@@ -68,7 +67,7 @@ class Receiver:
 
     def advance(self, ms):
         self.harness.run(f"import metalclaw\nmetalclaw.advance_us({ms * 1000})\n")
-        time.sleep(0.2)
+        self.harness.sleep(0.2)
 
     def pause(self):
         self.harness.run("import metalclaw\nmetalclaw.pause()\n")
@@ -163,7 +162,7 @@ def test_fixes_stream_on_their_own_while_the_clock_runs(dut, receiver):
     before = gnss(dut)["fixes"]
     receiver.resume()
     try:
-        time.sleep(2.5)
+        receiver.harness.sleep(2.5)
     finally:
         receiver.pause()
     assert gnss(dut)["fixes"] >= before + 2
@@ -229,7 +228,7 @@ def nmea_step(receiver):
     # One epoch with the clock paused: RMC, VTG and GGA leave at once and
     # take about 200 ms at 9600 baud.
     receiver.advance(FIX_RATE_MS)
-    time.sleep(NMEA_STEP_S)
+    receiver.harness.sleep(NMEA_STEP_S)
 
 
 def test_nmea_is_on_from_power_up(nmea_receiver):
@@ -285,18 +284,18 @@ def test_nmea_streams_every_second_without_dropping(dut, nmea_receiver):
                       time=(2026, 10, 3, 10, 0, 0))
     nmea_receiver.resume()
     try:
-        time.sleep(1.5)
+        nmea_receiver.harness.sleep(1.5)
         dropped = nmea_receiver.get("dropped")
         sentences = nmea_receiver.get("sentences")
         # The fix count is sampled somewhere inside each command, which takes
         # a good fraction of a second; the window is bounded by both.
-        t0 = time.monotonic()
+        t0 = nmea_receiver.harness.clock()
         before = gnss(dut)["fixes"]
-        t1 = time.monotonic()
-        time.sleep(3.0)
-        t2 = time.monotonic()
+        t1 = nmea_receiver.harness.clock()
+        nmea_receiver.harness.sleep(3.0)
+        t2 = nmea_receiver.harness.clock()
         after = gnss(dut)["fixes"]
-        t3 = time.monotonic()
+        t3 = nmea_receiver.harness.clock()
         assert nmea_receiver.get("dropped") == dropped
         # RMC, VTG, GGA, two GSA, two GPGSV, two GLGSV, GLL every second.
         assert nmea_receiver.get("sentences") - sentences >= 2 * 10

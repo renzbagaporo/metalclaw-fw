@@ -137,12 +137,12 @@ def test_opening_the_port_drops_what_waited_for_a_host(fresh):
     payload = bytes(2000)
     with fresh.open() as port:
         port.write(payload)
-    time.sleep(0.3)
+    fresh.harness.sleep(0.3)
     assert fresh.get("to_host") == len(payload)
     with fresh.open() as port:
         stale = bytearray()
-        deadline = time.monotonic() + 0.3
-        while time.monotonic() < deadline:
+        deadline = fresh.harness.clock() + 0.3
+        while fresh.harness.clock() < deadline:
             stale += port.read(4096)
         assert len(stale) <= 256 + 64, len(stale)
         assert round_trip(port, b"fresh", 1.0) == b"fresh"
@@ -151,7 +151,7 @@ def test_opening_the_port_drops_what_waited_for_a_host(fresh):
 def test_line_coding_is_ignored_unless_asked(fresh):
     with fresh.open() as port:
         port.baudrate = 9600
-        time.sleep(0.1)
+        fresh.harness.sleep(0.1)
         assert fresh.get("baud") == BAUD
         assert round_trip(port, b"still 115200", 1.0) == b"still 115200"
 
@@ -159,19 +159,19 @@ def test_line_coding_is_ignored_unless_asked(fresh):
 def test_line_coding_is_followed_when_asked(fresh):
     fresh.set(follow_line_coding=True)
     with fresh.open(57600) as port:
-        time.sleep(0.1)
+        fresh.harness.sleep(0.1)
         assert fresh.get("baud") == 57600
         assert abs(fresh.stats()["baud"] - 57600) < 57600 // 100
         port.baudrate = BAUD
-        time.sleep(0.1)
+        fresh.harness.sleep(0.1)
         assert fresh.get("baud") == BAUD
         assert round_trip(port, b"back at 115200", 1.0) == b"back at 115200"
         refused = fresh.get("codings_refused")
         port.parity = serial.PARITY_MARK
-        time.sleep(0.1)
+        fresh.harness.sleep(0.1)
         assert fresh.get("codings_refused") == refused + 1
         port.parity = serial.PARITY_NONE
-        time.sleep(0.1)
+        fresh.harness.sleep(0.1)
         assert round_trip(port, b"8N1 again", 1.0) == b"8N1 again"
     fresh.reset(factory=True)
     assert fresh.get("follow_line_coding") is False
@@ -180,15 +180,15 @@ def test_line_coding_is_followed_when_asked(fresh):
 def test_dtr_and_rts_are_reported_and_reset_nothing(dut, fresh):
     boots = dut.command("ID")["boots"]
     with fresh.open() as port:
-        time.sleep(0.1)
+        fresh.harness.sleep(0.1)
         assert fresh.get("dtr") is True
         port.dtr = False
         port.rts = False
-        time.sleep(0.1)
+        fresh.harness.sleep(0.1)
         assert fresh.get("dtr") is False
         assert fresh.get("rts") is False
         port.rts = True
-        time.sleep(0.1)
+        fresh.harness.sleep(0.1)
         assert fresh.get("rts") is True
         assert round_trip(port, b"no reset", 1.0) == b"no reset"
     assert dut.command("ID")["boots"] == boots
