@@ -27,7 +27,8 @@ zephyr_base := zephyr_workspace / "zephyr"
 zephyr_sdk := env_var_or_default("ZEPHYR_SDK_INSTALL_DIR", env_var("HOME") / "zephyr-sdk-1.0.1")
 zephyr_sdk_url := "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v1.0.1/zephyr-sdk-1.0.1_linux-x86_64_minimal.tar.xz"
 zephyr_sdk_sha256 := "ca9bc0ff66fafca1dac9d592a36d953cf16d096a9d09b1c0357f021cf9f6a7eb"
-dut_board := "rpi_pico2/rp2350a/m33"
+# The DUT's Zephyr board: the Pico 2 by default, `rpi_pico` for a Pico 1.
+dut_board := env_var_or_default("METALCLAW_DUT_BOARD", "rpi_pico2/rp2350a/m33")
 
 # Toolchain state lives outside the repository, next to it.
 arm_toolchain_dir := env_var_or_default("METALCLAW_ARM_TOOLCHAIN_DIR", project_dir / "../.arm-none-eabi")
