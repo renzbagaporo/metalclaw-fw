@@ -5,11 +5,12 @@
 import glob
 import math
 import os
-import subprocess
 import time
 from pathlib import Path
 
 import pytest
+import usb.core
+import usb.util
 
 from test.rig.platforms.hardware.dap import DapMemory
 from test.rig.platforms.hardware.mailbox import Mailbox, MailboxError
@@ -138,14 +139,16 @@ class Harness:
     def sleep(self, seconds: float) -> None:
         self.run(f"import time\ntime.sleep_us({round(seconds * 1e6)})\n", seconds + 5.0)
 
+    # By serial: another harness on the same machine has the same VID:PID.
     def usb_interfaces(self) -> list[str]:
-        out = subprocess.run(["lsusb", "-v", "-d", f"2fe3:0204"], capture_output=True, text=True).stdout
-        names = []
-        for line in out.splitlines():
-            parts = line.split(None, 2)
-            if len(parts) == 3 and parts[0] == "iInterface" and parts[1] != "0":
-                names.append(parts[2].strip())
-        return names
+        device = usb.core.find(idVendor=dap.VENDOR_ID, idProduct=dap.PRODUCT_ID, serial_number=self.serial)
+        if device is None:
+            return []
+        try:
+            return [usb.util.get_string(device, interface.iInterface)
+                    for interface in device.get_active_configuration() if interface.iInterface]
+        finally:
+            usb.util.dispose_resources(device)
 
     # A serial function the harness serves for an attached device, by its
     # interface string. Linux names the tty after its interface number; the
