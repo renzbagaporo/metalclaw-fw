@@ -217,6 +217,9 @@ def nmea_receiver(harness, dut, fixture):
         pytest.skip(f"the DUT image does not read NMEA ({image})")
     harness.run(attach(fixture, NMEA_IMAGES[image]))
     r = Receiver(harness)
+    # The part's power-up epoch leaves at 9600 baud; a paused clock would hold
+    # what is still queued and the DUT would see half an epoch.
+    harness.sleep(NMEA_STEP_S)
     r.pause()
     dut.reset()
     dut.ping()
