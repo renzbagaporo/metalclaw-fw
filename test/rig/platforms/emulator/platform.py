@@ -22,7 +22,9 @@ SLOW_HOST_DEFAULTS = {
     "METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S": "1800",
     "METALCLAW_PROBE_RESET_TIMEOUT_S": "600",
     "METALCLAW_DUT_MAILBOX_TIMEOUT_S": "120",
-    "CMSIS_DAP_USB_TIMEOUT_MS": "10000",
+    # A single transfer block can stall past 10 s while the emulated harness
+    # runs a flash routine on a loaded host.
+    "CMSIS_DAP_USB_TIMEOUT_MS": "60000",
     # The last page's routine has no next page to overlap with, so its
     # whole run lands on one watchdog: 10-14 s of host time, past 30 s on a
     # loaded host. A timed-out routine is abandoned while it runs, and the
