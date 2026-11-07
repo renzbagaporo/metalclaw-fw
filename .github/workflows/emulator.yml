@@ -120,7 +120,7 @@ jobs:
             build/dut/**/zephyr/zephyr.elf
           if-no-files-found: error
 
-  tools:
+  probe-rs:
     needs: plan
     if: needs.plan.outputs.images != '[]'
     runs-on: ubuntu-24.04
@@ -140,37 +140,25 @@ jobs:
       - id: pins
         run: |
           set -euo pipefail
-          renode=$(just --evaluate renode_commit)
           probe_rs=$(just --evaluate probe_rs_commit)
-          echo "renode=${renode}" >> "$GITHUB_OUTPUT"
           echo "probe-rs=${probe_rs}-${{ hashFiles('test/rig/platforms/emulator/*.patch') }}" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        id: renode
-        with:
-          path: ~/.renode
-          key: renode-${{ steps.pins.outputs.renode }}
       - uses: actions/cache@v4
         id: probe-rs
         with:
           path: ~/.probe-rs-emulation
           key: probe-rs-emulation-${{ steps.pins.outputs.probe-rs }}
-      - if: steps.renode.outputs.cache-hit != 'true'
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
       - name: Build packages
-        if: steps.renode.outputs.cache-hit != 'true' || steps.probe-rs.outputs.cache-hit != 'true'
+        if: steps.probe-rs.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y -o Acquire::Retries=3 \
-            git cmake build-essential automake autoconf libtool python3-pip pkg-config libudev-dev
-      - name: Renode, boot ROMs and probe-rs
+          sudo apt-get install -y -o Acquire::Retries=3 git build-essential pkg-config libudev-dev
+      - name: Patched probe-rs
         run: |
-          just setup-emulator
-          rm -rf "$METALCLAW_RENODE_HOME/src" "$METALCLAW_PROBE_RS_EMULATION_DIR/src"
+          just setup-emulator-probe-rs
+          rm -rf "$METALCLAW_PROBE_RS_EMULATION_DIR/src"
 
   test:
-    needs: [plan, firmware, tools]
+    needs: [plan, firmware, probe-rs]
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     strategy:
@@ -193,15 +181,8 @@ jobs:
       - id: pins
         run: |
           set -euo pipefail
-          renode=$(just --evaluate renode_commit)
           probe_rs=$(just --evaluate probe_rs_commit)
-          echo "renode=${renode}" >> "$GITHUB_OUTPUT"
           echo "probe-rs=${probe_rs}-${{ hashFiles('test/rig/platforms/emulator/*.patch') }}" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache/restore@v4
-        with:
-          path: ~/.renode
-          key: renode-${{ steps.pins.outputs.renode }}
-          fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: ~/.probe-rs-emulation
@@ -212,6 +193,8 @@ jobs:
           path: ~/.arm-none-eabi
           key: arm-none-eabi-${{ hashFiles('justfile') }}
           fail-on-cache-miss: true
+      - name: Renode and boot ROMs
+        run: just setup-emulator-roms setup-renode
       - uses: actions/download-artifact@v4
         with:
           name: firmware

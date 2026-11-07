@@ -100,7 +100,9 @@ as `neo_m8n`'s do.
 ## The emulator
 
 `just test emulator` runs the same cases against both Picos emulated in
-Renode, built from the fork that carries the RP2040 and RP2350 models.
+Renode, from the fork that carries the RP2040 and RP2350 models. The
+justfile pins a commit of that fork and the portable package its release
+workflow published for it, which bundles .NET.
 Its bench script (`scripts/multi-node/metalclaw_fixture.resc` in that fork)
 wires the two machines pin to pin. The harness's USB is exported over
 USB/IP and imported into this host's kernel, so the harness, its CMSIS-DAP
@@ -118,9 +120,10 @@ The host needs `vhci_hcd` loaded and `usbip` runnable with `sudo -n`,
 which imports a device into the running kernel: run it in a disposable VM
 or CI runner, not on a workstation. `METALCLAW_RENODE_DIR`,
 `METALCLAW_RENODE_ROMS` and `METALCLAW_HARNESS_IMAGE` override the Renode
-package, the boot ROM directory and the harness UF2; `METALCLAW_RENODE_REPO`
-names another clone of the fork to build from, and
-`METALCLAW_RENODE_QUANTUM` overrides the bench's synchronisation quantum
+package, the boot ROM directory and the harness UF2; point
+`METALCLAW_RENODE_DIR` at a package built from a local checkout
+(`./build.sh --no-gui -t`, then unpack `output/packages/`) to try a Renode
+change. `METALCLAW_RENODE_QUANTUM` overrides the bench's synchronisation quantum
 in seconds. The harness's serial is the emulated flash's unique ID,
 `0123456789ABCDEF`.
 

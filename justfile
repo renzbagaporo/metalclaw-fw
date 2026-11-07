@@ -36,11 +36,12 @@ arm_toolchain_bin := arm_toolchain_dir / arm_toolchain_name / "bin"
 arm_toolchain_url := "https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz"
 arm_toolchain_sha256 := "62a63b981fe391a9cbad7ef51b17e49aeaa3e7b0d029b36ca1e9c3b2a9b78823"
 
-# The emulator platform: Renode from the fork that carries the RP2040 and
-# RP2350 models and the bench script, the two boot ROMs, and probe-rs with
-# host timeouts that stretch for emulated SWD.
-renode_repo := env_var_or_default("METALCLAW_RENODE_REPO", "https://github.com/renzbagaporo/renode.git")
+# The emulator platform: Renode's portable package, released from the fork
+# that carries the RP2040 and RP2350 models and the bench script, the two
+# boot ROMs, and probe-rs with host timeouts that stretch for emulated SWD.
 renode_commit := "d95e4da78a408dec3d82dc3e852deefebad711fe"
+renode_package_url := "https://github.com/renzbagaporo/renode/releases/download/rp2-portable-" + replace_regex(renode_commit, "^(.{12}).*", "$1") + "/renode-1.17.0.linux-portable-headless.tar.gz"
+renode_package_sha256 := "9df388df7105470adc142ed010b18cbb26a981388493a85e2f1c359b77e27975"
 renode_home := env_var_or_default("METALCLAW_RENODE_HOME", project_dir / "../.renode")
 renode_dir := env_var_or_default("METALCLAW_RENODE_DIR", renode_home / renode_commit)
 renode_roms := env_var_or_default("METALCLAW_RENODE_ROMS", renode_home / "roms")
@@ -159,21 +160,18 @@ setup-emulator-probe-rs:
     echo "$want" > "$stamp"
     "{{probe_rs_emulation_dir}}/bin/probe-rs" --version
 
-# Renode at the pinned commit, built as its portable package. Needs the
-# .NET 8 SDK, cmake and a host C toolchain.
+# Renode's portable package for the pinned commit, which bundles .NET.
 setup-renode:
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ -x "{{renode_dir}}/renode" ]]; then "{{renode_dir}}/renode" --version; exit 0; fi
-    src="{{renode_home}}/src"
-    if [[ ! -d "$src/.git" ]]; then git clone --quiet "{{renode_repo}}" "$src"; fi
-    git -C "$src" fetch --quiet origin "{{renode_commit}}"
-    git -C "$src" checkout --quiet --detach "{{renode_commit}}"
-    git -C "$src" submodule update --quiet --init --recursive
-    (cd "$src" && ./build.sh --no-gui -t)
-    package=$(ls -t "$src"/output/packages/renode-*.linux-portable*.tar.gz | head -1)
+    package="{{renode_dir}}.tar.gz"
+    rm -rf "{{renode_dir}}.part"
     mkdir -p "{{renode_dir}}.part"
+    curl -fL --retry 3 --no-progress-meter -o "$package" "{{renode_package_url}}"
+    echo "{{renode_package_sha256}}  $package" | sha256sum --check --status
     tar -xzf "$package" -C "{{renode_dir}}.part" --strip-components=1
+    rm "$package"
     mv "{{renode_dir}}.part" "{{renode_dir}}"
     "{{renode_dir}}/renode" --version
 
