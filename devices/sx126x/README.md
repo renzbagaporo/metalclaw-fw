@@ -37,12 +37,23 @@ between windows is timing-critical.
 | 2 | `dio1` | `gpio_out` | no | DIO1, high while an IRQ in the DIO1 mask is set |
 | 3 | `nreset` | `gpio_in` | no | NRESET; low holds the part in reset |
 
+The engine raises BUSY from the SPI engine's PIO block when the chip
+select rises, so BUSY must be a pin that block reaches: on an RP2350B
+harness, the same half of GPIO0-31 or GPIO16-47 as the bus.
+
 On fixture 1 the radio sits on SPI0 with its chip select on GP21, BUSY on
-GP7, DIO1 on GP20 and NRESET on GP6, the same GP numbers on both boards:
+GP10, DIO1 on GP20 and NRESET on GP6, the same GP numbers on both boards:
 
 ```python
 import metalclaw
-radio = metalclaw.attach("sx1262", "radio", spi=(18, 19, 16, 21), busy=7, dio1=20, nreset=6)
+radio = metalclaw.attach("sx1262", "radio", spi=(18, 19, 16, 21), busy=10, dio1=20, nreset=6)
+```
+
+On the MetalClaw Pico RP2 carrier the same Pico pins are reached through
+the carrier's GPIOs:
+
+```python
+radio = metalclaw.attach("sx1262", "radio", spi=(38, 32, 35, 41), busy=22, dio1=40, nreset=14)
 ```
 
 Without `nreset` the part never resets from its pin; bind it whenever the
@@ -243,7 +254,7 @@ default is 2 MHz and Meshtastic's 4 MHz.
 
 The driver images put a `semtech,sx1262` node aliased `lora0` on `spi0`
 (GP18/GP19/GP16) with a GPIO chip select on GP21, `reset-gpios` GP6,
-`busy-gpios` GP7, `dio1-gpios` GP20, DIO2 as the RF switch and a 1.8 V TCXO
+`busy-gpios` GP10, `dio1-gpios` GP20, DIO2 as the RF switch and a 1.8 V TCXO
 on DIO3, at 8 MHz. The loramac-node backend needs the `loramac-node`
 module, which `test/rig/dut/west.yml` lists.
 

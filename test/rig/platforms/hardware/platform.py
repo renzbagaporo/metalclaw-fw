@@ -37,14 +37,15 @@ FIXTURE = {
     },
     # GP6 is also the modem's control line: PWRKEY or RESET_N, as the
     # cellular model names it.
-    "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6}, "pwrkey": 6, "reset": 6},
+    "gpio": {"sx126x": {"busy": 10, "dio1": 20, "nreset": 6}, "pwrkey": 6, "reset": 6},
 }
 
 # The MetalClaw Pico RP2 carrier (v1.r1 schematic) with a Pico on it: the
 # same Pico pins as fixture 1, reached through the carrier's GPIO branches.
 # Where a Pico pin has two branches, each role takes the one with the pin
 # function it needs; the other branch stays an input. SPI is GPIO32-39,
-# so the SPI engine's PIO block sits at GPIO base 16.
+# so the SPI engine's PIO block sits at GPIO base 16, and the sx126x's
+# BUSY, which that block drives, takes Pico GP10 through GPIO22.
 METALCLAW_PICO_RP2_FIXTURE = {
     "swd": (17, 25, 9),
     "i2c": {"sda": 12, "scl": 13, "address": {"bmp388": 0x76}},
@@ -56,7 +57,7 @@ METALCLAW_PICO_RP2_FIXTURE = {
         "miso": 35,
         "cs": {"ads7883": 41, "icm4268x": 37, "bmp388": 33, "sx126x": 41},
     },
-    "gpio": {"sx126x": {"busy": 8, "dio1": 40, "nreset": 14}, "pwrkey": 14, "reset": 14},
+    "gpio": {"sx126x": {"busy": 22, "dio1": 40, "nreset": 14}, "pwrkey": 14, "reset": 14},
 }
 
 # The fixture by the harness's MicroPython board.

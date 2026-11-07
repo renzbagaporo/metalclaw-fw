@@ -24,7 +24,7 @@
 /*
  * A GPIO chip select: the drivers clock a command header and its data as
  * two buffers of one transfer, and the PL022's own chip select would drop
- * between them. The radio's other lines: NRESET GP6, BUSY GP7, DIO1 GP20.
+ * between them. The radio's other lines: NRESET GP6, BUSY GP10, DIO1 GP20.
  */
 &spi0 {
 	status = "okay";
@@ -37,7 +37,7 @@
 		reg = <0>;
 		spi-max-frequency = <8000000>;
 		reset-gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
-		busy-gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;
+		busy-gpios = <&gpio0 10 GPIO_ACTIVE_HIGH>;
 		dio1-gpios = <&gpio0 20 GPIO_ACTIVE_HIGH>;
 		dio2-tx-enable;
 		dio3-tcxo-voltage = <SX126X_DIO3_TCXO_1V8>;

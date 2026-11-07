@@ -83,7 +83,7 @@ platform it is
  "uart1": {"tx": 9, "rx": 8},
  "spi": {"sck": 18, "mosi": 19, "miso": 16,
          "cs": {"ads7883": 21, "icm4268x": 17, "bmp388": 22, "sx126x": 21}},
- "gpio": {"sx126x": {"busy": 7, "dio1": 20, "nreset": 6},
+ "gpio": {"sx126x": {"busy": 10, "dio1": 20, "nreset": 6},
           "pwrkey": 6, "reset": 6}}
 ```
 
