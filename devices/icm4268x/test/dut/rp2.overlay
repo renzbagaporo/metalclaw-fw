@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 OR MIT */
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
-#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
 #include <zephyr/dt-bindings/sensor/icm42688.h>
 
 / {

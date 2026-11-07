@@ -2,7 +2,6 @@
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/lora/sx126x.h>
-#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
 
 / {
 	aliases {
