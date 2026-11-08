@@ -79,6 +79,29 @@ class Receiver:
         self.harness.run(SELECT + "gnss.reset()\n")
 
 
+# bytes_tx moves when the engine counts: the PL011 as a byte enters its
+# 32-byte FIFO, the PIO engine once a whole run is out, and a run can hold
+# all the model keeps queued, about 256 bytes or 0.27 s at 9600 baud. The
+# last 32 bytes then take up to 35 ms more to leave.
+QUIET_S = 0.5
+TX_FIFO_DRAIN_S = 0.035
+
+
+def wait_until_silent(receiver, timeout=5.0):
+    start = receiver.harness.clock()
+    seen, since = None, start
+    while True:
+        now = receiver.harness.clock()
+        state = (receiver.get("sentences"), receiver.stats()["bytes_tx"])
+        if state != seen:
+            seen, since = state, now
+        elif now - since >= QUIET_S:
+            break
+        assert now - start < timeout, f"the part is still sending: {state}"
+        receiver.harness.sleep(0.05)
+    receiver.harness.sleep(TX_FIFO_DRAIN_S)
+
+
 # The clock runs by default and the part sends a fix every interval on its
 # own. The cases that count fixes pause it and step it by hand.
 @pytest.fixture(scope="module")
@@ -89,6 +112,10 @@ def receiver(harness, dut, fixture):
     harness.run(attach(fixture, IMAGES[image]))
     r = Receiver(harness)
     r.pause()
+    # The DUT is not reset into the part's live output: a reset during it
+    # puts stray bytes on the DUT's TX line. Zephyr's u-blox driver needs
+    # the part present at boot, so the part's power-up epoch leaves first.
+    wait_until_silent(r)
     dut.reset()
     dut.ping()
     yield r
