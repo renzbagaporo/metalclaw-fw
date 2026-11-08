@@ -1742,8 +1742,7 @@ static int neo_m8n_set(struct mclw_instance *inst, size_t property, const struct
 
 // One epoch per fix interval, on a grid from the first so the UTC it
 // carries stays whole; a jump of several intervals still produces one
-// epoch, and the grid restarts from it. Between epochs, the epoch's NMEA
-// leaves as the port drains.
+// epoch, and the grid restarts from it.
 static void neo_m8n_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
     struct neo_m8n_state *state = inst->state;
     uint64_t rate_us = (uint64_t)state->rate_ms * 1000u;
@@ -1774,6 +1773,12 @@ static void neo_m8n_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
     nmea_pump(state);
 }
 
+// The epoch's NMEA leaves as the port drains, in real time, also while the
+// clock is paused: the part has already decided to send it.
+static void neo_m8n_poll(struct mclw_instance *inst) {
+    nmea_pump(inst->state);
+}
+
 static const struct mclw_model_ops neo_m8n_ops = {
     .init = neo_m8n_init,
     .deinit = neo_m8n_deinit,
@@ -1785,6 +1790,7 @@ static const struct mclw_model_ops neo_m8n_ops = {
     .read_region = NULL,
     .write_region = NULL,
     .time_advanced = neo_m8n_time_advanced,
+    .poll = neo_m8n_poll,
     .usb_rx = NULL,
 };
 

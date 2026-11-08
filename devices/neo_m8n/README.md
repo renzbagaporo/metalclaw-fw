@@ -164,14 +164,15 @@ as 4.0.
 
 The part queues output and drops what does not fit; the model keeps at most
 about 256 bytes waiting in the engine and sends an epoch's next sentence
-from `time_advanced` once the engine has room, so a UBX reply never waits
+from its `poll` once the engine has room, so a UBX reply never waits
 long behind NMEA and the baud switch after `CFG-PRT` drains quickly. At 9600
 baud all six sentences with 32 satellites, about 940 bytes, fit every
 second. What an epoch has not sent when the next begins is dropped whole,
 never cut, and counted in `dropped`; so is what is pending when `CFG-PRT`
-turns NMEA output off. With the clock paused nothing feeds the port between
-`advance_us()` steps: a step sends an epoch's first sentences (RMC, VTG and
-GGA fit) and the next step drops the rest.
+turns NMEA output off. The epoch is decided on the simulation clock, but its
+sentences leave in real time as on the part, also while the clock is
+paused: an `advance_us()` step that starts an epoch is followed by the whole
+epoch at line rate, unless the next step starts another first.
 
 ## The Zephyr driver this is built against
 

@@ -109,7 +109,8 @@ where it is. On the same millisecond tick, paused or not, the worker calls
 every model's `poll`: what the part decides follows the clock in
 `time_advanced`, and what it already decided to send leaves in real time
 from `poll`, as a real part's queued output drains at line rate whatever the
-script does with the clock. Each instance carries a 16-entry trace ring that models append
+script does with the clock (`neo_m8n` feeds an epoch's NMEA to the UART
+there). Each instance carries a 16-entry trace ring that models append
 to with `mclw_trace()`, stamped with simulation time; a kind is one of
 `spi`, `i2c`, `uart`, `command`, `state`, `error`. Every engine's counters
 reach a binding or a host through one runtime call,
