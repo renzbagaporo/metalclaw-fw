@@ -58,8 +58,12 @@ PING. If any of that fails, no case runs.
 what it printed. `harness.serial_port(interface)` waits for the serial port
 the harness serves for an attached device and returns its
 `/dev/serial/by-id/` path, matched by serial number and by the interface
-string read back from sysfs. `dut.command(line)` sends one mailbox command
-and returns the parsed result; a command that blocks the DUT while the
+string read back from sysfs. Attaching or detaching a device with a USB
+interface re-enumerates the harness; `harness.wait_interface(name)` waits
+until it is back with that interface string, `present=False` until it is
+back without it, and then for its REPL. It goes by the strings, not by a
+tty, which in emulated time can outlive the change. `dut.command(line)`
+sends one mailbox command and returns the parsed result; a command that blocks the DUT while the
 harness has to act (a radio receive waiting for a frame the case injects)
 is sent with `dut.start(line)` and collected with `dut.finish(sequence)`;
 `dut.reset()` resets the DUT through the probe;

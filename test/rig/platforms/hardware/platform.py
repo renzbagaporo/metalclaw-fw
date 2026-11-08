@@ -256,6 +256,24 @@ class Harness:
                 raise TimeoutError(f"harness {self.serial} serves no serial port {interface!r}")
             time.sleep(0.25)
 
+    # Until `settled` holds for the interface strings, then until the REPL's
+    # tty is back. A tty proves nothing on its own: in emulated time the old
+    # enumeration's ttys can outlive the change. Nor does an empty list, which
+    # is what a re-enumerating harness reads as.
+    def wait_interfaces(self, settled, what: str, timeout: float = 15.0) -> None:
+        deadline = time.monotonic() + timeout
+        while not settled(self.usb_interfaces()):
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"harness {self.serial} did not {what}")
+            time.sleep(0.25)
+        self.wait_enumerated(timeout)
+
+    # Attaching or detaching a device with a USB interface re-enumerates the
+    # harness with or without that interface's string.
+    def wait_interface(self, name: str, present: bool = True, timeout: float = 15.0) -> None:
+        self.wait_interfaces(lambda found: bool(found) and (name in found) == present,
+                             f"enumerate {'with' if present else 'without'} {name!r}", timeout)
+
     def wait_enumerated(self, timeout: float = 15.0) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -344,11 +362,17 @@ def harness() -> Harness:
     # Instances outlive a rig run; a leftover device would hold pins a case
     # needs. The probe stays, detaching it would re-enumerate the harness;
     # detaching another USB-facing device does, and is waited out.
-    out = h.run(DETACH_ALL_BUT_PROBE)
-    if "usb" in out.split():
-        time.sleep(1.5)
-        h.wait_enumerated()
+    detach_all_but_probe(h)
     return h
+
+
+# The harness cannot name a detached device's interface strings, but its
+# re-enumeration drops them, so the strings it reports change.
+def detach_all_but_probe(harness: Harness) -> None:
+    before = harness.usb_interfaces()
+    if "usb" in harness.run(DETACH_ALL_BUT_PROBE).split():
+        harness.wait_interfaces(lambda found: bool(found) and found != before,
+                                "re-enumerate without the detached devices")
 
 
 @pytest.fixture(scope="session")
@@ -357,8 +381,7 @@ def probe(harness: Harness, fixture: dict):
     # interface re-enumerates the harness once.
     if "CMSIS-DAP v2" not in harness.usb_interfaces():
         harness.run(f"import metalclaw\nmetalclaw.attach('swd_probe', 'dut', swd={fixture['swd']})")
-        time.sleep(1.5)
-        harness.wait_enumerated()
+        harness.wait_interface("CMSIS-DAP v2")
     return harness.probe_id
 
 

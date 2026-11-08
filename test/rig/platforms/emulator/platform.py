@@ -5,7 +5,6 @@
 
 import math
 import os
-import time
 from pathlib import Path
 
 import pytest
@@ -13,13 +12,13 @@ import pytest
 from test.rig.platforms.emulator.bench import Bench, BenchError
 from test.rig.platforms.hardware.platform import (
     _DEFAULT_MAILBOX_TIMEOUT,
-    DETACH_ALL_BUT_PROBE,
     FIXTURE,
     ROOT,
     Dut,
     Harness,
     _mailbox_timeout,
     _required,
+    detach_all_but_probe,
     dut_image,
     fixture_for,
 )
@@ -56,6 +55,12 @@ class EmulatedHarness(Harness):
 
     def serial_port(self, interface: str, timeout: float = ENUMERATION_TIMEOUT_S) -> str:
         return super().serial_port(interface, timeout)
+
+    def wait_interfaces(self, settled, what: str, timeout: float = ENUMERATION_TIMEOUT_S) -> None:
+        super().wait_interfaces(settled, what, timeout)
+
+    def wait_interface(self, name: str, present: bool = True, timeout: float = ENUMERATION_TIMEOUT_S) -> None:
+        super().wait_interface(name, present, timeout)
 
     # REPL deadlines are in bench seconds too, and the harness runs in the
     # same emulated time as the DUT.
@@ -136,25 +141,18 @@ def bench():
 def harness(bench) -> Harness:
     h = EmulatedHarness(_serial())
     h.wait_enumerated()
-    out = h.run(DETACH_ALL_BUT_PROBE)
-    if "usb" in out.split():
-        time.sleep(1.5)
-        h.wait_enumerated()
+    detach_all_but_probe(h)
     return h
 
 
 @pytest.fixture(scope="session")
 def probe(harness: Harness, fixture: dict):
-    # The old enumeration's tty can outlive the attach in emulated time, so
-    # the wait is for the probe's own interface, not for any tty.
     if "CMSIS-DAP v2" not in harness.usb_interfaces():
         harness.run(f"import metalclaw\nmetalclaw.attach('swd_probe', 'dut', swd={fixture['swd']})")
-        deadline = time.monotonic() + ENUMERATION_TIMEOUT_S
-        while "CMSIS-DAP v2" not in harness.usb_interfaces():
-            if time.monotonic() >= deadline:
-                pytest.exit("the harness never enumerated CMSIS-DAP v2 after attaching swd_probe", returncode=2)
-            time.sleep(1.0)
-        harness.wait_enumerated()
+        try:
+            harness.wait_interface("CMSIS-DAP v2")
+        except TimeoutError as error:
+            pytest.exit(f"{error} after attaching swd_probe", returncode=2)
     return harness.probe_id
 
 

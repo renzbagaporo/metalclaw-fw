@@ -7,8 +7,9 @@ import pytest
 from test.rig.platforms.emulator import platform
 
 
-def test_the_emulated_harness_waits_for_serial_ports_as_long_as_for_enumeration():
-    default = inspect.signature(platform.EmulatedHarness.serial_port).parameters["timeout"].default
+@pytest.mark.parametrize("wait", ["serial_port", "wait_interface", "wait_interfaces"])
+def test_the_emulated_harness_waits_on_usb_as_long_as_for_enumeration(wait):
+    default = inspect.signature(getattr(platform.EmulatedHarness, wait)).parameters["timeout"].default
     assert default == platform.ENUMERATION_TIMEOUT_S
 
 
