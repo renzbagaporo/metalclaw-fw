@@ -217,11 +217,14 @@ def nmea_receiver(harness, dut, fixture):
     image = dut.image_name()
     if image not in NMEA_IMAGES:
         pytest.skip(f"the DUT image does not read NMEA ({image})")
+    # The part powers up after the board: Zephyr's generic NMEA driver misses
+    # fixes for a few seconds after the board boots into NMEA traffic. The
+    # driver sends nothing, so the part's power-up state is its own.
+    dut.reset()
+    dut.ping()
     harness.run(attach(fixture, NMEA_IMAGES[image]))
     r = Receiver(harness)
     r.pause()
-    dut.reset()
-    dut.ping()
     yield r
     r.resume()
 
