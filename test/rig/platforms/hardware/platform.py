@@ -23,6 +23,10 @@ from test.rig.platforms.hardware.repl import Repl
 ROOT = Path(__file__).resolve().parents[4]
 DUT_MAILBOX_TIMEOUT_S = 10.0
 DUT_MAILBOX_TIMEOUT_ENV = "METALCLAW_DUT_MAILBOX_TIMEOUT_S"
+# Armv6-M and Armv8-M DHCSR: the debug key with C_DEBUGEN and C_HALT clear
+# runs the core and turns halting debug off.
+DHCSR = 0xE000EDF0
+DHCSR_RESUME = 0xA05F0000
 _DEFAULT_MAILBOX_TIMEOUT = object()
 
 FIXTURE = {
@@ -266,7 +270,8 @@ class Dut:
         # probe-rs flashes and resets; the mailbox goes through DapMemory,
         # because every probe-rs session halts the DUT (see dap.py).
         chip = dut_chip(image)
-        self.probe = ProbeRs(harness.probe_id, chip.chip_description, chip=chip.probe_chip)
+        self.probe = ProbeRs(harness.probe_id, chip.chip_description, chip=chip.probe_chip,
+                             on_failure=self.resume)
         self.memory = DapMemory(harness.serial, chip.debug_port)
         self.mailbox = Mailbox(self.memory, image, toolchain_dir)
 
@@ -280,6 +285,12 @@ class Dut:
     def reset(self) -> None:
         self.probe.reset()
         self.mailbox.last_result = 0
+
+    # A probe-rs session halts the core while it attaches and resumes it as
+    # it ends. One cut off by its deadline leaves the core halted with debug
+    # on, and every later mailbox command would wait out its own deadline.
+    def resume(self) -> None:
+        self.memory.write_words(DHCSR, [DHCSR_RESUME])
 
     def ping(self, timeout=_DEFAULT_MAILBOX_TIMEOUT) -> dict:
         timeout = _mailbox_timeout(timeout)

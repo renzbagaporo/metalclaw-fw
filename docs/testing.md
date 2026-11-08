@@ -294,6 +294,11 @@ This setting applies only to downloading the DUT image.
 `METALCLAW_PROBE_RESET_TIMEOUT_S` does the same for each `probe-rs reset`,
 and `METALCLAW_PROBE_ACCESS_TIMEOUT_S` for each `probe-rs read` and `write`;
 both default to 30.
+A probe-rs session halts the DUT's core while it attaches and resumes it
+as it ends, so one cut off by its deadline leaves the core halted with
+halting debug on. After any failed probe-rs run the rig resumes the core
+through the DAP client (DHCSR with `C_HALT` and `C_DEBUGEN` clear) before
+raising the error, so the cases after it still reach the mailbox.
 
 `METALCLAW_DUT_MAILBOX_TIMEOUT_S` sets the configured host per-stage mailbox
 budget in seconds when `Dut.ping()` or `Dut.command()` omits its timeout. It

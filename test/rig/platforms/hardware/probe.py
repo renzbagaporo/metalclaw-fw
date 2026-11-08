@@ -80,6 +80,7 @@ class ProbeRs:
         speed_khz=DEFAULT_SPEED_KHZ,
         chip=DEFAULT_CHIP,
         executable=None,
+        on_failure=None,
     ):
         self.probe_id = probe_id
         # None uses probe-rs's built-in description of the chip.
@@ -87,6 +88,7 @@ class ProbeRs:
         self.speed_khz = int(speed_khz)
         self.chip = chip
         self.executable = str(executable or os.environ.get(PROBE_RS_ENV) or "probe-rs")
+        self.on_failure = on_failure
         if not self.probe_id:
             raise ProbeError("a probe id is required; the rig never scans for a probe")
         if self.chip_description is not None and not self.chip_description.is_file():
@@ -116,6 +118,17 @@ class ProbeRs:
         return argv
 
     def _run(self, argv, timeout):
+        try:
+            return self._session(argv, timeout)
+        except ProbeError as error:
+            if self.on_failure is not None:
+                try:
+                    self.on_failure()
+                except Exception as cleanup:
+                    error.add_note(f"recovering after the failed probe-rs run failed too: {cleanup!r}")
+            raise
+
+    def _session(self, argv, timeout):
         environment = {
             name: value
             for name, value in os.environ.items()

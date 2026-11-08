@@ -232,3 +232,18 @@ def test_probe_failure_is_not_hidden_by_configured_budget(method, slow_dut, monk
         invoke(slow_dut.dut, method)
     assert isinstance(caught.value.__cause__, ProbeError)
     assert slow_dut.probe.events == ["prepare_read"]
+
+
+class RecordingMemory:
+    def __init__(self):
+        self.writes = []
+
+    def write_words(self, address, words, timeout=None):
+        self.writes.append((address, list(words)))
+
+
+def test_resuming_runs_the_core_with_halting_debug_off():
+    dut = make_dut(RecordingMailbox())
+    dut.memory = RecordingMemory()
+    dut.resume()
+    assert dut.memory.writes == [(0xE000EDF0, [0xA05F0000])]

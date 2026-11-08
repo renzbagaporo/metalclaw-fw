@@ -269,3 +269,47 @@ def test_download_preserves_missing_executable_error(probe_files):
         probe.download(image)
     assert isinstance(caught.value.__cause__, FileNotFoundError)
     assert caught.value.argv[0] == probe.executable
+
+
+def test_a_timed_out_run_calls_on_failure_before_raising(probe_files, monkeypatch):
+    _, _, executable = probe_files
+    calls = []
+    probe = ProbeRs("test-probe-id", None, executable=executable, on_failure=lambda: calls.append("recover"))
+    fake_executable(executable, "import time\ntime.sleep(5)\n")
+    monkeypatch.setenv(ACCESS_TIMEOUT_ENV, "0.1")
+    with pytest.raises(ProbeError, match="timed out after 0.1 s"):
+        probe.read_words(0x20001000, 1)
+    assert calls == ["recover"]
+
+
+def test_a_failed_run_calls_on_failure_before_raising(probe_files):
+    _, _, executable = probe_files
+    calls = []
+    probe = ProbeRs("test-probe-id", None, executable=executable, on_failure=lambda: calls.append("recover"))
+    fake_executable(executable, "import sys\nsys.exit(1)\n")
+    with pytest.raises(ProbeError, match="exited 1"):
+        probe.reset()
+    assert calls == ["recover"]
+
+
+def test_a_successful_run_does_not_call_on_failure(probe_files, runs):
+    _, image, executable = probe_files
+    calls = []
+    probe = ProbeRs("test-probe-id", None, executable=executable, on_failure=lambda: calls.append("recover"))
+    probe.download(image)
+    probe.reset()
+    probe.read_words(0x20001000, 1)
+    assert calls == []
+
+
+def test_a_failing_recovery_keeps_the_probe_error(probe_files):
+    _, _, executable = probe_files
+
+    def recover():
+        raise OSError("no harness")
+
+    probe = ProbeRs("test-probe-id", None, executable=executable, on_failure=recover)
+    fake_executable(executable, "import sys\nsys.exit(2)\n")
+    with pytest.raises(ProbeError, match="exited 2") as caught:
+        probe.reset()
+    assert any("no harness" in note for note in caught.value.__notes__)
