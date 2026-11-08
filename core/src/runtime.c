@@ -34,6 +34,7 @@ static size_t attached_count;
 static uint64_t clock_us;
 static bool clock_paused;
 static uint64_t clock_last_real_us;
+static uint64_t tick_last_real_us;
 
 #define CLOCK_TICK_US 1000u
 
@@ -707,11 +708,18 @@ static void clock_tick(void *ctx) {
     (void)ctx;
     uint64_t real = mclw_hal_time_us();
 
-    if (clock_paused || real - clock_last_real_us < CLOCK_TICK_US || !mclw_hal_try_lock()) {
+    if (real - tick_last_real_us < CLOCK_TICK_US || !mclw_hal_try_lock()) {
         return;
     }
+    tick_last_real_us = real;
     if (!clock_paused) {
         advance(real - clock_last_real_us, real);
+    }
+    for (size_t i = 0; i < METALCLAW_INSTANCES_MAX; i++) {
+        struct mclw_instance *inst = &instances[i];
+        if (inst->attached && inst->model->ops->poll != NULL) {
+            inst->model->ops->poll(inst);
+        }
     }
     mclw_hal_unlock();
 }
@@ -755,6 +763,7 @@ bool mclw_clock_running(void) {
 
 void mclw_runtime_init(void) {
     clock_last_real_us = mclw_hal_time_us();
+    tick_last_real_us = clock_last_real_us;
     (void)mclw_hal_poll_register(clock_tick, NULL);
 }
 

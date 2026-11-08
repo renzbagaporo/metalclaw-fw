@@ -105,6 +105,12 @@ struct mclw_model_ops {
     // The clock moved. Runs on the worker under the runtime lock, as often
     // as once a millisecond while the clock runs.
     void (*time_advanced)(struct mclw_instance *inst, uint64_t now_us);
+    // Runs on the worker under the runtime lock about once a millisecond of
+    // real time, whether the clock runs or not, for what carries on in real
+    // time even while the clock is paused: output already decided leaving
+    // at line rate. What the part decides, and when, belongs in
+    // time_advanced.
+    void (*poll)(struct mclw_instance *inst);
     // Bytes arrived on the usb_interface binding `binding`. Runs in the USB
     // task context under the runtime lock. Returns how many it took: a
     // vendor interface delivers one packet, answered through

@@ -58,7 +58,7 @@ an ops table:
 - **state_size**: bytes of zeroed state the runtime hands the model.
 - **ops**: `init` and `deinit` are required; `reset`, `get`, `set`,
   `inject_fault`, `clear_faults`, `read_region`, `write_region`,
-  `time_advanced`, `usb_rx`, `usb_control` are optional and report
+  `time_advanced`, `poll`, `usb_rx`, `usb_control` are optional and report
   `ENOTSUP` when absent.
 - **config**: the model's own constant data, for one source that defines
   several models (`icm4268x` picks its `WHO_AM_I` from it, `cellular` its
@@ -105,7 +105,11 @@ microsecond while `time_advanced` keeps its millisecond cadence. `pause()`
 stops it;
 `advance_us()` then steps it by exactly the amount asked, which is how a
 case counts frames deterministically; `resume()` lets it run again from
-where it is. Each instance carries a 16-entry trace ring that models append
+where it is. On the same millisecond tick, paused or not, the worker calls
+every model's `poll`: what the part decides follows the clock in
+`time_advanced`, and what it already decided to send leaves in real time
+from `poll`, as a real part's queued output drains at line rate whatever the
+script does with the clock. Each instance carries a 16-entry trace ring that models append
 to with `mclw_trace()`, stamped with simulation time; a kind is one of
 `spi`, `i2c`, `uart`, `command`, `state`, `error`. Every engine's counters
 reach a binding or a host through one runtime call,
@@ -122,7 +126,7 @@ enabled on core 1, so MicroPython's atomic sections never delay one.
 | --- | --- | --- |
 | `get`, `set`, `reset`, regions, faults | core 0, the script's thread | the runtime lock |
 | `usb_rx`, `usb_control` | core 0, the USB task | the runtime lock |
-| `time_advanced` | the worker | the runtime lock |
+| `time_advanced`, `poll` | the worker | the runtime lock |
 | `uart` `on_rx` | the worker | the runtime lock |
 | `command` `on_window` | the worker | the runtime lock |
 | `regmap` `on_write`, `stream` `on_frame` | an engine interrupt | the critical section |
