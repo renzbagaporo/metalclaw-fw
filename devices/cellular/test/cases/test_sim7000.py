@@ -9,8 +9,8 @@ import zlib
 
 import pytest
 
-from .common import (CLOSED_PORT, ECHO_PORT, ECHO_RING, FILE, FILE_NAME, FILE_PATH, HTTP_PORT, REQUEST_SIZE, Modem,
-                     Uart, answer, attach, gpio, info_lines, pattern)
+from .common import (CLOSED_PORT, ECHO_PORT, ECHO_RING, FILE, FILE_NAME, FILE_PATH, HTTP_PORT, REQUEST_SIZE,
+                     SMS_INBOX_SIZE, Modem, Uart, answer, attach, deliver_pdu, gpio, info_lines, pattern)
 
 MODEL = "sim7000"
 IMAGE = "cellular/sim7000"
@@ -344,6 +344,23 @@ def test_sms_send(dut, on):
     assert answer(uart.wait(10000), "+CMGS: ").isdigit()
     assert on.get("sms_sent") == sent + 1
     assert on.text_region("sms_outbox", SMS_OUTBOX_SIZE) == b"+447700900123\nHello from Metalclaw"
+
+
+# Eleven short messages list as about 570 bytes, past the UART engine's
+# 512-byte ring; the rest waits in the part's 704-byte FIFO. With the clock
+# paused and the DUT only listening, it must still leave in real time.
+def test_a_list_past_the_uart_ring_leaves_whole_with_the_clock_paused(dut, on):
+    uart = on.uart
+    pdus = [deliver_pdu("+1", "a", (26, 1, 1, 0, 0, i, 0)) for i in range(11)]
+    on.write_region("sms_inbox", b"\n".join(pdus), SMS_INBOX_SIZE)
+    assert info_lines(uart.at("AT+CMGF=0")) == []
+    on.harness.run("import metalclaw\nmetalclaw.pause()\n")
+    try:
+        text = uart.at("AT+CMGL=4")
+    finally:
+        on.harness.run("import metalclaw\nmetalclaw.resume()\n")
+    assert len(text) > 512, text
+    assert info_lines(text)[1::2] == [p.decode() for p in pdus]
 
 
 def test_cpowd_powers_down_with_its_message(dut, on):
