@@ -2,7 +2,6 @@
 
 import random
 import threading
-import time
 
 import pytest
 import serial
@@ -52,6 +51,29 @@ class Bridge:
     def open(self, baud=BAUD, **options):
         return serial.Serial(self.path, baud, timeout=0.1, exclusive=True, **options)
 
+    # What comes back of `payload` within `timeout` on the harness's clock.
+    # Each clock read is a REPL round trip, so the clock is read only while
+    # the port is idle, never while a burst flows.
+    def round_trip(self, port, payload, timeout):
+        port.reset_input_buffer()
+        got = bytearray()
+
+        def write():
+            port.write(payload)
+            port.flush()
+
+        deadline = self.harness.clock() + timeout
+        writer = threading.Thread(target=write)
+        writer.start()
+        while len(got) < len(payload):
+            chunk = port.read(len(payload) - len(got))
+            got += chunk
+            if not chunk and self.harness.clock() >= deadline:
+                break
+        while writer.is_alive() and self.harness.clock() < deadline:
+            writer.join(0.1)
+        return bytes(got)
+
 
 # Attaching adds a serial function to the harness's USB device, which
 # re-enumerates it once; detaching does again. The DUT image echoes every
@@ -73,23 +95,6 @@ def fresh(bridge):
     return bridge
 
 
-def round_trip(port, payload, timeout):
-    port.reset_input_buffer()
-    got = bytearray()
-
-    def write():
-        port.write(payload)
-        port.flush()
-
-    writer = threading.Thread(target=write)
-    writer.start()
-    deadline = time.monotonic() + timeout
-    while len(got) < len(payload) and time.monotonic() < deadline:
-        got += port.read(len(payload) - len(got))
-    writer.join(timeout)
-    return bytes(got)
-
-
 def line_seconds(n, baud=BAUD):
     return n * 10 / baud
 
@@ -102,7 +107,7 @@ def test_the_bridge_is_a_serial_port_named_for_the_console(harness, bridge):
 def test_bytes_round_trip_through_the_dut(fresh):
     payload = bytes(range(256))
     with fresh.open() as port:
-        assert round_trip(port, payload, 2.0) == payload
+        assert fresh.round_trip(port, payload, 2.0) == payload
     assert fresh.get("from_host") == len(payload)
     assert fresh.get("to_host") == len(payload)
 
@@ -111,7 +116,7 @@ def test_a_long_burst_round_trips_without_loss(fresh):
     payload = random.Random(1).randbytes(BURST)
     before = fresh.stats()
     with fresh.open() as port:
-        got = round_trip(port, payload, line_seconds(BURST) * 2 + 2)
+        got = fresh.round_trip(port, payload, line_seconds(BURST) * 2 + 2)
     assert len(got) == len(payload)
     assert got == payload
     assert fresh.get("from_host") == BURST
@@ -140,7 +145,7 @@ def test_opening_the_port_drops_what_waited_for_a_host(fresh):
         while fresh.harness.clock() < deadline:
             stale += port.read(4096)
         assert len(stale) <= 256 + 64, len(stale)
-        assert round_trip(port, b"fresh", 1.0) == b"fresh"
+        assert fresh.round_trip(port, b"fresh", 1.0) == b"fresh"
 
 
 def test_line_coding_is_ignored_unless_asked(fresh):
@@ -148,7 +153,7 @@ def test_line_coding_is_ignored_unless_asked(fresh):
         port.baudrate = 9600
         fresh.harness.sleep(0.1)
         assert fresh.get("baud") == BAUD
-        assert round_trip(port, b"still 115200", 1.0) == b"still 115200"
+        assert fresh.round_trip(port, b"still 115200", 1.0) == b"still 115200"
 
 
 def test_line_coding_is_followed_when_asked(fresh):
@@ -160,14 +165,14 @@ def test_line_coding_is_followed_when_asked(fresh):
         port.baudrate = BAUD
         fresh.harness.sleep(0.1)
         assert fresh.get("baud") == BAUD
-        assert round_trip(port, b"back at 115200", 1.0) == b"back at 115200"
+        assert fresh.round_trip(port, b"back at 115200", 1.0) == b"back at 115200"
         refused = fresh.get("codings_refused")
         port.parity = serial.PARITY_MARK
         fresh.harness.sleep(0.1)
         assert fresh.get("codings_refused") == refused + 1
         port.parity = serial.PARITY_NONE
         fresh.harness.sleep(0.1)
-        assert round_trip(port, b"8N1 again", 1.0) == b"8N1 again"
+        assert fresh.round_trip(port, b"8N1 again", 1.0) == b"8N1 again"
     fresh.reset(factory=True)
     assert fresh.get("follow_line_coding") is False
 
@@ -185,6 +190,6 @@ def test_dtr_and_rts_are_reported_and_reset_nothing(dut, fresh):
         port.rts = True
         fresh.harness.sleep(0.1)
         assert fresh.get("rts") is True
-        assert round_trip(port, b"no reset", 1.0) == b"no reset"
+        assert fresh.round_trip(port, b"no reset", 1.0) == b"no reset"
     assert dut.command("ID")["boots"] == boots
     assert dut.ping()["status"] == "ok"
