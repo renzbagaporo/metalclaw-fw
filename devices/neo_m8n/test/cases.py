@@ -208,6 +208,8 @@ NMEA_FIXES = [
 ]
 NMEA_HDOP = 150
 NMEA_STEP_S = 0.6
+# RMC, VTG, GGA, two GSA, two GPGSV, two GLGSV, GLL with 12 satellites.
+NMEA_EPOCH_SENTENCES = 10
 
 
 @pytest.fixture(scope="module")
@@ -217,9 +219,6 @@ def nmea_receiver(harness, dut, fixture):
         pytest.skip(f"the DUT image does not read NMEA ({image})")
     harness.run(attach(fixture, NMEA_IMAGES[image]))
     r = Receiver(harness)
-    # The part's power-up epoch leaves at 9600 baud; a paused clock would hold
-    # what is still queued and the DUT would see half an epoch.
-    harness.sleep(NMEA_STEP_S)
     r.pause()
     dut.reset()
     dut.ping()
@@ -228,8 +227,8 @@ def nmea_receiver(harness, dut, fixture):
 
 
 def nmea_step(receiver):
-    # One epoch with the clock paused: RMC, VTG and GGA leave at once and
-    # take about 200 ms at 9600 baud.
+    # One epoch with the clock paused. It leaves at 9600 baud in real time;
+    # RMC, VTG and GGA, all the driver reads, take about 200 ms.
     receiver.advance(FIX_RATE_MS)
     receiver.harness.sleep(NMEA_STEP_S)
 
@@ -282,6 +281,29 @@ def test_time_without_a_position_is_no_fix(dut, nmea_receiver):
     assert gnss(dut)["fixes"] == before + 1
 
 
+# The part decides an epoch on the simulation clock and sends it in real
+# time. The engine holds 256 bytes at a time and the epoch is about 650, so a
+# step leaves most of it queued in the model; it must still all go out.
+def test_an_epoch_leaves_whole_while_the_clock_is_paused(dut, nmea_receiver):
+    nmea_receiver.set(latitude=100000000, longitude=200000000, satellites=12, fix=3,
+                      time=(2026, 10, 3, 11, 0, 0))
+    before = gnss(dut)["fixes"]
+    sentences = nmea_receiver.get("sentences")
+    dropped = nmea_receiver.get("dropped")
+    nmea_receiver.harness.run(f"import metalclaw\nmetalclaw.advance_us({FIX_RATE_MS * 1000})\n")
+    queued = nmea_receiver.get("sentences") - sentences
+    bytes_tx = nmea_receiver.stats()["bytes_tx"]
+    nmea_receiver.harness.sleep(1.0)
+    assert queued < NMEA_EPOCH_SENTENCES
+    assert nmea_receiver.get("sentences") - sentences == NMEA_EPOCH_SENTENCES
+    assert nmea_receiver.get("dropped") == dropped
+    assert nmea_receiver.stats()["bytes_tx"] > bytes_tx
+    result = gnss(dut)
+    assert result["fixes"] == before + 1
+    assert result["satellites"] == 12
+    assert result["latitude_ndeg"] == 10000000000
+
+
 def test_nmea_streams_every_second_without_dropping(dut, nmea_receiver):
     nmea_receiver.set(latitude=100000000, longitude=200000000, satellites=12, fix=3,
                       time=(2026, 10, 3, 10, 0, 0))
@@ -300,8 +322,7 @@ def test_nmea_streams_every_second_without_dropping(dut, nmea_receiver):
         after = gnss(dut)["fixes"]
         t3 = nmea_receiver.harness.clock()
         assert nmea_receiver.get("dropped") == dropped
-        # RMC, VTG, GGA, two GSA, two GPGSV, two GLGSV, GLL every second.
-        assert nmea_receiver.get("sentences") - sentences >= 2 * 10
+        assert nmea_receiver.get("sentences") - sentences >= 2 * NMEA_EPOCH_SENTENCES
     finally:
         nmea_receiver.pause()
     assert int(t2 - t1) - 1 <= after - before <= int(t3 - t0) + 1
