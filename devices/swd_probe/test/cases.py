@@ -31,3 +31,11 @@ def test_probe_counts_transfers(harness, dut):
     dut.probe.read_words(CPUID, 1)
     after = int(harness.run("import metalclaw\nprint(metalclaw.instances()[0].transfers)"))
     assert after > before
+
+
+# A download is the slowest thing an emulated bench does, so the smoke
+# image's run carries it for every image.
+def test_the_probe_flashes_and_verifies_the_image(dut):
+    dut.require_image("smoke")
+    dut.flash()
+    assert dut.ping()["status"] == "ok"

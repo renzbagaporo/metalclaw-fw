@@ -95,4 +95,6 @@ its CMSIS-DAP interface on USB, that probe-rs and the rig's own DAP client
 (`test/rig/platforms/hardware/dap.py`) both read the DUT's `CPUID` through
 it, and that such a read moves the model's `transfers` counter. probe-rs
 halts the DUT while its session attaches and detaches; the DAP client goes
-straight to the memory access port and does not.
+straight to the memory access port and does not. On the `smoke` image, one
+case downloads the image through the probe with `probe-rs download --verify`,
+resets the DUT and waits for it to answer PING.
