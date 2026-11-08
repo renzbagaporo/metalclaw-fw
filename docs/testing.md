@@ -181,9 +181,14 @@ rig's own CMSIS-DAP client, which carries the mailbox, reads
 `CMSIS_DAP_USB_TIMEOUT_MS` too, defaulting to 1000.
 `just test emulator` uses that build, from `just setup-emulator-probe-rs`.
 
-The pinned Renode models what the `smoke` image needs: both cores, PIO
-and DMA on the RP2040, its USB device, and the RP2350's debug port behind
-the wired SWD pins. Device images run as their models land.
+The pinned Renode models both boards' cores, the RP2040's PIO, DMA and USB
+device, the RP2350's debug port behind the wired SWD pins, and the UART,
+SPI and I2C controllers of both chips at pin level across the fixture's
+wiring. The wires between the boards deliver each edge a fixed latency
+after its sender drove it (300 µs by default), so bit timing holds while the
+DUT sees a reply one round trip later than on the bench: an SPI transfer
+ends about 600 µs late on the DUT's side, and the 20 µs gaps the burst cases
+leave between windows reach the harness as about 620 µs.
 
 `.github/workflows/emulator.yml` runs the emulator platform when started
 by hand from the Actions tab or with `gh workflow run emulator.yml`. It
