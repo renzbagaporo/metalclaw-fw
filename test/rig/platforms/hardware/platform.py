@@ -2,6 +2,7 @@
 # The hardware platform: a real harness on USB and a real DUT behind its
 # probe. It refuses to run without explicit identities and never scans.
 
+import errno
 import glob
 import math
 import os
@@ -206,6 +207,8 @@ class Harness:
         self.run(f"import time\ntime.sleep_us({round(seconds * 1e6)})\n", seconds + 5.0)
 
     # By serial: another harness on the same machine has the same VID:PID.
+    # A device that leaves mid-read is re-enumerating, so it has no
+    # interfaces yet.
     def usb_interfaces(self) -> list[str]:
         device = usb.core.find(idVendor=dap.VENDOR_ID, idProduct=dap.PRODUCT_ID, serial_number=self.serial)
         if device is None:
@@ -213,6 +216,10 @@ class Harness:
         try:
             return [usb.util.get_string(device, interface.iInterface)
                     for interface in device.get_active_configuration() if interface.iInterface]
+        except usb.core.USBError as error:
+            if error.errno != errno.ENODEV:
+                raise
+            return []
         finally:
             usb.util.dispose_resources(device)
 
