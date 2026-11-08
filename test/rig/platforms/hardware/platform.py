@@ -120,6 +120,17 @@ def _required(name: str) -> str:
     return value
 
 
+# The DUT image is built per device: `just build-dut bmp388` puts Zephyr's
+# bmp388 driver in it. METALCLAW_DUT_DEVICE picks that image; the default is
+# the smoke image with no device.
+def dut_image() -> Path:
+    device = os.environ.get("METALCLAW_DUT_DEVICE", "smoke")
+    image = Path(os.environ.get("METALCLAW_DUT_IMAGE", ROOT / f"build/dut/{device}/zephyr/zephyr.elf"))
+    if not image.is_file():
+        pytest.exit(f"no DUT image at {image}; run `just build-dut {'' if device == 'smoke' else device}` or set METALCLAW_DUT_IMAGE", returncode=2)
+    return image
+
+
 def _mailbox_timeout(value):
     if value is _DEFAULT_MAILBOX_TIMEOUT:
         value = os.environ.get(DUT_MAILBOX_TIMEOUT_ENV, DUT_MAILBOX_TIMEOUT_S)
@@ -331,14 +342,7 @@ def probe(harness: Harness, fixture: dict):
 
 @pytest.fixture(scope="session")
 def dut(harness: Harness, probe, fixture: dict) -> Dut:
-    # The DUT image is built per device: `just build-dut bmp388` puts Zephyr's
-    # bmp388 driver in it. METALCLAW_DUT_DEVICE picks that image; the default
-    # is the smoke image with no device.
-    device = os.environ.get("METALCLAW_DUT_DEVICE", "smoke")
-    image = Path(os.environ.get("METALCLAW_DUT_IMAGE", ROOT / f"build/dut/{device}/zephyr/zephyr.elf"))
-    if not image.is_file():
-        pytest.exit(f"no DUT image at {image}; run `just build-dut {'' if device == 'smoke' else device}` or set METALCLAW_DUT_IMAGE", returncode=2)
-    d = Dut(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
+    d = Dut(harness, dut_image(), _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
     idle = fixture.get("idle", {})
     if idle:
         harness.run("from machine import Pin\n" + "".join(f"Pin({p}, Pin.OUT, value={v})\n" for p, v in idle.items()))

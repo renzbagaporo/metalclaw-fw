@@ -20,6 +20,7 @@ from test.rig.platforms.hardware.platform import (
     Harness,
     _mailbox_timeout,
     _required,
+    dut_image,
 )
 
 # The emulated W25Q's default unique ID, which MicroPython reports as the USB
@@ -156,11 +157,7 @@ def probe(harness: Harness, fixture: dict):
 
 @pytest.fixture(scope="session")
 def dut(harness: Harness, probe) -> Dut:
-    device = os.environ.get("METALCLAW_DUT_DEVICE", "smoke")
-    image = Path(os.environ.get("METALCLAW_DUT_IMAGE", ROOT / f"build/dut/{device}/zephyr/zephyr.elf"))
-    if not image.is_file():
-        pytest.exit(f"no DUT image at {image}; run `just build-dut {'' if device == 'smoke' else device}` or set METALCLAW_DUT_IMAGE", returncode=2)
-    d = EmulatedDut(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"), _time_scale())
+    d = EmulatedDut(harness, dut_image(), _required("METALCLAW_ARM_TOOLCHAIN_DIR"), _time_scale())
     d.flash()
     d.ping()
     return d
