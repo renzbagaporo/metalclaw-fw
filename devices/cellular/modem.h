@@ -532,6 +532,7 @@ int modem_read_region(struct mclw_instance *inst, size_t region, uint32_t offset
 int modem_write_region(struct mclw_instance *inst, size_t region, uint32_t offset, const void *buf,
     size_t len);
 void modem_time_advanced(struct mclw_instance *inst, uint64_t now_us);
+void modem_poll(struct mclw_instance *inst);
 
 uint64_t modem_now(void);
 void modem_trace(struct modem *m, enum mclw_trace_kind kind, uint32_t addr, uint16_t len, int16_t result);

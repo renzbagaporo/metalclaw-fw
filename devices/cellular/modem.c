@@ -96,7 +96,7 @@ void modem_line(struct modem *m, const char *str) {
 }
 
 // The HAL ring takes what it has room for; the rest waits for the next
-// on_rx or time_advanced.
+// on_rx, time_advanced or poll.
 void modem_pump(struct modem *m) {
     if (m->link != NULL) {
         modem_link_flush(m);
@@ -587,6 +587,13 @@ void modem_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
     }
     deliver(m, now_us);
     finish_output(m);
+}
+
+// What the part has already decided to send keeps leaving in real time,
+// also while the clock is paused: the FIFO, PPP and CMUX frames as the
+// engine makes room, and a pending baud switch once its answer is out.
+void modem_poll(struct mclw_instance *inst) {
+    finish_output(inst->state);
 }
 
 static int modem_part_get(struct modem *m, size_t property, struct mclw_value *out) {

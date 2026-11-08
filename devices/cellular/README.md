@@ -46,8 +46,8 @@ test/dut/<model>/    rp2.overlay and rp2.conf of the model's DUT image
 ```
 
 Everything runs on the worker under the runtime lock (`on_rx`,
-`time_advanced`) or on the script's thread (`get`, `set`, regions); no
-model code runs in an interrupt.
+`time_advanced`, `poll`) or on the script's thread (`get`, `set`,
+regions); no model code runs in an interrupt.
 
 ## Bindings
 
@@ -168,9 +168,12 @@ undeletes every message.
 ## The engine
 
 All timed behaviour runs on the simulation clock in `time_advanced`: the
-PWRKEY is sampled on every call, the end of boot and due URCs are
-delivered, and the output FIFO is pumped. The model is meant to be used
-with the clock running.
+PWRKEY is sampled on every call, and the end of boot and due URCs are
+delivered. What the part has already decided to send leaves in real time
+from `poll`, also while the clock is paused: the output FIFO is pumped,
+the link adds PPP and CMUX frames as the engine makes room, and a due
+`AT+IPR` switch happens once its `OK` is out. The model is meant to be
+used with the clock running.
 
 | from | event | to |
 | --- | --- | --- |

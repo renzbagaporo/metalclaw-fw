@@ -624,6 +624,7 @@ static const struct mclw_model_ops ops = {
     .read_region = modem_read_region,
     .write_region = modem_write_region,
     .time_advanced = modem_time_advanced,
+    .poll = modem_poll,
     .usb_rx = NULL,
 };
 
