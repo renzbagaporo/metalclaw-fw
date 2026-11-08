@@ -10,9 +10,10 @@ import threading
 import time
 from pathlib import Path
 
-from . import storage
+from . import dut_flash, storage
 
 BENCH_SCRIPT = "scripts/multi-node/metalclaw_fixture.resc"
+DUT_MACHINE = "pico2"
 UF2_EXTRACTOR = "scripts/multi-node/extract_pico1_uf2.py"
 MASK_ROM_EXTRACTOR = "scripts/multi-node/extract_rp2040_mask_rom.py"
 MONITOR_PORT = 1234
@@ -134,14 +135,39 @@ class Cable(threading.Thread):
         self._detach(_imported_ports())
 
 
+# The monitor commands that bring the bench up. The DUT image goes straight
+# into the DUT's flash, as a probe download would leave it: downloading it
+# through the emulated probe takes 20-30 minutes of host time.
+def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_rom: Path, dut_flash_bin: Path,
+                     quantum: str | None = None) -> list[str]:
+    commands = [
+        f"$harness_rom=@{harness_rom}",
+        f"$harness_flash=@{harness_flash}",
+        f"$dut_rom=@{dut_rom}",
+        f"$usbip_port={USBIP_PORT}",
+    ]
+    if quantum:
+        commands.append(f'$quantum="{quantum}"')
+    # Through the DUT's XIP window, as the bench script loads the harness's:
+    # the W25Q takes the image at flash offset 0, which the QMI's reset
+    # address translation puts at 0x10000000.
+    return commands + [
+        f"include @{script}",
+        f'mach set "{DUT_MACHINE}"',
+        f"xipMemory LoadBinary @{dut_flash_bin}",
+        "start",
+    ]
+
+
 class Bench:
-    def __init__(self, renode_dir: Path, harness_uf2: Path, harness_rom: Path, dut_rom: Path, work: Path,
-                 serial: str):
+    def __init__(self, renode_dir: Path, harness_uf2: Path, harness_rom: Path, dut_rom: Path, dut_image: Path,
+                 work: Path, serial: str):
         self.renode_dir = renode_dir
         self.serial = serial
         self.harness_uf2 = harness_uf2
         self.harness_rom = harness_rom
         self.dut_rom = dut_rom
+        self.dut_image = dut_image
         self.work = work
         self.process = None
         self.cable = None
@@ -157,7 +183,7 @@ class Bench:
 
     def start(self) -> None:
         for path in (self.renode_dir / "renode", self.renode_dir / BENCH_SCRIPT, self.harness_uf2,
-                     self.harness_rom, self.dut_rom):
+                     self.harness_rom, self.dut_rom, self.dut_image):
             if not path.is_file():
                 raise BenchError(f"missing {path}")
         # A Renode left from an earlier run would answer on these ports, and
@@ -165,21 +191,19 @@ class Bench:
         for port in (MONITOR_PORT, USBIP_PORT):
             if _listening(port):
                 raise BenchError(f"port {port} is already in use; another Renode is running")
+        try:
+            contents = dut_flash.flash_contents(self.dut_image.read_bytes())
+        except dut_flash.DutFlashError as error:
+            raise BenchError(f"{self.dut_image}: {error}") from error
         self.work.mkdir(parents=True, exist_ok=True)
+        flash_bin = self.work / "dut_flash.bin"
+        flash_bin.write_bytes(contents)
         payload = self._extract(UF2_EXTRACTOR, self.harness_uf2, "harness_flash.bin")
         payload.write_bytes(storage.with_storage(payload.read_bytes()))
         mask_rom = self._extract(MASK_ROM_EXTRACTOR, self.harness_rom, "harness_rom.bin")
         self.log = (self.work / "renode.log").open("w")
-        commands = [
-            f"$harness_rom=@{mask_rom}",
-            f"$harness_flash=@{payload}",
-            f"$dut_rom=@{self.dut_rom}",
-            f"$usbip_port={USBIP_PORT}",
-        ]
-        quantum = os.environ.get("METALCLAW_RENODE_QUANTUM")
-        if quantum:
-            commands.append(f'$quantum="{quantum}"')
-        commands += [f"include @{self.renode_dir / BENCH_SCRIPT}", "start"]
+        commands = monitor_commands(self.renode_dir / BENCH_SCRIPT, mask_rom, payload, self.dut_rom, flash_bin,
+                                    os.environ.get("METALCLAW_RENODE_QUANTUM"))
         argv = [str(self.renode_dir / "renode"), "--disable-gui", "--plain", "--port", str(MONITOR_PORT)]
         for command in commands:
             argv += ["-e", command]

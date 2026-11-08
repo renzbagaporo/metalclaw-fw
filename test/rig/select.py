@@ -27,8 +27,8 @@ ENGINES = {
              "core/include/metalclaw/hal/uart.h"),
     "GPIO": ("core/ports/rp2/hal/gpio.c", "core/include/metalclaw/hal/gpio.h"),
 }
-# Every image's run flashes the DUT through the probe, so the probe is in
-# every image's path.
+# Every image's run resets and reads the DUT through the probe, so the probe
+# is in every image's path.
 EVERY_RUN = {"swd_probe"}
 NOTHING = re.compile(r"^(docs/.*|.*\.md|LICENSE-.*|\.gitignore)$")
 BINDING = re.compile(r"MCLW_BINDING_([A-Z0-9_]+)")

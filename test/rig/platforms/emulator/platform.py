@@ -117,6 +117,7 @@ def bench():
         harness_uf2=Path(os.environ.get("METALCLAW_HARNESS_IMAGE", ROOT / "build/rp2/rpi_pi_pico/firmware.uf2")),
         harness_rom=roms / "b2.elf",
         dut_rom=roms / "bootrom-combined.bin",
+        dut_image=dut_image(),
         work=Path(os.environ.get("METALCLAW_RENODE_WORK", ROOT / "build/emulator")),
         serial=_serial(),
     )
@@ -155,9 +156,11 @@ def probe(harness: Harness, fixture: dict):
     return harness.probe_id
 
 
+# The bench started with the image already in the DUT's flash; swd_probe's
+# cases download it through the probe.
 @pytest.fixture(scope="session")
-def dut(harness: Harness, probe) -> Dut:
-    d = EmulatedDut(harness, dut_image(), _required("METALCLAW_ARM_TOOLCHAIN_DIR"), _time_scale())
-    d.flash()
+def dut(bench: Bench, harness: Harness, probe) -> Dut:
+    d = EmulatedDut(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"), _time_scale())
+    d.reset()
     d.ping()
     return d

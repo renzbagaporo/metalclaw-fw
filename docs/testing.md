@@ -151,6 +151,17 @@ already formatted, as a bench harness's is after its first boot, at the
 range the UF2 declares for it; formatting erases sectors with interrupts
 off while USB is coming up.
 
+The DUT's flash boots with the DUT image already in it, as a probe download
+leaves it: the platform places each loadable segment of `zephyr.elf` whose
+load address is in flash at that address, erased between segments, and
+loads the result through the DUT's XIP window (`xipMemory LoadBinary`)
+before the emulation starts. A download through the emulated probe takes
+20-30 minutes of host time, so the emulator's `dut` fixture only resets the
+DUT through the probe and waits for PING. SWD flashing is covered by
+`swd_probe`'s `test_the_probe_flashes_and_verifies_the_image`, which on the
+`smoke` image downloads it with `probe-rs download --verify`, resets the DUT
+and waits for PING, on either platform; other images skip it.
+
 ```sh
 just setup-emulator      # boot ROMs, patched probe-rs and Renode, next to the repository
 just build               # build/rp2/rpi_pi_pico/firmware.uf2, the harness image
