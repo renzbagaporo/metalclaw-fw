@@ -243,6 +243,7 @@ delays engine interrupts for its duration, as it always did on one core.
 import metalclaw
 metalclaw.models()                       # ids of every model in the build
 metalclaw.schema("bmp388")               # properties, regions, faults, bindings
+metalclaw.board()                        # what the build knows of its board: {"line_pullups": False}
 d = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
 d = metalclaw.attach("bmp388", "baro", spi=(18, 19, 16, 22))
 g = metalclaw.attach("neo_m8n", "gnss", uart=(0, 1))

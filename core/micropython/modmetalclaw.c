@@ -252,9 +252,18 @@ static mp_obj_t mclw_running_fn(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mclw_running_obj, mclw_running_fn);
 
+// What the firmware was built to know about its board.
+static mp_obj_t mclw_board_fn(void) {
+    mp_obj_t info = mp_obj_new_dict(1);
+    dict_store(info, "line_pullups", mp_obj_new_bool(METALCLAW_LINE_PULLUPS));
+    return info;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(mclw_board_obj, mclw_board_fn);
+
 static const mp_rom_map_elem_t mclw_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_metalclaw) },
     { MP_ROM_QSTR(MP_QSTR_version), MP_ROM_PTR(&mclw_version_obj) },
+    { MP_ROM_QSTR(MP_QSTR_board), MP_ROM_PTR(&mclw_board_obj) },
     { MP_ROM_QSTR(MP_QSTR_models), MP_ROM_PTR(&mclw_models_obj) },
     { MP_ROM_QSTR(MP_QSTR_schema), MP_ROM_PTR(&mclw_schema_obj) },
     { MP_ROM_QSTR(MP_QSTR_attach), MP_ROM_PTR(&mclw_attach_obj) },

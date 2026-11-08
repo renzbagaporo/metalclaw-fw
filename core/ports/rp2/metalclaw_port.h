@@ -37,6 +37,12 @@
 #define METALCLAW_RESERVED_PINS
 #endif
 
+// 1 where the board pulls every DUT line up, so a line nothing drives reads
+// high. Set from the board's METALCLAW_LINE_PULLUPS build option.
+#ifndef METALCLAW_LINE_PULLUPS
+#define METALCLAW_LINE_PULLUPS                  (0)
+#endif
+
 // Core 1 is the engine worker (hal/worker.c), so MicroPython gets no
 // threads; TinyUSB is only ever called from core 0's thread context.
 #define MICROPY_PY_THREAD                       (0)

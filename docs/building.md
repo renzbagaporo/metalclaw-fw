@@ -42,6 +42,19 @@ arguments.
 METALCLAW_BOARD_DIR=$PWD/core/ports/rp2/boards/metalclaw_pico_rp2 just build
 ```
 
+v1.r1 pulls every Pico GPIO net up through 5.1 kOhm. The board's
+`METALCLAW_LINE_PULLUPS` CMake option, on by default, says so, and the
+harness reports it as `metalclaw.board()["line_pullups"]`; the rig takes the
+fixture's pull-up handling from that. Build for a revision without the
+pull-ups with the option off. The build directory's CMake cache keeps the
+setting until it is set again:
+
+```sh
+METALCLAW_LINE_PULLUPS=OFF \
+    METALCLAW_BOARD_DIR=$PWD/core/ports/rp2/boards/metalclaw_pico_rp2 \
+    just build
+```
+
 ## Warnings
 
 Nothing may warn. MicroPython and pico-sdk already build with `-Wall -Werror`.

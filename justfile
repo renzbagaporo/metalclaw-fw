@@ -90,6 +90,14 @@ build: build-mpy-cross
     #!/usr/bin/env bash
     set -euo pipefail
     export PATH="{{arm_toolchain_bin}}:${PATH}"
+    # METALCLAW_LINE_PULLUPS=ON or OFF sets a board's line pull-up option. The
+    # build directory's CMake cache keeps it until it is set again.
+    if [[ -n "${METALCLAW_LINE_PULLUPS:-}" ]]; then
+        export CMAKE_ARGS="-DMETALCLAW_LINE_PULLUPS=$METALCLAW_LINE_PULLUPS"
+        if [[ -f "{{rp2_build_dir}}/CMakeCache.txt" ]]; then
+            cmake -DMETALCLAW_LINE_PULLUPS="$METALCLAW_LINE_PULLUPS" "{{rp2_build_dir}}" > /dev/null
+        fi
+    fi
     make -C "{{micropython_dir}}/ports/rp2" -j{{jobs}} \
         BOARD_DIR="{{board_dir}}" \
         BUILD="{{rp2_build_dir}}" \
