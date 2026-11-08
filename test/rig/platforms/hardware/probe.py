@@ -16,6 +16,7 @@ RESET_TIMEOUT_S = 30.0
 RESET_TIMEOUT_ENV = "METALCLAW_PROBE_RESET_TIMEOUT_S"
 _FROM_ENVIRONMENT = object()
 ACCESS_TIMEOUT_S = 30.0
+ACCESS_TIMEOUT_ENV = "METALCLAW_PROBE_ACCESS_TIMEOUT_S"
 ADDRESSED_LINE = re.compile(r"\s*([0-9a-fA-F]{8}):\s*(.*?)\s*")
 WORD = re.compile(r"[0-9a-fA-F]{8}")
 
@@ -170,21 +171,23 @@ class ProbeRs:
         timeout = _deadline("reset", timeout, RESET_TIMEOUT_ENV, RESET_TIMEOUT_S)
         return self._run(self._argv("reset"), timeout)
 
-    def read_words(self, address, count, timeout=ACCESS_TIMEOUT_S):
+    def read_words(self, address, count, timeout=_FROM_ENVIRONMENT):
         if address <= 0:
             raise ProbeError(f"invalid RAM read address {address:#x}")
         if count <= 0:
             raise ProbeError("a RAM read needs a positive word count")
+        timeout = _deadline("access", timeout, ACCESS_TIMEOUT_ENV, ACCESS_TIMEOUT_S)
         output = self._run(
             self._argv("read", "b32", hex(address), str(count)), timeout
         )
         return decode_words(output, count, address)
 
-    def write_words(self, address, words, timeout=ACCESS_TIMEOUT_S):
+    def write_words(self, address, words, timeout=_FROM_ENVIRONMENT):
         values = list(words)
         if address <= 0:
             raise ProbeError(f"invalid RAM write address {address:#x}")
         if not values:
             raise ProbeError("a RAM write needs at least one word")
+        timeout = _deadline("access", timeout, ACCESS_TIMEOUT_ENV, ACCESS_TIMEOUT_S)
         literals = [f"0x{value & 0xFFFFFFFF:08x}" for value in values]
         self._run(self._argv("write", "b32", hex(address), *literals), timeout)

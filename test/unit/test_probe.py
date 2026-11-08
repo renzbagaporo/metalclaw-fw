@@ -8,6 +8,7 @@ import sys
 import pytest
 
 from test.rig.platforms.hardware.probe import (
+    ACCESS_TIMEOUT_ENV,
     ACCESS_TIMEOUT_S,
     DOWNLOAD_TIMEOUT_ENV,
     DOWNLOAD_TIMEOUT_S,
@@ -27,6 +28,7 @@ def probe_files(tmp_path, monkeypatch):
     monkeypatch.setenv("PYTHONNOUSERSITE", "1")
     monkeypatch.delenv(DOWNLOAD_TIMEOUT_ENV, raising=False)
     monkeypatch.delenv(RESET_TIMEOUT_ENV, raising=False)
+    monkeypatch.delenv(ACCESS_TIMEOUT_ENV, raising=False)
     description = tmp_path / "chip.yaml"
     description.write_text("test-only chip description\n")
     image = tmp_path / "image.elf"
@@ -144,6 +146,45 @@ def test_reset_environment_does_not_change_other_deadlines(probe_files, runs, mo
     assert [(argv[1], kwargs["timeout"]) for argv, kwargs in runs] == [
         ("download", DOWNLOAD_TIMEOUT_S),
         ("read", ACCESS_TIMEOUT_S),
+    ]
+
+
+@pytest.mark.parametrize("value,expected", [("600", 600.0), (" 0.5 ", 0.5)])
+def test_access_environment_deadline(probe_files, runs, monkeypatch, value, expected):
+    probe, _, _ = probe_files
+    monkeypatch.setenv(ACCESS_TIMEOUT_ENV, value)
+    probe.read_words(0x20001000, 1)
+    probe.write_words(0x20001000, [0x12345678])
+    assert [(argv[1], kwargs["timeout"]) for argv, kwargs in runs] == [("read", expected), ("write", expected)]
+
+
+@pytest.mark.parametrize("value", ["", "nope", "0", "-1", "nan", "inf"])
+def test_access_rejects_invalid_environment_deadline(probe_files, runs, monkeypatch, value):
+    probe, _, _ = probe_files
+    monkeypatch.setenv(ACCESS_TIMEOUT_ENV, value)
+    with pytest.raises(ProbeError, match="invalid access timeout .* expected positive finite seconds"):
+        probe.read_words(0x20001000, 1)
+    with pytest.raises(ProbeError, match="invalid access timeout .* expected positive finite seconds"):
+        probe.write_words(0x20001000, [0x12345678])
+    assert not runs
+
+
+def test_explicit_access_deadline_has_priority(probe_files, runs, monkeypatch):
+    probe, _, _ = probe_files
+    monkeypatch.setenv(ACCESS_TIMEOUT_ENV, "malformed")
+    probe.read_words(0x20001000, 1, timeout=2.5)
+    probe.write_words(0x20001000, [0x12345678], timeout=3.5)
+    assert [kwargs["timeout"] for _, kwargs in runs] == [2.5, 3.5]
+
+
+def test_access_environment_does_not_change_other_deadlines(probe_files, runs, monkeypatch):
+    probe, image, _ = probe_files
+    monkeypatch.setenv(ACCESS_TIMEOUT_ENV, "malformed")
+    probe.download(image)
+    probe.reset()
+    assert [(argv[1], kwargs["timeout"]) for argv, kwargs in runs] == [
+        ("download", DOWNLOAD_TIMEOUT_S),
+        ("reset", RESET_TIMEOUT_S),
     ]
 
 

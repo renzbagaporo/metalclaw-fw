@@ -32,6 +32,7 @@ HARNESS_SERIAL = "0123456789ABCDEF"
 SLOW_HOST_DEFAULTS = {
     "METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S": "1800",
     "METALCLAW_PROBE_RESET_TIMEOUT_S": "600",
+    "METALCLAW_PROBE_ACCESS_TIMEOUT_S": "600",
     # A single transfer block can stall past 10 s while the emulated harness
     # runs a flash routine on a loaded host.
     "CMSIS_DAP_USB_TIMEOUT_MS": "60000",
