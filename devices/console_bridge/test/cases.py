@@ -53,11 +53,6 @@ class Bridge:
         return serial.Serial(self.path, baud, timeout=0.1, exclusive=True, **options)
 
 
-def reenumerated(harness):
-    time.sleep(1.5)
-    harness.wait_enumerated()
-
-
 # Attaching adds a serial function to the harness's USB device, which
 # re-enumerates it once; detaching does again. The DUT image echoes every
 # byte its console UART receives, so what the host writes comes back.
@@ -65,11 +60,11 @@ def reenumerated(harness):
 def bridge(harness, dut, fixture):
     dut.require_image(IMAGE)
     harness.run(attach(fixture))
-    reenumerated(harness)
+    harness.wait_interface(INTERFACE)
     b = Bridge(harness, harness.serial_port(INTERFACE))
     yield b
     harness.run(DETACH)
-    reenumerated(harness)
+    harness.wait_interface(INTERFACE, present=False)
 
 
 @pytest.fixture
