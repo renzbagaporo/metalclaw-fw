@@ -118,6 +118,9 @@ jobs:
           path: |
             build/rp2/rpi_pi_pico/firmware.uf2
             build/dut/**/zephyr/zephyr.elf
+            build/dut/**/zephyr/.config
+          # .config is a dotfile, which upload-artifact leaves out by default.
+          include-hidden-files: true
           if-no-files-found: error
 
   probe-rs:
