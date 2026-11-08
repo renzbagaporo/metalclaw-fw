@@ -2,6 +2,7 @@
 # The hardware platform: a real harness on USB and a real DUT behind its
 # probe. It refuses to run without explicit identities and never scans.
 
+import ast
 import errno
 import glob
 import math
@@ -63,16 +64,14 @@ METALCLAW_PICO_RP2_FIXTURE = {
         "cs": {"ads7883": 41, "icm4268x": 37, "bmp388": 33, "sx126x": 41},
     },
     "gpio": {"sx126x": {"busy": 22, "dio1": 40, "nreset": 14}, "pwrkey": 14, "reset": 14},
-    # Every Pico GPIO net has a 5.1 kOhm pull-up to the Pico's 3.3 V, so a
-    # line nothing drives reads high, the Pico's reset pull-downs included.
-    "pulls": "up",
-    # Levels the harness holds while the part on a line is absent, where
-    # the pull-up would make it look active: an unattached sx126x is not
-    # busy, or the DUT's driver waits for it from boot.
+    # Levels the harness holds while the part on a line is absent, on a
+    # board built with line pull-ups, where the pull-up would make the part
+    # look active: an unattached sx126x is not busy, or the DUT's driver
+    # waits for it from boot.
     "idle": {22: 0},
 }
 
-# The fixture by the harness's MicroPython board.
+# The fixture's pins by the harness's MicroPython board.
 FIXTURES = {
     "fixture1_pico": FIXTURE,
     "rpi_pi_pico": FIXTURE,
@@ -177,6 +176,10 @@ class Harness:
 
     def board(self) -> str:
         return self.run("import sys\nprint(sys.implementation._build)").strip()
+
+    # What the harness firmware was built to know about its board.
+    def board_info(self) -> dict:
+        return ast.literal_eval(self.run("import metalclaw\nprint(metalclaw.board())").strip())
 
     # One raw REPL is held for the session: entering it costs about a quarter
     # second on the bench, longer than the short waits cases time. A harness
@@ -317,12 +320,20 @@ class Dut:
             pytest.skip(f"the DUT image is not built for {name}")
 
 
+# A board's pins plus what its harness reports. On a board built with line
+# pull-ups every line nothing drives reads high, the Pico's reset pull-downs
+# included; elsewhere the absent parts' lines need no idle levels.
+def fixture_for(pins: dict, board_info: dict) -> dict:
+    line_pullups = bool(board_info["line_pullups"])
+    return {**pins, "line_pullups": line_pullups, "idle": pins.get("idle", {}) if line_pullups else {}}
+
+
 @pytest.fixture(scope="session")
 def fixture(harness: Harness) -> dict:
     board = harness.board()
     if board not in FIXTURES:
         pytest.exit(f"harness board {board!r} has no fixture description", returncode=2)
-    return FIXTURES[board]
+    return fixture_for(FIXTURES[board], harness.board_info())
 
 
 @pytest.fixture(scope="session")
@@ -354,7 +365,7 @@ def probe(harness: Harness, fixture: dict):
 @pytest.fixture(scope="session")
 def dut(harness: Harness, probe, fixture: dict) -> Dut:
     d = Dut(harness, dut_image(), _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
-    idle = fixture.get("idle", {})
+    idle = fixture["idle"]
     if idle:
         harness.run("from machine import Pin\n" + "".join(f"Pin({p}, Pin.OUT, value={v})\n" for p, v in idle.items()))
     d.flash()

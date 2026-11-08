@@ -21,6 +21,7 @@ from test.rig.platforms.hardware.platform import (
     _mailbox_timeout,
     _required,
     dut_image,
+    fixture_for,
 )
 
 # The emulated W25Q's default unique ID, which MicroPython reports as the USB
@@ -104,8 +105,8 @@ def _serial() -> str:
 
 
 @pytest.fixture(scope="session")
-def fixture() -> dict:
-    return FIXTURE
+def fixture(harness: Harness) -> dict:
+    return fixture_for(FIXTURE, harness.board_info())
 
 
 @pytest.fixture(scope="session")

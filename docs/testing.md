@@ -106,19 +106,23 @@ other stays an input:
          "cs": {"ads7883": 41, "icm4268x": 37, "bmp388": 33, "sx126x": 41}},
  "gpio": {"sx126x": {"busy": 22, "dio1": 40, "nreset": 14},
           "pwrkey": 14, "reset": 14},
- "pulls": "up",
  "idle": {22: 0}}
 ```
 
 Both UART pairs are the RP2350's UART_AUX function on UART0, so one of them
 falls back to the PIO UART when both are attached. The SPI bus is GPIO32-39,
 which puts the SPI engine's PIO block at GPIO base 16; the sx126x's BUSY,
-which that block drives, is Pico GP10 through GPIO22. The carrier pulls every
-Pico GPIO net up with 5.1 kOhm (`pulls`), so a line nothing drives reads high,
-even through the DUT's reset; `idle` names the levels the harness holds
-before it flashes the DUT, so that a part not yet attached does not look
-active (an unattached sx126x would read busy and hold the DUT's driver in
-its boot).
+which that block drives, is Pico GP10 through GPIO22.
+
+The pins come from the harness's board name; the rest of the fixture comes
+from what the harness firmware reports in `metalclaw.board()`. On a board
+built with line pull-ups (`line_pullups`, on for the carrier v1.r1, which
+pulls every Pico GPIO net up with 5.1 kOhm) a line nothing drives reads
+high, even through the DUT's reset. There the harness holds the `idle`
+levels before it flashes the DUT, so that a part not yet attached does not
+look active (an unattached sx126x would read busy and hold the DUT's driver
+in its boot); elsewhere `idle` is empty. A case reads `fixture["line_pullups"]`
+where a line's undriven level matters.
 
 `METALCLAW_DUT_DEVICE` picks which device's DUT image to flash, default
 `smoke`; `METALCLAW_DUT_IMAGE` names an image path outright. Every image

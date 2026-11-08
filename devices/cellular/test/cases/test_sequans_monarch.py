@@ -29,10 +29,10 @@ class TestSequansMonarch(PppModelCases):
     def test_a_dut_reset_restarts_the_part_through_reset_n(self, dut, connected, fixture):
         # The DUT's reset holds RESET_N low on the Pico's reset pull-down
         # until the image's hog: the part in CMUX with PPP up resets with
-        # it. Where the fixture pulls every line up, RESET_N stays high and
-        # the part keeps running. Either way the fresh driver then pulses
+        # it. On a board built with line pull-ups RESET_N stays high and the
+        # part keeps running. Either way the fresh driver then pulses
         # RESET_N itself.
-        held = fixture.get("pulls") != "up"
+        held = not fixture["line_pullups"]
         cycles = connected.get("power_cycles") + held
         dut.reset()
         dut.ping()
