@@ -27,7 +27,7 @@ permissions:
 
 env:
   # The images whose models the pinned Renode carries. Grows as they land.
-  EMULATED_IMAGES: smoke,bmp388,bmp388/spi
+  EMULATED_IMAGES: smoke,bmp388,bmp388/spi,console_bridge
 
 # actions/cache refuses paths containing "..", so the tool directories live
 # in $HOME.
