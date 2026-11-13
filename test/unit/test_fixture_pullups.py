@@ -45,3 +45,15 @@ def test_the_harness_reads_its_board_report():
         h = ReportingHarness(report)
         assert h.board_info() == report
         assert "metalclaw.board()" in h.code[0]
+
+
+def test_idle_levels_are_driven_from_the_harness():
+    h = ReportingHarness({})
+    platform.hold_idle(h, {"idle": {22: 0, 7: 1}})
+    assert h.code == ["from machine import Pin\nPin(22, Pin.OUT, value=0)\nPin(7, Pin.OUT, value=1)\n"]
+
+
+def test_no_idle_levels_send_nothing_to_the_harness():
+    h = ReportingHarness({})
+    platform.hold_idle(h, {"idle": {}})
+    assert h.code == []

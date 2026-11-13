@@ -94,15 +94,20 @@ DUT_CHIPS = {
 }
 
 
-def dut_chip(image: Path) -> DutChip:
+def soc_series(image: Path) -> str | None:
     config = image.parent / ".config"
-    series = None
     if config.is_file():
         for line in config.read_text().splitlines():
             if line.startswith("CONFIG_SOC_SERIES="):
-                series = line.split("=", 1)[1].strip('"')
+                return line.split("=", 1)[1].strip('"')
+    return None
+
+
+def dut_chip(image: Path) -> DutChip:
+    series = soc_series(image)
     if series not in DUT_CHIPS:
-        pytest.exit(f"{config} names no DUT chip the rig knows (CONFIG_SOC_SERIES={series!r})", returncode=2)
+        pytest.exit(f"{image.parent / '.config'} names no DUT chip the rig knows (CONFIG_SOC_SERIES={series!r})",
+                    returncode=2)
     return DUT_CHIPS[series]
 
 
@@ -346,12 +351,23 @@ def fixture_for(pins: dict, board_info: dict) -> dict:
     return {**pins, "line_pullups": line_pullups, "idle": pins.get("idle", {}) if line_pullups else {}}
 
 
-@pytest.fixture(scope="session")
-def fixture(harness: Harness) -> dict:
+def board_fixture(harness: Harness) -> dict:
     board = harness.board()
     if board not in FIXTURES:
         pytest.exit(f"harness board {board!r} has no fixture description", returncode=2)
     return fixture_for(FIXTURES[board], harness.board_info())
+
+
+# Before the DUT boots, so its drivers never see an absent part as active.
+def hold_idle(harness: Harness, fixture: dict) -> None:
+    idle = fixture["idle"]
+    if idle:
+        harness.run("from machine import Pin\n" + "".join(f"Pin({p}, Pin.OUT, value={v})\n" for p, v in idle.items()))
+
+
+@pytest.fixture(scope="session")
+def fixture(harness: Harness) -> dict:
+    return board_fixture(harness)
 
 
 @pytest.fixture(scope="session")
@@ -388,9 +404,7 @@ def probe(harness: Harness, fixture: dict):
 @pytest.fixture(scope="session")
 def dut(harness: Harness, probe, fixture: dict) -> Dut:
     d = Dut(harness, dut_image(), _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
-    idle = fixture["idle"]
-    if idle:
-        harness.run("from machine import Pin\n" + "".join(f"Pin({p}, Pin.OUT, value={v})\n" for p, v in idle.items()))
+    hold_idle(harness, fixture)
     d.flash()
     d.ping()
     return d
