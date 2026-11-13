@@ -174,8 +174,7 @@ The fixture's pins come from the harness's board as on the bench, and the
 DUT image has to be built for the bench's DUT chip, or the run stops before
 the bench starts. On a board with line pull-ups the harness holds the
 `idle` levels and then resets the DUT, which booted with the emulation
-before the harness could. The carrier's bench script and its RP2354B
-platform are not in the pinned Renode yet.
+before the harness could.
 
 The DUT's flash boots with the DUT image already in it, as a probe download
 leaves it: the platform places each loadable segment of `zephyr.elf` whose
