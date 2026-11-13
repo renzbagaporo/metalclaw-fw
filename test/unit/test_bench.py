@@ -96,7 +96,7 @@ def test_each_harness_board_has_a_bench_with_its_chips():
     carrier = bench.LAYOUTS["metalclaw_pico_rp2"]
     assert (carrier.script, carrier.harness_chip, carrier.dut_chip, carrier.dut_machine) == (
         "scripts/multi-node/metalclaw_carrier.resc", "rp2350", "rp2040", "pico")
-    assert carrier.serial is None
+    assert carrier.serial == "00000000C0FFEE01"
 
 
 @pytest.mark.parametrize("board", sorted(bench.LAYOUTS))

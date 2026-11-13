@@ -24,9 +24,8 @@ class Layout:
     harness_chip: str
     dut_chip: str
     dut_machine: str
-    # The USB serial the emulated harness reports, or None where it is not
-    # fixed yet and METALCLAW_HARNESS_SERIAL has to name it.
-    serial: str | None
+    # The USB serial the emulated harness reports.
+    serial: str
 
 
 # By the harness's MicroPython board.
@@ -36,8 +35,9 @@ LAYOUTS = {
     "rpi_pi_pico": Layout("scripts/multi-node/metalclaw_fixture.resc", "rp2040", "rp2350", "pico2",
                           "0123456789ABCDEF"),
     # The MetalClaw Pico RP2 carrier: an RP2354B harness driving a Pico DUT.
-    # The RP2350 reports its OTP chip ID, which the script does not fix yet.
-    "metalclaw_pico_rp2": Layout("scripts/multi-node/metalclaw_carrier.resc", "rp2350", "rp2040", "pico", None),
+    # The RP2350 reports its OTP chip ID, which the bench script sets.
+    "metalclaw_pico_rp2": Layout("scripts/multi-node/metalclaw_carrier.resc", "rp2350", "rp2040", "pico",
+                                 "00000000C0FFEE01"),
 }
 
 # Each chip's boot ROM, by its file in the ROM directory. The RP2040's is the

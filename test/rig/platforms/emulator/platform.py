@@ -120,11 +120,7 @@ def layout() -> Layout:
 
 
 def _serial() -> str:
-    serial = os.environ.get("METALCLAW_HARNESS_SERIAL", layout().serial)
-    if serial is None:
-        pytest.exit(f"the emulated {harness_board()} harness has no fixed USB serial; set METALCLAW_HARNESS_SERIAL",
-                    returncode=2)
-    return serial
+    return os.environ.get("METALCLAW_HARNESS_SERIAL", layout().serial)
 
 
 @pytest.fixture(scope="session")

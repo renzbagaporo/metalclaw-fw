@@ -202,7 +202,7 @@ export METALCLAW_BOARD_DIR=$PWD/core/ports/rp2/boards/metalclaw_pico_rp2
 export METALCLAW_DUT_BOARD=rpi_pico
 just build
 just build-dut
-METALCLAW_HARNESS_SERIAL=<serial> just test emulator
+just test emulator
 ```
 
 The host needs `vhci_hcd` loaded and `usbip` runnable with `sudo -n`,
@@ -214,9 +214,8 @@ package, the boot ROM directory and the harness UF2; point
 (`./build.sh --no-gui -t`, then unpack `output/packages/`) to try a Renode
 change. `METALCLAW_RENODE_QUANTUM` overrides the bench's synchronisation quantum
 in seconds. The Pico harness's serial is the emulated flash's unique ID,
-`0123456789ABCDEF`. The RP2354B harness's comes from its OTP chip ID,
-which the carrier's bench script does not fix yet, so
-`METALCLAW_HARNESS_SERIAL` has to name it.
+`0123456789ABCDEF`. The RP2354B harness's is its OTP chip ID, which the
+carrier's bench script sets: `00000000C0FFEE01`.
 
 Emulated SWD runs about 30 times slower than the bench in host time while
 the target's own timing is unchanged. The platform stretches only host-side
