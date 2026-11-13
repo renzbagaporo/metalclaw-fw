@@ -573,7 +573,7 @@ class PppModelCases:
         finally:
             connected.set(registration=1)
         up = net(dut, f"WAIT UP {NET_UP_WAIT_MS}", NET_UP_TIMEOUT_S)
-        assert up["status"] == "ok", (up, connected.state())
+        assert up["status"] == "ok", repr((up, connected.state()))
         assert up["l4_down"] == before["l4_down"] + 1 and up["l4_up"] == before["l4_up"] + 1, up
         assert up["ppp_dead"] > before["ppp_dead"] and up["ppp_running"] > before["ppp_running"], up
         assert connected.get("power_cycles") == cycles
