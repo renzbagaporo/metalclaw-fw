@@ -552,8 +552,11 @@ static void publish(struct sx126x_state *state) {
         set_answers(state);
     }
     mclw_command_publish(&state->image);
+    // Asleep or in reset the DIOs are high-impedance with a pull-down
+    // (table 8-3).
     if (state->dio1 != NULL) {
-        mclw_hal_gpio_write(state->dio1, (state->irq & state->dio1_mask) != 0u);
+        mclw_hal_gpio_write(state->dio1, state->mode != MODE_SLEEP && state->mode != MODE_RESET &&
+            (state->irq & state->dio1_mask) != 0u);
     }
 }
 
@@ -968,6 +971,9 @@ static bool execute(struct sx126x_state *state, uint8_t op, const uint8_t *p, si
             }
             enter(state, MODE_SLEEP);
             state->cold_sleep = (p[0] & 0x04u) == 0u;
+            // The IRQ register is not among what a warm start retains, so
+            // the part wakes with none set.
+            state->irq = 0;
             return true;
         case SX126X_OP_SET_FS:
             enter(state, MODE_FS);

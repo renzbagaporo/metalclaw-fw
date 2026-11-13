@@ -34,7 +34,7 @@ between windows is timing-critical.
 | --- | --- | --- | --- | --- |
 | 0 | `spi` | `spi_target` | yes | an SPI target, from `(sck, mosi, miso, cs)`; mode 0, MSB first |
 | 1 | `busy` | `gpio_out` | yes | BUSY; the engine drives it while the image is armed |
-| 2 | `dio1` | `gpio_out` | no | DIO1, high while an IRQ in the DIO1 mask is set |
+| 2 | `dio1` | `gpio_out` | no | DIO1, high while an IRQ in the DIO1 mask is set; low asleep or in reset |
 | 3 | `nreset` | `gpio_in` | no | NRESET; low holds the part in reset |
 
 The engine raises BUSY from the SPI engine's PIO block when the chip
@@ -181,7 +181,8 @@ restores `noise_floor` and clears pending faults.
 ## Commands and status
 
 Every command the drivers send is executed: standby, sleep (warm and cold,
-woken by any chip-select pulse), FS, TX, RX (single, timed, continuous), RX
+woken by any chip-select pulse, with the IRQ register cleared), FS, TX, RX
+(single, timed, continuous), RX
 duty cycle, CAD and its parameters, packet type, frequency, modulation and
 packet parameters, PA configuration and TX parameters, buffer base
 addresses, DIO and IRQ parameters, IRQ status and clear, device errors,
