@@ -143,12 +143,12 @@ as `neo_m8n`'s do.
 
 ## The emulator
 
-`just test emulator` runs the same cases against both Picos emulated in
+`just test emulator` runs the same cases against the bench emulated in
 Renode, from the fork that carries the RP2040 and RP2350 models. The
 justfile pins a commit of that fork and the portable package its release
 workflow published for it, which bundles .NET.
-Its bench script (`scripts/multi-node/metalclaw_fixture.resc` in that fork)
-wires the two machines pin to pin. The harness's USB is exported over
+Each bench's script in that fork (`scripts/multi-node/metalclaw_fixture.resc`,
+`scripts/multi-node/metalclaw_carrier.resc`) wires its two machines pin to pin. The harness's USB is exported over
 USB/IP and imported into this host's kernel, so the harness, its CMSIS-DAP
 probe and the DUT are driven exactly as on the bench. Every re-enumeration
 unplugs it; the platform imports it again, as a cable that stays in would.
@@ -229,10 +229,10 @@ rig's own CMSIS-DAP client, which carries the mailbox, reads
 `CMSIS_DAP_USB_TIMEOUT_MS` too, defaulting to 1000.
 `just test emulator` uses that build, from `just setup-emulator-probe-rs`.
 
-The pinned Renode models both boards' cores, the RP2040's PIO, DMA and USB
-device, the RP2350's debug port behind the wired SWD pins, and the UART,
-SPI and I2C controllers of both chips at pin level across the fixture's
-wiring. The wires between the boards deliver each edge a fixed latency
+The pinned Renode models both chips' cores, PIO, DMA, USB device and debug
+port, whichever side of the bench each is on, with the DUT's debug port
+behind the wired SWD pins, and the UART, SPI and I2C controllers of both
+chips at pin level across the bench's wiring. The wires between the boards deliver each edge a fixed latency
 after its sender drove it (300 µs by default), so bit timing holds while the
 DUT sees a reply one round trip later than on the bench: an SPI transfer
 ends about 600 µs late on the DUT's side, and the 20 µs gaps the burst cases
