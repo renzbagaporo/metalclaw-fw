@@ -95,10 +95,13 @@ def test_every_window_moves_bus_traffic(dut, converter):
 def test_the_frame_is_exact_across_the_clock_range(dut, converter, hz):
     converter.set(0xA5A)
     result = read_frame(dut, hz=hz, count=WINDOWS_PER_CLOCK)
-    assert result["sample"] == 0xA5A, result
-    assert result["mismatches"] == 0, result
+    # Read before any assert, so a mismatch shows which windows the
+    # harness saw short or stale; plain strings, since pytest elides
+    # nested containers.
     stats = converter.stats()
-    assert stats["stale_windows"] == 0 and stats["dma_faults"] == 0, stats
+    assert result["sample"] == 0xA5A, repr(result)
+    assert result["mismatches"] == 0, f"{result!r} {stats!r}"
+    assert stats["stale_windows"] == 0 and stats["dma_faults"] == 0, repr(stats)
 
 
 def test_a_reset_restores_the_default_sample(dut, converter):
