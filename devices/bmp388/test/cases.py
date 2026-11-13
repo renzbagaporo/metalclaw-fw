@@ -57,18 +57,23 @@ class Barometer:
     def get(self, name):
         return int(self.harness.run(SELECT + f"print(baro.{name})\n").strip())
 
+    def stats(self):
+        return eval(self.harness.run(SELECT + f"print(baro.stats({self.bus!r}))\n").strip())
+
     def transactions(self):
-        return eval(self.harness.run(SELECT + f"print(baro.stats({self.bus!r}))\n").strip())["transactions"]
+        return self.stats()["transactions"]
 
 
 # On I2C the DUT runs Zephyr's bmp388 driver and the SENSOR command reports
 # what it computed. Zephyr's SPI backend for the part cannot initialise (its
 # reads are capped at six bytes, the calibration block is 21), so on SPI the
 # DUT clocks the driver's own sequence by hand through the RAW command and
-# the compensation below is the driver's, ported.
+# the compensation below is the driver's, ported. Each reader keeps what the
+# DUT returned for its last read in `last`.
 class DriverReader:
     def __init__(self, dut):
         self.dut = dut
+        self.last = None
 
     def boot(self):
         pass
@@ -77,6 +82,7 @@ class DriverReader:
         result = self.dut.command(f"SENSOR {ALIAS} press ambient_temp")
         assert result["test"] == "test_sensor", result
         assert result["status"] == "ok", result
+        self.last = result
         return result["press"][0] // 1000, result["ambient_temp"][0] // 1000
 
 
@@ -101,6 +107,7 @@ class RawReader:
     def __init__(self, dut):
         self.dut = dut
         self.cal = None
+        self.last = None
 
     def raw(self, tx, write_only=False):
         result = self.dut.command("RAW " + tx.hex() + (" w" if write_only else ""))
@@ -130,6 +137,7 @@ class RawReader:
 
     def read(self):
         data = self.read_regs(self.REG_DATA, 6)
+        self.last = data.hex(" ")
         raw_press = data[0] | (data[1] << 8) | (data[2] << 16)
         raw_temp = data[3] | (data[4] << 8) | (data[5] << 16)
         t1, t2, t3, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11 = self.cal
@@ -190,8 +198,14 @@ def reader(dut, barometer):
 def test_the_dut_driver_reads_what_was_injected(reader, barometer, pressure, temperature):
     barometer.set(pressure, temperature)
     read_pressure, read_temperature = reader.read()
-    assert abs(read_pressure - pressure) <= PRESSURE_TOLERANCE_PA, (read_pressure, pressure)
-    assert abs(read_temperature - temperature) <= TEMPERATURE_TOLERANCE_MC, (read_temperature, temperature)
+    # Read before any assert, so a wrong value shows the bytes the DUT got
+    # and the windows the harness saw; plain strings, since pytest elides
+    # nested containers.
+    seen = f"read {reader.last!r} stats {barometer.stats()!r}"
+    assert abs(read_pressure - pressure) <= PRESSURE_TOLERANCE_PA, \
+        f"{(read_pressure, pressure)!r} {seen}"
+    assert abs(read_temperature - temperature) <= TEMPERATURE_TOLERANCE_MC, \
+        f"{(read_temperature, temperature)!r} {seen}"
 
 
 def test_a_new_sample_reaches_the_dut(reader, barometer):
