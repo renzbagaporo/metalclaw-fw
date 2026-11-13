@@ -82,6 +82,18 @@ class Radio:
     def trace(self):
         return eval(self.run("print(radio.trace())\n").strip())
 
+    def state(self):
+        # Every readable property, the bus counters and the command trace,
+        # for a failure's message.
+        return eval(self.run("""state = {}
+for name in radio.schema()['properties']:
+    try:
+        state[name] = radio.get(name)
+    except OSError:
+        pass
+print(repr((state, radio.stats('spi'), radio.trace())))
+""").strip())
+
     def inject(self, payload, fault=None, **params):
         code = ""
         if fault:
@@ -253,7 +265,7 @@ def test_the_receive_times_out_with_nothing_on_air(dut, radio):
 def test_a_corrupt_frame_reports_a_crc_error(dut, radio):
     configure(dut, *CONFIGS[0], tx=False)
     result = receive(dut, radio, 3000, (b"corrupted", {}))
-    assert result["status"] == "ok"
+    assert result["status"] == "ok", repr((result, radio.state()))
     radio.run("radio.inject('crc_error')\n")
     result = receive(dut, radio, 3000, (b"corrupted", {}))
     assert result["status"] == "error" and result["errno"] == EIO, result
@@ -263,14 +275,15 @@ def test_the_public_sync_word_selects_what_is_heard(dut, radio):
     freq, bw, sf, cr, power, preamble, _ = CONFIGS[0]
     configure(dut, freq, bw, sf, cr, power, preamble, 1, tx=False)
     assert radio.get("sync_word") == SYNC_PUBLIC
-    assert receive(dut, radio, 3000, (b"public", {}))["status"] == "ok"
+    result = receive(dut, radio, 3000, (b"public", {}))
+    assert result["status"] == "ok", repr((result, radio.state()))
     result = receive(dut, radio, 1500, (b"private", {"sync_word": SYNC_PRIVATE}))
     assert result["errno"] == EAGAIN, result
 
 
 def test_no_window_faulted(radio):
     stats = radio.stats()
-    assert stats["dma_faults"] == 0 and stats["short_windows"] == 0, stats
+    assert stats["dma_faults"] == 0 and stats["short_windows"] == 0, repr((stats, radio.trace()))
     assert stats["max_clock_hz"] >= 8_000_000
 
 
