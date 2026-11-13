@@ -192,10 +192,22 @@ def test_stopping_records_that_renode_exited_before_the_session_ended(tmp_path):
     assert (tmp_path / "renode.log").read_text() == "rig: Renode exited with 3 before the end of the session\n"
 
 
-def test_stopping_records_that_renode_outlived_the_session(tmp_path):
+def test_stopping_records_that_renode_outlived_the_session(tmp_path, monkeypatch):
+    # No monitor answers, so stop() kills the process.
+    monkeypatch.setattr(bench, "MONITOR_PORT", free_port())
     b = bench_files(tmp_path)
     b.log = (tmp_path / "renode.log").open("w")
     b.process = subprocess.Popen(["sleep", "30"])
     b.stop()
     assert (tmp_path / "renode.log").read_text() == "rig: Renode still running at the end of the session\n"
     assert b.process.returncode is not None
+
+
+def test_stopping_twice_records_once(tmp_path):
+    b = bench_files(tmp_path)
+    b.log = (tmp_path / "renode.log").open("w")
+    b.process = subprocess.Popen(["sh", "-c", "exit 0"])
+    b.process.wait()
+    b.stop()
+    b.stop()
+    assert (tmp_path / "renode.log").read_text() == "rig: Renode exited with 0 before the end of the session\n"
