@@ -18,7 +18,7 @@ import usb.util
 from test.rig.platforms.hardware import dap
 from test.rig.platforms.hardware.dap import DapMemory
 from test.rig.platforms.hardware.mailbox import Mailbox, MailboxError
-from test.rig.platforms.hardware.probe import ProbeRs
+from test.rig.platforms.hardware.probe import ProbeError, ProbeRs
 from test.rig.platforms.hardware.repl import Repl
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -304,8 +304,24 @@ class Dut:
     # probe-rs 0.30 has no `download --reset`; flashing and resetting are two
     # sessions. A reset restarts the DUT's result sequence, so the mailbox
     # baseline must forget the old one.
+    #
+    # A download that fails part way can leave the flash erased with nothing
+    # to boot, and every later case would wait out its deadlines on a DUT
+    # that never answers. The image is downloaded again before the failure
+    # is raised; if that fails too, no later case can pass, so the session
+    # stops.
     def flash(self) -> None:
-        self.probe.download(self.image, reset=False)
+        try:
+            self.probe.download(self.image, reset=False)
+        except ProbeError as error:
+            try:
+                self.probe.download(self.image, reset=False)
+            except ProbeError as restore_error:
+                pytest.exit(f"the DUT's flash may hold no image: downloading {self.image} failed ({error}), "
+                            f"and so did downloading it again to restore it ({restore_error})", returncode=2)
+            error.add_note(f"{self.image} was downloaded again after this failure, to restore the DUT's flash")
+            self.reset()
+            raise
         self.reset()
 
     def reset(self) -> None:
