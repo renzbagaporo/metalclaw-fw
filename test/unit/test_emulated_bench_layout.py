@@ -28,7 +28,7 @@ def test_a_harness_board_without_a_bench_stops_the_run(monkeypatch):
         platform.layout()
 
 
-def test_a_named_serial_overrides_the_benches(monkeypatch):
+def test_a_bench_harness_serial_in_the_environment_leaves_the_emulated_one(monkeypatch):
     monkeypatch.setenv(platform.HARNESS_BOARD_ENV, "metalclaw_pico_rp2")
-    monkeypatch.setenv("METALCLAW_HARNESS_SERIAL", "00000000000000AB")
-    assert platform._serial() == "00000000000000AB"
+    monkeypatch.setenv("METALCLAW_HARNESS_SERIAL", "D4D2E0179F4FECF3")
+    assert platform._serial() == "00000000C0FFEE01"

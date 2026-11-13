@@ -119,8 +119,10 @@ def layout() -> Layout:
     return LAYOUTS[board]
 
 
+# The bench script fixes the emulated harness's serial; METALCLAW_HARNESS_SERIAL
+# names a bench harness and is left to the hardware platform.
 def _serial() -> str:
-    return os.environ.get("METALCLAW_HARNESS_SERIAL", layout().serial)
+    return layout().serial
 
 
 @pytest.fixture(scope="session")
