@@ -1,21 +1,48 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# The bench in Renode: both Picos and their wires in one emulation, with the
-# harness's USB exported over USB/IP and imported into this host's kernel, so
-# the host sees the same USB device the bench does.
+# The bench in Renode: the harness, the DUT and their wires in one emulation,
+# with the harness's USB exported over USB/IP and imported into this host's
+# kernel, so the host sees the same USB device the bench does.
 
 import os
 import socket
 import subprocess
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
-from . import dut_flash, storage
+from . import dut_flash, storage, uf2
 
-BENCH_SCRIPT = "scripts/multi-node/metalclaw_fixture.resc"
-DUT_MACHINE = "pico2"
-UF2_EXTRACTOR = "scripts/multi-node/extract_pico1_uf2.py"
 MASK_ROM_EXTRACTOR = "scripts/multi-node/extract_rp2040_mask_rom.py"
+
+
+# What differs between benches: the bench script in the Renode package, the
+# chip on each side, and the DUT's machine in that script.
+@dataclass(frozen=True)
+class Layout:
+    script: str
+    harness_chip: str
+    dut_chip: str
+    dut_machine: str
+    # The USB serial the emulated harness reports, or None where it is not
+    # fixed yet and METALCLAW_HARNESS_SERIAL has to name it.
+    serial: str | None
+
+
+# By the harness's MicroPython board.
+LAYOUTS = {
+    # Fixture 1: a Pico harness driving a Pico 2 DUT. The RP2040 reports the
+    # emulated W25Q's default unique ID.
+    "rpi_pi_pico": Layout("scripts/multi-node/metalclaw_fixture.resc", "rp2040", "rp2350", "pico2",
+                          "0123456789ABCDEF"),
+    # The MetalClaw Pico RP2 carrier: an RP2354B harness driving a Pico DUT.
+    # The RP2350 reports its OTP chip ID, which the script does not fix yet.
+    "metalclaw_pico_rp2": Layout("scripts/multi-node/metalclaw_carrier.resc", "rp2350", "rp2040", "pico", None),
+}
+
+# Each chip's boot ROM, by its file in the ROM directory. The RP2040's is the
+# B2 ROM's ELF, from which the bench script's extractor takes the mask ROM.
+ROMS = {"rp2040": "b2.elf", "rp2350": "bootrom-combined.bin"}
 MONITOR_PORT = 1234
 USBIP_PORT = 3240
 USBIP_BUSID = "1-0"
@@ -139,7 +166,7 @@ class Cable(threading.Thread):
 # into the DUT's flash, as a probe download would leave it: downloading it
 # through the emulated probe takes 20-30 minutes of host time.
 def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_rom: Path, dut_flash_bin: Path,
-                     quantum: str | None = None) -> list[str]:
+                     dut_machine: str, quantum: str | None = None) -> list[str]:
     commands = [
         f"$harness_rom=@{harness_rom}",
         f"$harness_flash=@{harness_flash}",
@@ -149,41 +176,45 @@ def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_r
     if quantum:
         commands.append(f'$quantum="{quantum}"')
     # Through the DUT's XIP window, as the bench script loads the harness's:
-    # the W25Q takes the image at flash offset 0, which the QMI's reset
+    # the W25Q takes the image at flash offset 0, which the XIP window's reset
     # address translation puts at 0x10000000.
     return commands + [
         f"include @{script}",
-        f'mach set "{DUT_MACHINE}"',
+        f'mach set "{dut_machine}"',
         f"xipMemory LoadBinary @{dut_flash_bin}",
         "start",
     ]
 
 
 class Bench:
-    def __init__(self, renode_dir: Path, harness_uf2: Path, harness_rom: Path, dut_rom: Path, dut_image: Path,
+    def __init__(self, renode_dir: Path, layout: Layout, harness_uf2: Path, roms: Path, dut_image: Path,
                  work: Path, serial: str):
         self.renode_dir = renode_dir
+        self.layout = layout
         self.serial = serial
         self.harness_uf2 = harness_uf2
-        self.harness_rom = harness_rom
-        self.dut_rom = dut_rom
+        self.roms = roms
         self.dut_image = dut_image
         self.work = work
         self.process = None
         self.cable = None
         self.log = None
 
-    # Both extractors are the bench script's own and refuse to overwrite.
-    def _extract(self, extractor: str, source: Path, name: str) -> Path:
+    # The extractor is the bench script's own and refuses to overwrite.
+    def _rom(self, chip: str, name: str) -> Path:
+        source = self.roms / ROMS[chip]
+        if chip != "rp2040":
+            return source
         out = self.work / name
         out.unlink(missing_ok=True)
-        subprocess.run(["python3", str(self.renode_dir / extractor), str(source), str(out)],
+        subprocess.run(["python3", str(self.renode_dir / MASK_ROM_EXTRACTOR), str(source), str(out)],
                        check=True, capture_output=True, text=True)
         return out
 
     def start(self) -> None:
-        for path in (self.renode_dir / "renode", self.renode_dir / BENCH_SCRIPT, self.harness_uf2,
-                     self.harness_rom, self.dut_rom, self.dut_image):
+        layout = self.layout
+        for path in (self.renode_dir / "renode", self.renode_dir / layout.script, self.harness_uf2,
+                     self.roms / ROMS[layout.harness_chip], self.roms / ROMS[layout.dut_chip], self.dut_image):
             if not path.is_file():
                 raise BenchError(f"missing {path}")
         # A Renode left from an earlier run would answer on these ports, and
@@ -195,15 +226,20 @@ class Bench:
             contents = dut_flash.flash_contents(self.dut_image.read_bytes())
         except dut_flash.DutFlashError as error:
             raise BenchError(f"{self.dut_image}: {error}") from error
+        try:
+            harness_flash = storage.with_storage(uf2.flash_contents(self.harness_uf2.read_bytes(), layout.harness_chip))
+        except (uf2.Uf2Error, storage.StorageError) as error:
+            raise BenchError(f"{self.harness_uf2}: {error}") from error
         self.work.mkdir(parents=True, exist_ok=True)
         flash_bin = self.work / "dut_flash.bin"
         flash_bin.write_bytes(contents)
-        payload = self._extract(UF2_EXTRACTOR, self.harness_uf2, "harness_flash.bin")
-        payload.write_bytes(storage.with_storage(payload.read_bytes()))
-        mask_rom = self._extract(MASK_ROM_EXTRACTOR, self.harness_rom, "harness_rom.bin")
+        payload = self.work / "harness_flash.bin"
+        payload.write_bytes(harness_flash)
+        harness_rom = self._rom(layout.harness_chip, "harness_rom.bin")
+        dut_rom = self._rom(layout.dut_chip, "dut_rom.bin")
         self.log = (self.work / "renode.log").open("w")
-        commands = monitor_commands(self.renode_dir / BENCH_SCRIPT, mask_rom, payload, self.dut_rom, flash_bin,
-                                    os.environ.get("METALCLAW_RENODE_QUANTUM"))
+        commands = monitor_commands(self.renode_dir / layout.script, harness_rom, payload, dut_rom, flash_bin,
+                                    layout.dut_machine, os.environ.get("METALCLAW_RENODE_QUANTUM"))
         argv = [str(self.renode_dir / "renode"), "--disable-gui", "--plain", "--port", str(MONITOR_PORT)]
         for command in commands:
             argv += ["-e", command]

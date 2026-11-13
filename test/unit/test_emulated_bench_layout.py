@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+import pytest
+
+from test.rig.platforms.emulator import platform
+
+
+@pytest.fixture(autouse=True)
+def no_bench_environment(monkeypatch):
+    for name in (platform.HARNESS_BOARD_ENV, "METALCLAW_HARNESS_SERIAL"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_the_bench_defaults_to_fixture_1(monkeypatch):
+    assert platform.layout() == platform.LAYOUTS["rpi_pi_pico"]
+    assert platform._serial() == "0123456789ABCDEF"
+
+
+def test_the_harness_board_picks_the_carrier_bench(monkeypatch):
+    monkeypatch.setenv(platform.HARNESS_BOARD_ENV, "metalclaw_pico_rp2")
+    assert platform.layout().dut_chip == "rp2040"
+
+
+def test_a_harness_board_without_a_bench_stops_the_run(monkeypatch):
+    monkeypatch.setenv(platform.HARNESS_BOARD_ENV, "fixture1_pico")
+    with pytest.raises(pytest.exit.Exception, match="no emulated bench for harness board 'fixture1_pico'"):
+        platform.layout()
+
+
+def test_a_bench_without_a_fixed_serial_needs_one_named(monkeypatch):
+    monkeypatch.setenv(platform.HARNESS_BOARD_ENV, "metalclaw_pico_rp2")
+    with pytest.raises(pytest.exit.Exception, match="no fixed USB serial; set METALCLAW_HARNESS_SERIAL"):
+        platform._serial()
+    monkeypatch.setenv("METALCLAW_HARNESS_SERIAL", "00000000000000AB")
+    assert platform._serial() == "00000000000000AB"

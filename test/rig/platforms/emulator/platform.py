@@ -9,23 +9,25 @@ from pathlib import Path
 
 import pytest
 
-from test.rig.platforms.emulator.bench import Bench, BenchError
+from test.rig.platforms.emulator.bench import LAYOUTS, Bench, BenchError, Layout
 from test.rig.platforms.hardware.platform import (
     _DEFAULT_MAILBOX_TIMEOUT,
-    FIXTURE,
     ROOT,
     Dut,
     Harness,
     _mailbox_timeout,
     _required,
+    board_fixture,
     detach_all_but_probe,
     dut_image,
-    fixture_for,
+    hold_idle,
+    soc_series,
 )
 
-# The emulated W25Q's default unique ID, which MicroPython reports as the USB
-# serial.
-HARNESS_SERIAL = "0123456789ABCDEF"
+# The harness's MicroPython board picks the bench, as METALCLAW_BOARD_DIR
+# picks the board `just build` builds.
+HARNESS_BOARD_ENV = "METALCLAW_HARNESS_BOARD"
+HARNESS_BOARD = "rpi_pi_pico"
 
 # Host-side waits stretched for emulated time. Emulated SWD runs about 30x
 # slower than the bench in host time; the target's own timing is unchanged.
@@ -105,26 +107,48 @@ class EmulatedDut(Dut):
         return super().finish(sequence, timeout * self.scale)
 
 
+def harness_board() -> str:
+    return os.environ.get(HARNESS_BOARD_ENV, HARNESS_BOARD)
+
+
+def layout() -> Layout:
+    board = harness_board()
+    if board not in LAYOUTS:
+        pytest.exit(f"no emulated bench for harness board {board!r}; {HARNESS_BOARD_ENV} is one of "
+                    f"{', '.join(sorted(LAYOUTS))}", returncode=2)
+    return LAYOUTS[board]
+
+
 def _serial() -> str:
-    return os.environ.get("METALCLAW_HARNESS_SERIAL", HARNESS_SERIAL)
+    serial = os.environ.get("METALCLAW_HARNESS_SERIAL", layout().serial)
+    if serial is None:
+        pytest.exit(f"the emulated {harness_board()} harness has no fixed USB serial; set METALCLAW_HARNESS_SERIAL",
+                    returncode=2)
+    return serial
 
 
 @pytest.fixture(scope="session")
 def fixture(harness: Harness) -> dict:
-    return fixture_for(FIXTURE, harness.board_info())
+    return board_fixture(harness)
 
 
 @pytest.fixture(scope="session")
 def bench():
     for name, value in SLOW_HOST_DEFAULTS.items():
         os.environ.setdefault(name, value)
-    roms = Path(_required("METALCLAW_RENODE_ROMS"))
+    bench_layout = layout()
+    image = dut_image()
+    series = soc_series(image)
+    if series != bench_layout.dut_chip:
+        pytest.exit(f"the {harness_board()} bench's DUT is an {bench_layout.dut_chip}, but {image} is built for "
+                    f"{series!r}; build it with the matching METALCLAW_DUT_BOARD", returncode=2)
     b = Bench(
         renode_dir=Path(_required("METALCLAW_RENODE_DIR")),
-        harness_uf2=Path(os.environ.get("METALCLAW_HARNESS_IMAGE", ROOT / "build/rp2/rpi_pi_pico/firmware.uf2")),
-        harness_rom=roms / "b2.elf",
-        dut_rom=roms / "bootrom-combined.bin",
-        dut_image=dut_image(),
+        layout=bench_layout,
+        harness_uf2=Path(os.environ.get("METALCLAW_HARNESS_IMAGE",
+                                        ROOT / f"build/rp2/{harness_board()}/firmware.uf2")),
+        roms=Path(_required("METALCLAW_RENODE_ROMS")),
+        dut_image=image,
         work=Path(os.environ.get("METALCLAW_RENODE_WORK", ROOT / "build/emulator")),
         serial=_serial(),
     )
@@ -157,10 +181,12 @@ def probe(harness: Harness, fixture: dict):
 
 
 # The bench started with the image already in the DUT's flash; swd_probe's
-# cases download it through the probe.
+# cases download it through the probe. The DUT booted with the bench, before
+# the harness could hold any idle level, so it boots again once they are.
 @pytest.fixture(scope="session")
-def dut(bench: Bench, harness: Harness, probe) -> Dut:
+def dut(bench: Bench, harness: Harness, probe, fixture: dict) -> Dut:
     d = EmulatedDut(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"), _time_scale())
+    hold_idle(harness, fixture)
     d.reset()
     d.ping()
     return d

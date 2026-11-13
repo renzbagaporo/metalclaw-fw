@@ -124,6 +124,8 @@ test PLATFORM="hardware" *ARGS: setup-rig
     set -euo pipefail
     if [[ "{{PLATFORM}}" == emulator ]]; then
         export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
+        # The board `just build` builds picks the bench.
+        export METALCLAW_HARNESS_BOARD="{{board}}"
         export METALCLAW_PROBE_RS="${METALCLAW_PROBE_RS:-{{probe_rs_emulation_dir}}/bin/probe-rs}"
         echo "probe-rs: $("$METALCLAW_PROBE_RS" --version | head -1), patched with $(basename "{{probe_rs_patch}}")"
     fi

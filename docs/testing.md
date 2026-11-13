@@ -157,7 +157,25 @@ harness that is busy in emulated time; an import that has not enumerated
 after 120 s is replugged. The harness flash boots with its filesystem
 already formatted, as a bench harness's is after its first boot, at the
 range the UF2 declares for it; formatting erases sectors with interrupts
-off while USB is coming up.
+off while USB is coming up. The platform takes the flash from the UF2's
+blocks for the harness chip's family, so an RP2350 UF2's E10 workaround
+block, which is for another family, is left out.
+
+The harness's board picks the bench, as it picks the board `just build`
+builds (`METALCLAW_BOARD_DIR`; the platform reads it as
+`METALCLAW_HARNESS_BOARD`):
+
+| Harness board | Bench script | Harness | DUT | DUT image |
+| --- | --- | --- | --- | --- |
+| `rpi_pi_pico` (default) | `metalclaw_fixture.resc` | RP2040 | RP2350, machine `pico2` | `rpi_pico2/rp2350a/m33` |
+| `metalclaw_pico_rp2` | `metalclaw_carrier.resc` | RP2354B | RP2040, machine `pico` | `rpi_pico` |
+
+The fixture's pins come from the harness's board as on the bench, and the
+DUT image has to be built for the bench's DUT chip, or the run stops before
+the bench starts. On a board with line pull-ups the harness holds the
+`idle` levels and then resets the DUT, which booted with the emulation
+before the harness could. The carrier's bench script and its RP2354B
+platform are not in the pinned Renode yet.
 
 The DUT's flash boots with the DUT image already in it, as a probe download
 leaves it: the platform places each loadable segment of `zephyr.elf` whose
@@ -177,6 +195,16 @@ just build-dut           # the DUT image, as for the bench
 just test emulator
 ```
 
+For the carrier, with its DUT a Pico:
+
+```sh
+export METALCLAW_BOARD_DIR=$PWD/core/ports/rp2/boards/metalclaw_pico_rp2
+export METALCLAW_DUT_BOARD=rpi_pico
+just build
+just build-dut
+METALCLAW_HARNESS_SERIAL=<serial> just test emulator
+```
+
 The host needs `vhci_hcd` loaded and `usbip` runnable with `sudo -n`,
 which imports a device into the running kernel: run it in a disposable VM
 or CI runner, not on a workstation. `METALCLAW_RENODE_DIR`,
@@ -185,8 +213,10 @@ package, the boot ROM directory and the harness UF2; point
 `METALCLAW_RENODE_DIR` at a package built from a local checkout
 (`./build.sh --no-gui -t`, then unpack `output/packages/`) to try a Renode
 change. `METALCLAW_RENODE_QUANTUM` overrides the bench's synchronisation quantum
-in seconds. The harness's serial is the emulated flash's unique ID,
-`0123456789ABCDEF`.
+in seconds. The Pico harness's serial is the emulated flash's unique ID,
+`0123456789ABCDEF`. The RP2354B harness's comes from its OTP chip ID,
+which the carrier's bench script does not fix yet, so
+`METALCLAW_HARNESS_SERIAL` has to name it.
 
 Emulated SWD runs about 30 times slower than the bench in host time while
 the target's own timing is unchanged. The platform stretches only host-side
