@@ -96,6 +96,18 @@ class Modem:
     def text_region(self, name, size):
         return self.read_region(name, size).rstrip(b"\0")
 
+    def state(self):
+        # Every readable property and the UART's counters, for a failure's
+        # message.
+        return eval(self.harness.run(SELECT + """state = {}
+for name in modem.schema()['properties']:
+    try:
+        state[name] = modem.get(name)
+    except OSError:
+        pass
+print(repr((state, modem.stats('uart'))))
+""").strip())
+
     def has(self, name):
         # Whether the attached model has the property: a case skips what a
         # model lacks rather than guessing.
@@ -561,7 +573,7 @@ class PppModelCases:
         finally:
             connected.set(registration=1)
         up = net(dut, f"WAIT UP {NET_UP_WAIT_MS}", NET_UP_TIMEOUT_S)
-        assert up["status"] == "ok", up
+        assert up["status"] == "ok", (up, connected.state())
         assert up["l4_down"] == before["l4_down"] + 1 and up["l4_up"] == before["l4_up"] + 1, up
         assert up["ppp_dead"] > before["ppp_dead"] and up["ppp_running"] > before["ppp_running"], up
         assert connected.get("power_cycles") == cycles
