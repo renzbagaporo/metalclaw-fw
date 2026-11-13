@@ -2,6 +2,7 @@
 
 import socket
 import struct
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -180,3 +181,21 @@ def test_the_carrier_bench_gives_the_rp2040_mask_rom_to_the_dut(tmp_path, monkey
     assert f"$dut_rom=@{tmp_path}/work/dut_rom.bin" in run
     assert f"include @{tmp_path}/scripts/multi-node/metalclaw_carrier.resc" in run
     assert 'mach set "pico"' in run
+
+
+def test_stopping_records_that_renode_exited_before_the_session_ended(tmp_path):
+    b = bench_files(tmp_path)
+    b.log = (tmp_path / "renode.log").open("w")
+    b.process = subprocess.Popen(["sh", "-c", "exit 3"])
+    b.process.wait()
+    b.stop()
+    assert (tmp_path / "renode.log").read_text() == "rig: Renode exited with 3 before the end of the session\n"
+
+
+def test_stopping_records_that_renode_outlived_the_session(tmp_path):
+    b = bench_files(tmp_path)
+    b.log = (tmp_path / "renode.log").open("w")
+    b.process = subprocess.Popen(["sleep", "30"])
+    b.stop()
+    assert (tmp_path / "renode.log").read_text() == "rig: Renode still running at the end of the session\n"
+    assert b.process.returncode is not None

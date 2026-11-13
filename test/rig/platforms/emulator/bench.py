@@ -254,6 +254,14 @@ class Bench:
     def stop(self) -> None:
         if self.cable is not None:
             self.cable.stop()
+        # Whether Renode outlived the session, at the end of its own log: a
+        # harness that left USB mid-session is either Renode gone or the
+        # import dropped.
+        if self.process is not None and self.log is not None:
+            code = self.process.poll()
+            self.log.write("rig: Renode still running at the end of the session\n" if code is None else
+                           f"rig: Renode exited with {code} before the end of the session\n")
+            self.log.flush()
         if self.process is not None and self.process.poll() is None:
             try:
                 with socket.create_connection(("127.0.0.1", MONITOR_PORT), timeout=5) as monitor:
