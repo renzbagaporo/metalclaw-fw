@@ -42,7 +42,9 @@ struct mclw_usb_interface *mclw_hal_usb_open(const struct mclw_usb_interface_des
 void mclw_hal_usb_close(struct mclw_usb_interface *itf);
 
 // Queues up to `len` bytes for the host; returns how many were taken.
-// Vendor: from the USB task only, to answer inside rx. Serial: from any
+// Vendor: from the USB task only, to answer inside rx; what the TX FIFO has
+// no room for waits, in order, in a 512-byte backlog sent as the FIFO
+// drains, so fewer than `len` only when both are full. Serial: from any
 // thread context, the worker included; fewer than `len` when the queue is
 // full. A serial queue is emptied when the host opens the port (raises
 // DTR): what waited for a host is not replayed to the next one.

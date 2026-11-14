@@ -8,6 +8,7 @@
 #include "tusb.h"
 #include "metalclaw/hal/usb.h"
 #include "usb_internal.h"
+#include "vendor_backlog.h"
 
 // What a serial function's device sends waits here for the host: 4 KiB is
 // about 350 ms of a UART at 115200 baud.
@@ -47,6 +48,7 @@ struct mclw_usb_interface {
 };
 
 static struct mclw_usb_interface vendor_slots[CFG_TUD_VENDOR];
+static struct mclw_vendor_backlog vendor_backlogs[CFG_TUD_VENDOR];
 static struct mclw_usb_interface serial_slots[MCLW_USB_SERIAL_MAX];
 static struct serial_state serial_states[MCLW_USB_SERIAL_MAX];
 static repeating_timer_t serial_timer;
@@ -71,6 +73,8 @@ static void layout(struct mclw_usb_layout *out, bool take) {
             if (take) {
                 s->index = (uint8_t)out->vendor_count;
                 s->live = true;
+                // What waited for the previous host is not replayed to the next.
+                mclw_vendor_backlog_clear(&vendor_backlogs[i]);
             }
             out->vendor_names[out->vendor_count++] = s->desc->name;
         }
@@ -146,6 +150,9 @@ struct mclw_usb_interface *mclw_hal_usb_open(const struct mclw_usb_interface_des
     s->control = control;
     s->ctx = ctx;
     s->owner = owner;
+    if (!serial) {
+        mclw_vendor_backlog_clear(&vendor_backlogs[s - vendor_slots]);
+    }
     if (serial) {
         struct serial_state *st = &serial_states[s - serial_slots];
         st->head = 0;
@@ -210,9 +217,38 @@ size_t mclw_hal_usb_write(struct mclw_usb_interface *s, const uint8_t *data, siz
     if (!s->live || !tud_inited() || !tud_vendor_n_mounted(s->index)) {
         return 0;
     }
-    uint32_t n = tud_vendor_n_write(s->index, data, (uint32_t)len);
-    tud_vendor_n_write_flush(s->index);
-    return n;
+    // The TX FIFO drains only from this task, so what it refuses now waits
+    // in the backlog, behind which every later write queues to keep the
+    // order; tud_vendor_tx_cb moves it on as transfers complete.
+    struct mclw_vendor_backlog *backlog = &vendor_backlogs[s - vendor_slots];
+    size_t n = 0;
+    if (backlog->count == 0u) {
+        n = tud_vendor_n_write(s->index, data, (uint32_t)len);
+        tud_vendor_n_write_flush(s->index);
+    }
+    return n + mclw_vendor_backlog_push(backlog, data + n, len - n);
+}
+
+// A vendor IN transfer completed, in the USB task: refill the FIFO from the
+// backlog. TinyUSB starts the next transfer once this returns.
+void tud_vendor_tx_cb(uint8_t itf, uint32_t sent_bytes) {
+    (void)sent_bytes;
+    for (size_t i = 0; i < CFG_TUD_VENDOR; i++) {
+        struct mclw_usb_interface *s = &vendor_slots[i];
+        if (s->open && s->live && s->index == itf) {
+            struct mclw_vendor_backlog *backlog = &vendor_backlogs[i];
+            while (backlog->count > 0u) {
+                const uint8_t *run;
+                size_t len = mclw_vendor_backlog_peek(backlog, &run);
+                uint32_t n = tud_vendor_n_write(itf, run, (uint32_t)len);
+                if (n == 0u) {
+                    break;
+                }
+                mclw_vendor_backlog_drop(backlog, n);
+            }
+            break;
+        }
+    }
 }
 
 bool mclw_hal_usb_connected(const struct mclw_usb_interface *s) {

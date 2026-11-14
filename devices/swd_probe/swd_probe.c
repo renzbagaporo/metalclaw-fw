@@ -182,8 +182,9 @@ static size_t probe_usb_rx(struct mclw_instance *inst, size_t binding, const uin
         return len;
     }
     response_length = mclw_dap_process(&state->dap, data, len);
-    // The vendor queue drains only from the USB task this op runs in, so
-    // what it refuses now it would refuse for as long as the op waited.
+    // The interface keeps what its TX FIFO refuses in a backlog; a reply it
+    // still cannot take whole finds both full, and waiting here would not
+    // help, as both drain only from the USB task this op runs in.
     if (response_length != 0u &&
         mclw_hal_usb_write(state->usb, state->dap.response, response_length) != response_length) {
         state->short_replies++;
