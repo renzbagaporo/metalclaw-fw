@@ -211,3 +211,50 @@ def test_stopping_twice_records_once(tmp_path):
     b.stop()
     b.stop()
     assert (tmp_path / "renode.log").read_text() == "rig: Renode exited with 0 before the end of the session\n"
+
+
+def test_an_instance_defaults_to_0(monkeypatch):
+    monkeypatch.delenv(bench.INSTANCE_ENV, raising=False)
+    assert bench.instance() == 0
+
+
+@pytest.mark.parametrize("value", ["-1", "8", "two"])
+def test_an_instance_out_of_range_is_refused(monkeypatch, value):
+    monkeypatch.setenv(bench.INSTANCE_ENV, value)
+    with pytest.raises(bench.BenchError, match=f"invalid {bench.INSTANCE_ENV}"):
+        bench.instance()
+
+
+def test_each_carrier_instance_reports_its_own_serial():
+    carrier = bench.LAYOUTS["metalclaw_pico_rp2"]
+    assert [bench.harness_serial(carrier, n) for n in range(3)] == [
+        "00000000C0FFEE01", "00000000C0FFEE02", "00000000C0FFEE03"]
+
+
+def test_a_bench_script_with_a_fixed_serial_runs_only_instance_0():
+    fixture = bench.LAYOUTS["rpi_pi_pico"]
+    assert bench.harness_serial(fixture, 0) == "0123456789ABCDEF"
+    with pytest.raises(bench.BenchError, match="only METALCLAW_RENODE_INSTANCE=0"):
+        bench.harness_serial(fixture, 1)
+
+
+def test_the_bench_script_gets_the_instances_usbip_port_and_chip_id():
+    run = bench.monitor_commands(Path("/renode/bench.resc"), Path("/w/rom.bin"), Path("/w/flash.bin"),
+                                 Path("/roms/dut.bin"), Path("/w/dut_flash.bin"), "pico", None, 3242,
+                                 ("harness_chip_id", "00000000C0FFEE03"))
+    include = run.index("include @/renode/bench.resc")
+    assert "$usbip_port=3242" in run[:include]
+    assert "$harness_chip_id=0x00000000C0FFEE03" in run[:include]
+
+
+def test_an_instance_refuses_to_start_when_its_own_port_is_taken(tmp_path, monkeypatch):
+    b = bench_files(tmp_path, "metalclaw_pico_rp2")
+    b.instance = 2
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        monkeypatch.setattr(bench, "USBIP_PORT", server.getsockname()[1] - 2)
+        monkeypatch.setattr(bench, "MONITOR_PORT", free_port())
+        with pytest.raises(bench.BenchError, match=f"port {server.getsockname()[1]} is already in use"):
+            b.start()
+    assert b.process is None

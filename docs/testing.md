@@ -222,6 +222,13 @@ in seconds. The Pico harness's serial is the emulated flash's unique ID,
 `0123456789ABCDEF`. The RP2354B harness's is its OTP chip ID, which the
 carrier's bench script sets: `00000000C0FFEE01`.
 
+`METALCLAW_RENODE_INSTANCE` (0 to 7, default 0) lets several benches run on
+one host. Instance N's Renode takes monitor port 1234 + N and USB/IP port
+3240 + N, and its cable attaches, replugs and detaches only its own vhci
+port. On the carrier, instance N's harness reports chip ID
+`00000000C0FFEE01` + N, and that is its serial. The Pico harness's serial is
+fixed by the emulated flash, so fixture 1 runs only instance 0.
+
 Emulated SWD runs about 30 times slower than the bench in host time while
 the target's own timing is unchanged. The platform stretches only host-side
 waits: the probe-rs download, reset and memory access deadlines, every DUT

@@ -3,9 +3,12 @@
 # with the harness's USB exported over USB/IP and imported into this host's
 # kernel, so the host sees the same USB device the bench does.
 
+import contextlib
+import fcntl
 import os
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -26,6 +29,9 @@ class Layout:
     dut_machine: str
     # The USB serial the emulated harness reports.
     serial: str
+    # The bench script variable that sets the harness's chip ID, and with it
+    # its USB serial, when the script has one.
+    chip_id_variable: str | None = None
 
 
 # By the harness's MicroPython board.
@@ -37,15 +43,22 @@ LAYOUTS = {
     # The MetalClaw Pico RP2 carrier: an RP2354B harness driving a Pico DUT.
     # The RP2350 reports its OTP chip ID, which the bench script sets.
     "metalclaw_pico_rp2": Layout("scripts/multi-node/metalclaw_carrier.resc", "rp2350", "rp2040", "pico",
-                                 "00000000C0FFEE01"),
+                                 "00000000C0FFEE01", "harness_chip_id"),
 }
 
 # Each chip's boot ROM, by its file in the ROM directory. The RP2040's is the
 # B2 ROM's ELF, from which the bench script's extractor takes the mask ROM.
 ROMS = {"rp2040": "b2.elf", "rp2350": "bootrom-combined.bin"}
+# Instance N of the bench listens on these ports plus N, so several benches
+# can run on one host, each with its own harness serial.
 MONITOR_PORT = 1234
 USBIP_PORT = 3240
 USBIP_BUSID = "1-0"
+INSTANCE_ENV = "METALCLAW_RENODE_INSTANCE"
+MAX_INSTANCES = 8
+# Held while an import is attached, so each bench can tell which vhci port is
+# its own.
+ATTACH_LOCK = Path(tempfile.gettempdir()) / "metalclaw-usbip-attach.lock"
 STARTUP_TIMEOUT_S = 120.0
 # Linux gives up enumerating after about 90 s of descriptor reads that time
 # out; past this, an import with no device behind it is replugged.
@@ -54,6 +67,35 @@ REPLUG_AFTER_S = 120.0
 
 class BenchError(RuntimeError):
     pass
+
+
+def instance() -> int:
+    value = os.environ.get(INSTANCE_ENV, "").strip() or "0"
+    try:
+        number = int(value)
+    except ValueError:
+        number = -1
+    if not 0 <= number < MAX_INSTANCES:
+        raise BenchError(f"invalid {INSTANCE_ENV} {value!r}; expected 0 to {MAX_INSTANCES - 1}")
+    return number
+
+
+# Instance 0's harness reports the layout's serial; another instance's needs a
+# bench script that can set the chip ID.
+def harness_serial(layout: Layout, number: int) -> str:
+    if number == 0:
+        return layout.serial
+    if layout.chip_id_variable is None:
+        raise BenchError(f"{layout.script} gives every harness the serial {layout.serial}, "
+                         f"so only {INSTANCE_ENV}=0 can run on it")
+    return f"{int(layout.serial, 16) + number:016X}"
+
+
+@contextlib.contextmanager
+def _attach_lock():
+    with open(ATTACH_LOCK, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def _listening(port: int) -> bool:
@@ -118,6 +160,8 @@ class Cable(threading.Thread):
         self.stopping = threading.Event()
         self.imported = threading.Event()
         self.unenumerated_since = None
+        # The vhci port this cable's import took; other benches' are not ours.
+        self.vhci_port = None
 
     def _usbip(self, *args):
         try:
@@ -126,13 +170,20 @@ class Cable(threading.Thread):
         except subprocess.TimeoutExpired:
             return 124, "usbip timed out"
 
+    def _own_ports(self) -> list[int]:
+        return [self.vhci_port] if self.vhci_port in _imported_ports() else []
+
     def run(self):
         while not self.stopping.is_set():
-            ports = _imported_ports()
+            ports = self._own_ports()
             if not ports:
                 self.unenumerated_since = None
-                status, detail = self._usbip("attach", "-r", "127.0.0.1", "-b", self.busid)
+                with _attach_lock():
+                    before = set(_imported_ports())
+                    status, detail = self._usbip("attach", "-r", "127.0.0.1", "-b", self.busid)
+                    taken = sorted(set(_imported_ports()) - before)
                 if status == 0:
+                    self.vhci_port = taken[0] if taken else None
                     self._note(f"imported {self.target}")
                     self.imported.set()
             else:
@@ -159,22 +210,26 @@ class Cable(threading.Thread):
     def stop(self):
         self.stopping.set()
         self.join(timeout=5)
-        self._detach(_imported_ports())
+        self._detach(self._own_ports())
 
 
 # The monitor commands that bring the bench up. The DUT image goes straight
 # into the DUT's flash, as a probe download would leave it: downloading it
 # through the emulated probe takes 20-30 minutes of host time.
 def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_rom: Path, dut_flash_bin: Path,
-                     dut_machine: str, quantum: str | None = None) -> list[str]:
+                     dut_machine: str, quantum: str | None = None, usbip_port: int | None = None,
+                     chip_id: tuple[str, str] | None = None) -> list[str]:
     commands = [
         f"$harness_rom=@{harness_rom}",
         f"$harness_flash=@{harness_flash}",
         f"$dut_rom=@{dut_rom}",
-        f"$usbip_port={USBIP_PORT}",
+        f"$usbip_port={USBIP_PORT if usbip_port is None else usbip_port}",
     ]
     if quantum:
         commands.append(f'$quantum="{quantum}"')
+    if chip_id is not None:
+        variable, serial = chip_id
+        commands.append(f"${variable}=0x{serial}")
     # Through the DUT's XIP window, as the bench script loads the harness's:
     # the W25Q takes the image at flash offset 0, which the XIP window's reset
     # address translation puts at 0x10000000.
@@ -188,10 +243,12 @@ def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_r
 
 class Bench:
     def __init__(self, renode_dir: Path, layout: Layout, harness_uf2: Path, roms: Path, dut_image: Path,
-                 work: Path, serial: str):
+                 work: Path, serial: str, instance: int = 0):
         self.renode_dir = renode_dir
         self.layout = layout
         self.serial = serial
+        self.instance = instance
+        self.monitor_port = None
         self.harness_uf2 = harness_uf2
         self.roms = roms
         self.dut_image = dut_image
@@ -219,9 +276,11 @@ class Bench:
                 raise BenchError(f"missing {path}")
         # A Renode left from an earlier run would answer on these ports, and
         # the run would drive its bench instead of this one.
-        for port in (MONITOR_PORT, USBIP_PORT):
+        monitor_port, usbip_port = MONITOR_PORT + self.instance, USBIP_PORT + self.instance
+        for port in (monitor_port, usbip_port):
             if _listening(port):
-                raise BenchError(f"port {port} is already in use; another Renode is running")
+                raise BenchError(f"port {port} is already in use; another Renode is running "
+                                 f"(another {INSTANCE_ENV} runs on its own ports)")
         try:
             contents = dut_flash.flash_contents(self.dut_image.read_bytes())
         except dut_flash.DutFlashError as error:
@@ -238,15 +297,18 @@ class Bench:
         harness_rom = self._rom(layout.harness_chip, "harness_rom.bin")
         dut_rom = self._rom(layout.dut_chip, "dut_rom.bin")
         self.log = (self.work / "renode.log").open("w")
+        chip_id = None if layout.chip_id_variable is None else (layout.chip_id_variable, self.serial)
         commands = monitor_commands(self.renode_dir / layout.script, harness_rom, payload, dut_rom, flash_bin,
-                                    layout.dut_machine, os.environ.get("METALCLAW_RENODE_QUANTUM"))
-        argv = [str(self.renode_dir / "renode"), "--disable-gui", "--plain", "--port", str(MONITOR_PORT)]
+                                    layout.dut_machine, os.environ.get("METALCLAW_RENODE_QUANTUM"), usbip_port,
+                                    chip_id)
+        argv = [str(self.renode_dir / "renode"), "--disable-gui", "--plain", "--port", str(monitor_port)]
         for command in commands:
             argv += ["-e", command]
         self.process = subprocess.Popen(argv, cwd=self.renode_dir, stdout=self.log, stderr=subprocess.STDOUT,
                                         start_new_session=True)
-        _wait_port(USBIP_PORT, STARTUP_TIMEOUT_S)
-        self.cable = Cable(USBIP_BUSID, USBIP_PORT, self.serial, self.log)
+        self.monitor_port = monitor_port
+        _wait_port(usbip_port, STARTUP_TIMEOUT_S)
+        self.cable = Cable(USBIP_BUSID, usbip_port, self.serial, self.log)
         self.cable.start()
         if not self.cable.imported.wait(STARTUP_TIMEOUT_S):
             raise BenchError(f"the harness's USB/IP bus {USBIP_BUSID} was never imported")
@@ -263,7 +325,7 @@ class Bench:
             self.log.flush()
         if self.process is not None and self.process.poll() is None:
             try:
-                with socket.create_connection(("127.0.0.1", MONITOR_PORT), timeout=5) as monitor:
+                with socket.create_connection(("127.0.0.1", self.monitor_port), timeout=5) as monitor:
                     monitor.sendall(b"quit\n")
                 self.process.wait(timeout=30)
             except (OSError, subprocess.TimeoutExpired):

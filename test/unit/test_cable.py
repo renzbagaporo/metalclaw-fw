@@ -15,17 +15,18 @@ class FakeKernel:
     def usbip(self, *args):
         self.calls.append(args)
         if args[0] == "attach":
-            self.ports = [0]
+            self.ports.append(max(self.ports, default=-1) + 1)
         elif args[0] == "detach":
-            self.ports = []
+            self.ports.remove(int(args[2]))
         return 0, ""
 
 
-def run_cable(monkeypatch, kernel, seconds):
+def run_cable(monkeypatch, kernel, seconds, tmp_lock):
     monkeypatch.setattr(bench, "_imported_ports", lambda: list(kernel.ports))
     monkeypatch.setattr(bench, "_enumerated", lambda serial: kernel.enumerated)
     monkeypatch.setattr(bench.Cable, "_usbip", lambda cable, *args: kernel.usbip(*args))
     monkeypatch.setattr(bench, "REPLUG_AFTER_S", 0.3)
+    monkeypatch.setattr(bench, "ATTACH_LOCK", tmp_lock)
     cable = bench.Cable("1-0", 3240, "0123456789ABCDEF", io.StringIO())
     cable.start()
     time.sleep(seconds)
@@ -34,9 +35,9 @@ def run_cable(monkeypatch, kernel, seconds):
     return cable
 
 
-def test_an_import_that_never_enumerates_is_replugged(monkeypatch):
+def test_an_import_that_never_enumerates_is_replugged(monkeypatch, tmp_path):
     kernel = FakeKernel()
-    cable = run_cable(monkeypatch, kernel, 1.2)
+    cable = run_cable(monkeypatch, kernel, 1.2, tmp_path / "lock")
     attaches = [c for c in kernel.calls if c[0] == "attach"]
     detaches = [c for c in kernel.calls if c[0] == "detach"]
     assert len(attaches) >= 2 and detaches
@@ -44,9 +45,19 @@ def test_an_import_that_never_enumerates_is_replugged(monkeypatch):
     assert "replugging" in cable.log.getvalue()
 
 
-def test_an_enumerated_import_is_left_alone(monkeypatch):
+def test_an_enumerated_import_is_left_alone(monkeypatch, tmp_path):
     kernel = FakeKernel()
     kernel.enumerated = True
-    cable = run_cable(monkeypatch, kernel, 1.0)
+    cable = run_cable(monkeypatch, kernel, 1.0, tmp_path / "lock")
     assert [c[0] for c in kernel.calls] == ["attach"]
     assert cable.imported.is_set()
+
+
+def test_a_cable_replugs_and_releases_only_its_own_import(monkeypatch, tmp_path):
+    kernel = FakeKernel()
+    kernel.ports = [0]  # another bench's import
+    cable = run_cable(monkeypatch, kernel, 1.2, tmp_path / "lock")
+    cable.stop()
+    detaches = [c for c in kernel.calls if c[0] == "detach"]
+    assert detaches and all(c != ("detach", "-p", "0") for c in detaches)
+    assert kernel.ports == [0]

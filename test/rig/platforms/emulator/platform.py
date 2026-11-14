@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from test.rig.platforms.emulator.bench import LAYOUTS, Bench, BenchError, Layout
+from test.rig.platforms.emulator.bench import LAYOUTS, Bench, BenchError, Layout, harness_serial, instance
 from test.rig.platforms.hardware.platform import (
     _DEFAULT_MAILBOX_TIMEOUT,
     ROOT,
@@ -119,10 +119,21 @@ def layout() -> Layout:
     return LAYOUTS[board]
 
 
-# The bench script fixes the emulated harness's serial; METALCLAW_HARNESS_SERIAL
-# names a bench harness and is left to the hardware platform.
+# The bench script fixes the emulated harness's serial, per instance;
+# METALCLAW_HARNESS_SERIAL names a bench harness and is left to the hardware
+# platform.
+def _instance() -> int:
+    try:
+        return instance()
+    except BenchError as error:
+        pytest.exit(str(error), returncode=2)
+
+
 def _serial() -> str:
-    return layout().serial
+    try:
+        return harness_serial(layout(), _instance())
+    except BenchError as error:
+        pytest.exit(str(error), returncode=2)
 
 
 @pytest.fixture(scope="session")
@@ -149,6 +160,7 @@ def bench():
         dut_image=image,
         work=Path(os.environ.get("METALCLAW_RENODE_WORK", ROOT / "build/emulator")),
         serial=_serial(),
+        instance=_instance(),
     )
     try:
         b.start()
