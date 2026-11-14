@@ -54,6 +54,12 @@ interface is not already present, flash the DUT image through that probe with
 `probe-rs download --verify`, reset it, and wait for the mailbox to answer
 PING. If any of that fails, no case runs.
 
+On both platforms the session header shows the host's load average and CPU
+count, and every failure carries a `host load` section with the same and,
+where the host has `/proc/stat`, how busy its CPUs were during that test and
+how much time the hypervisor stole from them. A failure on a loaded host,
+above all in the emulator, is weaker evidence than one on an idle host.
+
 `harness.run(code)` executes Python on the harness's raw REPL and returns
 what it printed. `harness.serial_port(interface)` waits for the serial port
 the harness serves for an attached device and returns its
