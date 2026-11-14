@@ -133,7 +133,9 @@ def _wait_port(port: int, timeout: float) -> None:
 
 
 VHCI_STATUS = Path("/sys/devices/platform/vhci_hcd.0/status")
-VHCI_PORT_USED = 6
+# An import holds its port from the attach on: NOTASSIGNED until the hub gives
+# the device an address, then USED.
+VHCI_PORT_HELD = (5, 6)
 
 
 # The vhci ports holding an import, from the kernel's own table: `usbip port`
@@ -142,7 +144,7 @@ def _imported_ports() -> list[int]:
     ports = []
     for line in VHCI_STATUS.read_text().splitlines()[1:]:
         fields = line.split()
-        if len(fields) >= 3 and int(fields[2]) == VHCI_PORT_USED:
+        if len(fields) >= 3 and int(fields[2]) in VHCI_PORT_HELD:
             ports.append(int(fields[1]))
     return ports
 

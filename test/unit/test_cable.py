@@ -154,3 +154,13 @@ def test_a_listed_harness_without_its_tty_is_not_enumerated(monkeypatch, tmp_pat
     monkeypatch.setattr(bench, "USB_DEVICES", tmp_path / "usb")
     monkeypatch.setattr(bench, "SERIAL_BY_ID", tmp_path / "by-id")
     assert not bench._enumerated("0123456789ABCDEF")
+
+
+def test_an_import_holds_its_port_before_the_hub_addresses_it(monkeypatch, tmp_path):
+    status = tmp_path / "status"
+    status.write_text("hub port sta spd dev      sockfd local_busid\n"
+                      "hs  0000 006 002 00010000 000003 9-1\n"
+                      "hs  0001 005 002 00010000 000003 0-0\n"
+                      "hs  0002 004 000 00000000 000000 0-0\n")
+    monkeypatch.setattr(bench, "VHCI_STATUS", status)
+    assert bench._imported_ports() == [0, 1]
