@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# The rig on the emulator platform: the bench in Renode, started by hand.
+# The rig on the emulator platform: both benches in Renode, started by hand.
 # A run tests only the DUT images the change since the last passing
 # scheduled run can reach (test/rig/select.py), or every image when there
 # is none. A scheduled run is skipped when master has not moved since the
@@ -72,8 +72,18 @@ jobs:
     needs: plan
     if: needs.plan.outputs.images != '[]'
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        # Each emulated bench: the harness board, and the DUT board it drives.
+        include:
+          - bench: rpi_pi_pico
+            dut_board: rpi_pico2/rp2350a/m33
+          - bench: metalclaw_pico_rp2
+            dut_board: rpi_pico
     env:
       IMAGES: ${{ needs.plan.outputs.images }}
+      METALCLAW_BOARD_DIR: ${{ github.workspace }}/core/ports/rp2/boards/${{ matrix.bench }}
+      METALCLAW_DUT_BOARD: ${{ matrix.dut_board }}
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v4
@@ -114,9 +124,9 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: firmware
+          name: firmware-${{ matrix.bench }}
           path: |
-            build/rp2/rpi_pi_pico/firmware.uf2
+            build/rp2/${{ matrix.bench }}/firmware.uf2
             build/dut/**/zephyr/zephyr.elf
             build/dut/**/zephyr/.config
           # .config is a dotfile, which upload-artifact leaves out by default.
@@ -167,7 +177,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        bench: [rpi_pi_pico, metalclaw_pico_rp2]
         image: ${{ fromJSON(needs.plan.outputs.images) }}
+    env:
+      # The harness board `just test` passes the rig picks the bench.
+      METALCLAW_BOARD_DIR: ${{ github.workspace }}/core/ports/rp2/boards/${{ matrix.bench }}
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v4
@@ -200,7 +214,7 @@ jobs:
         run: just setup-emulator-roms setup-renode
       - uses: actions/download-artifact@v4
         with:
-          name: firmware
+          name: firmware-${{ matrix.bench }}
           path: build
       - name: USB/IP
         run: |
@@ -225,8 +239,9 @@ jobs:
         run: just test emulator -v -p no:cacheprovider --junitxml=build/emulator/junit.xml
       - if: always()
         id: name
-        run: echo "artifact=rig-${MATRIX_IMAGE//\//-}" >> "$GITHUB_OUTPUT"
+        run: echo "artifact=rig-${MATRIX_BENCH}-${MATRIX_IMAGE//\//-}" >> "$GITHUB_OUTPUT"
         env:
+          MATRIX_BENCH: ${{ matrix.bench }}
           MATRIX_IMAGE: ${{ matrix.image }}
       - if: always()
         uses: actions/upload-artifact@v4

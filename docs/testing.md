@@ -255,7 +255,9 @@ selects nothing, and anything else selects every image. `EMULATED_IMAGES`
 in the workflow limits that to the images the pinned Renode can run. A run
 takes the images, or the commit to diff against, as inputs. The workflow
 has no schedule; with one, a scheduled run skips itself when master has not
-moved since the last scheduled run.
+moved since the last scheduled run. Each image runs on both emulated benches:
+the Pico harness driving a Pico 2 DUT, and the MetalClaw Pico RP2 carrier
+driving a Pico DUT.
 
 ## The DUT fixture
 
