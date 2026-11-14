@@ -1,24 +1,31 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
 import io
+import itertools
 import time
 
 from test.rig.platforms.emulator import bench
 
 
+OURS = "usbip://127.0.0.1:3240/1-0"
+
+
 class FakeKernel:
     def __init__(self):
         self.ports = []
+        self.serials = {}
         self.enumerated = False
-        self.exported = True
+        # The USB/IP targets whose export is gone.
+        self.down = set()
         self.calls = []
 
-    def usbip(self, *args):
+    def usbip(self, cable, *args):
         self.calls.append(args)
         if args[0] == "attach":
-            if not self.exported:
+            if cable.target in self.down:
                 return 1, "usbip: error: import device"
-            self.ports.append(max(self.ports, default=-1) + 1)
+            # As usbip does, the lowest free port.
+            self.ports.append(next(p for p in itertools.count() if p not in self.ports))
         elif args[0] == "detach":
             self.ports.remove(int(args[2]))
         return 0, ""
@@ -26,8 +33,9 @@ class FakeKernel:
 
 def run_cable(monkeypatch, kernel, seconds, tmp_lock, meanwhile=None):
     monkeypatch.setattr(bench, "_imported_ports", lambda: list(kernel.ports))
+    monkeypatch.setattr(bench, "_port_serial", lambda port: kernel.serials.get(port))
     monkeypatch.setattr(bench, "_enumerated", lambda serial: kernel.enumerated)
-    monkeypatch.setattr(bench.Cable, "_usbip", lambda cable, *args: kernel.usbip(*args))
+    monkeypatch.setattr(bench.Cable, "_usbip", lambda cable, *args: kernel.usbip(cable, *args))
     monkeypatch.setattr(bench, "REPLUG_AFTER_S", 0.3)
     monkeypatch.setattr(bench, "ATTACH_LOCK", tmp_lock)
     cable = bench.Cable("1-0", 3240, "0123456789ABCDEF", io.StringIO())
@@ -73,12 +81,48 @@ def test_a_port_the_kernel_dropped_is_not_ours_once_another_bench_takes_it(monke
         time.sleep(0.3)
         # Our harness re-enumerates: the kernel drops the import and the
         # export is gone for a while.
-        kernel.exported = False
+        kernel.down.add(OURS)
         kernel.enumerated = False
         kernel.ports.remove(0)
         time.sleep(0.3)
         # Another bench attaches meanwhile, into the lowest free port.
         kernel.ports.append(0)
+
+    kernel = FakeKernel()
+    kernel.enumerated = True
+    run_cable(monkeypatch, kernel, 1.0, tmp_path / "lock", meanwhile)
+    assert ("detach", "-p", "0") not in kernel.calls
+    assert kernel.calls[-1][0] == "attach"
+
+
+def test_another_bench_attaching_on_our_port_within_one_poll_is_not_ours(monkeypatch, tmp_path):
+    def meanwhile(kernel):
+        time.sleep(0.3)
+        other = bench.Cable("1-0", 3241, "00000000C0FFEE02", io.StringIO())
+        # Between two of our polls the kernel drops our import while our
+        # export is gone, and the other bench's attach takes the freed port.
+        with bench._port_owners() as owners:
+            kernel.down.add(OURS)
+            kernel.enumerated = False
+            kernel.ports.remove(0)
+            other._poll(owners)
+        assert kernel.ports == [0]
+
+    kernel = FakeKernel()
+    kernel.enumerated = True
+    run_cable(monkeypatch, kernel, 1.0, tmp_path / "lock", meanwhile)
+    assert ("detach", "-p", "0") not in kernel.calls
+    assert kernel.calls[-1][0] == "attach"
+
+
+def test_a_port_holding_another_serial_is_not_ours(monkeypatch, tmp_path):
+    def meanwhile(kernel):
+        time.sleep(0.3)
+        # An import made outside the rig lands on our freed port number
+        # between two polls, and enumerates.
+        kernel.down.add(OURS)
+        kernel.enumerated = False
+        kernel.serials[0] = "0001"
 
     kernel = FakeKernel()
     kernel.enumerated = True

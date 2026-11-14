@@ -5,6 +5,7 @@
 
 import contextlib
 import fcntl
+import json
 import os
 import socket
 import subprocess
@@ -56,8 +57,10 @@ USBIP_PORT = 3240
 USBIP_BUSID = "1-0"
 INSTANCE_ENV = "METALCLAW_RENODE_INSTANCE"
 MAX_INSTANCES = 8
-# Held while an import is attached, so each bench can tell which vhci port is
-# its own.
+# Held while a bench attaches, checks or detaches its import, and records which
+# bench's import took each vhci port: the kernel's table shows every import
+# alike, and the next attach takes the lowest free port, so another bench's
+# import can land on our port number between two of our polls.
 ATTACH_LOCK = Path(tempfile.gettempdir()) / "metalclaw-usbip-attach.lock"
 STARTUP_TIMEOUT_S = 120.0
 # Linux gives up enumerating after about 90 s of descriptor reads that time
@@ -91,11 +94,22 @@ def harness_serial(layout: Layout, number: int) -> str:
     return f"{int(layout.serial, 16) + number:016X}"
 
 
+# The vhci ports' owners, by port, as each owner's USB/IP target; changes are
+# saved when the lock is released.
 @contextlib.contextmanager
-def _attach_lock():
-    with open(ATTACH_LOCK, "a") as lock:
+def _port_owners():
+    with open(ATTACH_LOCK, "a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        yield
+        lock.seek(0)
+        try:
+            owners = {int(port): target for port, target in json.loads(lock.read() or "{}").items()}
+        except (ValueError, AttributeError):
+            owners = {}
+        saved = dict(owners)
+        yield owners
+        if owners != saved:
+            lock.truncate(0)
+            lock.write(json.dumps(owners))
 
 
 def _listening(port: int) -> bool:
@@ -133,6 +147,18 @@ def _imported_ports() -> list[int]:
     return ports
 
 
+# The serial of the device enumerated on a vhci port, if one is.
+def _port_serial(port: int) -> str | None:
+    for line in VHCI_STATUS.read_text().splitlines()[1:]:
+        fields = line.split()
+        if len(fields) >= 7 and int(fields[1]) == port and fields[6] != "0-0":
+            try:
+                return (Path("/sys/bus/usb/devices") / fields[6] / "serial").read_text().strip()
+            except OSError:
+                return None
+    return None
+
+
 def _enumerated(serial: str) -> bool:
     for device in Path("/sys/bus/usb/devices").iterdir():
         try:
@@ -160,8 +186,6 @@ class Cable(threading.Thread):
         self.stopping = threading.Event()
         self.imported = threading.Event()
         self.unenumerated_since = None
-        # The vhci port this cable's import took; other benches' are not ours.
-        self.vhci_port = None
 
     def _usbip(self, *args):
         try:
@@ -170,51 +194,60 @@ class Cable(threading.Thread):
         except subprocess.TimeoutExpired:
             return 124, "usbip timed out"
 
-    def _own_ports(self) -> list[int]:
-        return [self.vhci_port] if self.vhci_port in _imported_ports() else []
+    # Called with the owners held. A port stops being ours once the kernel
+    # frees it, or once it holds a device with another serial: an import made
+    # outside the rig never takes the lock.
+    def _own_ports(self, owners) -> list[int]:
+        imported = _imported_ports()
+        for port in [port for port, target in owners.items() if target == self.target]:
+            if port not in imported or _port_serial(port) not in (None, self.serial):
+                del owners[port]
+        return [port for port, target in owners.items() if target == self.target]
 
     def run(self):
         while not self.stopping.is_set():
-            ports = self._own_ports()
-            if not ports:
-                # The kernel dropped the import, and the next attach anywhere
-                # takes the lowest free port: another bench's import may land
-                # on this number while ours is still down.
-                self.vhci_port = None
-                self.unenumerated_since = None
-                with _attach_lock():
-                    before = set(_imported_ports())
-                    status, detail = self._usbip("attach", "-r", "127.0.0.1", "-b", self.busid)
-                    taken = sorted(set(_imported_ports()) - before)
-                if status == 0:
-                    self.vhci_port = taken[0] if taken else None
-                    self._note(f"imported {self.target}")
-                    self.imported.set()
-            else:
-                self.imported.set()
-                now = time.monotonic()
-                if _enumerated(self.serial):
-                    self.unenumerated_since = None
-                elif self.unenumerated_since is None:
-                    self.unenumerated_since = now
-                elif now - self.unenumerated_since > REPLUG_AFTER_S:
-                    self._note(f"not enumerated after {REPLUG_AFTER_S:.0f} s; replugging")
-                    self.unenumerated_since = None
-                    self._detach(ports)
+            with _port_owners() as owners:
+                self._poll(owners)
             self.stopping.wait(0.25)
+
+    def _poll(self, owners):
+        ports = self._own_ports(owners)
+        if not ports:
+            self.unenumerated_since = None
+            before = set(_imported_ports())
+            status, detail = self._usbip("attach", "-r", "127.0.0.1", "-b", self.busid)
+            taken = sorted(set(_imported_ports()) - before)
+            if status == 0:
+                if taken:
+                    owners[taken[0]] = self.target
+                self._note(f"imported {self.target}")
+                self.imported.set()
+        else:
+            self.imported.set()
+            now = time.monotonic()
+            if _enumerated(self.serial):
+                self.unenumerated_since = None
+            elif self.unenumerated_since is None:
+                self.unenumerated_since = now
+            elif now - self.unenumerated_since > REPLUG_AFTER_S:
+                self._note(f"not enumerated after {REPLUG_AFTER_S:.0f} s; replugging")
+                self.unenumerated_since = None
+                self._detach(ports, owners)
 
     def _note(self, message):
         self.log.write(f"usbip: {message}\n")
         self.log.flush()
 
-    def _detach(self, ports):
+    def _detach(self, ports, owners):
         for port in ports:
             self._usbip("detach", "-p", str(port))
+            owners.pop(port, None)
 
     def stop(self):
         self.stopping.set()
         self.join(timeout=5)
-        self._detach(self._own_ports())
+        with _port_owners() as owners:
+            self._detach(self._own_ports(owners), owners)
 
 
 # The monitor commands that bring the bench up. The DUT image goes straight
