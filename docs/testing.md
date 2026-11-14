@@ -159,8 +159,10 @@ USB/IP and imported into this host's kernel, so the harness, its CMSIS-DAP
 probe and the DUT are driven exactly as on the bench. Every re-enumeration
 unplugs it; the platform imports it again, as a cable that stays in would.
 The kernel's descriptor timeouts run in host time, so it can give up on a
-harness that is busy in emulated time; an import that has not enumerated
-after 120 s is replugged. The harness flash boots with its filesystem
+harness that is busy in emulated time; an import whose harness has not
+enumerated, or whose REPL tty is gone, for 120 s is replugged. The harness's
+mass-storage volume is unused by the rig, and probing it is what stalls a busy
+harness into a reset, so the host tells usb-storage to ignore it (below). The harness flash boots with its filesystem
 already formatted, as a bench harness's is after its first boot, at the
 range the UF2 declares for it; formatting erases sectors with interrupts
 off while USB is coming up. The platform takes the flash from the UF2's
@@ -210,9 +212,11 @@ just build-dut
 just test emulator
 ```
 
-The host needs `vhci_hcd` loaded and `usbip` runnable with `sudo -n`,
-which imports a device into the running kernel: run it in a disposable VM
-or CI runner, not on a workstation. `METALCLAW_RENODE_DIR`,
+The host needs `vhci_hcd` loaded, `usbip` runnable with `sudo -n`, and
+usb-storage told to ignore the harness (`echo 2fe3:0204:i | sudo tee
+/sys/module/usb_storage/parameters/quirks` after `sudo modprobe usb-storage`),
+which changes the running kernel: run it in a disposable VM or CI runner, not
+on a workstation. `METALCLAW_RENODE_DIR`,
 `METALCLAW_RENODE_ROMS` and `METALCLAW_HARNESS_IMAGE` override the Renode
 package, the boot ROM directory and the harness UF2; point
 `METALCLAW_RENODE_DIR` at a package built from a local checkout

@@ -219,6 +219,10 @@ jobs:
           echo 'SUBSYSTEMS=="usb", ATTRS{idVendor}=="2fe3", MODE="0666"' \
             | sudo tee /etc/udev/rules.d/70-metalclaw-harness.rules
           sudo udevadm control --reload
+          # The rig never uses the harness's mass-storage volume, and probing
+          # it stalls a busy emulated harness until the kernel resets it.
+          sudo modprobe usb-storage
+          echo 2fe3:0204:i | sudo tee /sys/module/usb_storage/parameters/quirks
       - name: Rig
         env:
           METALCLAW_DUT_DEVICE: ${{ matrix.image }}

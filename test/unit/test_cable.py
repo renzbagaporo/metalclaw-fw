@@ -129,3 +129,28 @@ def test_a_port_holding_another_serial_is_not_ours(monkeypatch, tmp_path):
     run_cable(monkeypatch, kernel, 1.0, tmp_path / "lock", meanwhile)
     assert ("detach", "-p", "0") not in kernel.calls
     assert kernel.calls[-1][0] == "attach"
+
+
+def harness_in_sysfs(root, serial):
+    device = root / "usb" / "9-1"
+    device.mkdir(parents=True)
+    (device / "idVendor").write_text("2fe3\n")
+    (device / "serial").write_text(serial + "\n")
+    (root / "by-id").mkdir()
+    return device
+
+
+def test_a_listed_harness_with_its_tty_is_enumerated(monkeypatch, tmp_path):
+    harness_in_sysfs(tmp_path, "0123456789ABCDEF")
+    (tmp_path / "by-id" / "usb-Metalclaw_Metalclaw_0123456789ABCDEF-if00").touch()
+    monkeypatch.setattr(bench, "USB_DEVICES", tmp_path / "usb")
+    monkeypatch.setattr(bench, "SERIAL_BY_ID", tmp_path / "by-id")
+    assert bench._enumerated("0123456789ABCDEF")
+
+
+def test_a_listed_harness_without_its_tty_is_not_enumerated(monkeypatch, tmp_path):
+    # The kernel keeps listing a harness it is resetting after a stall.
+    harness_in_sysfs(tmp_path, "0123456789ABCDEF")
+    monkeypatch.setattr(bench, "USB_DEVICES", tmp_path / "usb")
+    monkeypatch.setattr(bench, "SERIAL_BY_ID", tmp_path / "by-id")
+    assert not bench._enumerated("0123456789ABCDEF")

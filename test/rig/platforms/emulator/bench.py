@@ -147,26 +147,35 @@ def _imported_ports() -> list[int]:
     return ports
 
 
+USB_DEVICES = Path("/sys/bus/usb/devices")
+SERIAL_BY_ID = Path("/dev/serial/by-id")
+
+
 # The serial of the device enumerated on a vhci port, if one is.
 def _port_serial(port: int) -> str | None:
     for line in VHCI_STATUS.read_text().splitlines()[1:]:
         fields = line.split()
         if len(fields) >= 7 and int(fields[1]) == port and fields[6] != "0-0":
             try:
-                return (Path("/sys/bus/usb/devices") / fields[6] / "serial").read_text().strip()
+                return (USB_DEVICES / fields[6] / "serial").read_text().strip()
             except OSError:
                 return None
     return None
 
 
+# Enumerated means the kernel lists the harness and its REPL tty is up. A
+# harness the kernel is resetting stays listed while every descriptor read
+# times out, and only its tty is gone.
 def _enumerated(serial: str) -> bool:
-    for device in Path("/sys/bus/usb/devices").iterdir():
+    listed = False
+    for device in USB_DEVICES.iterdir():
         try:
             if (device / "idVendor").read_text().strip() == "2fe3" and (device / "serial").read_text().strip() == serial:
-                return True
+                listed = True
+                break
         except OSError:
             continue
-    return False
+    return listed and any(SERIAL_BY_ID.glob(f"usb-Metalclaw_*_{serial}-if00"))
 
 
 class Cable(threading.Thread):
