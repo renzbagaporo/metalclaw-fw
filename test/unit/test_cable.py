@@ -2,6 +2,7 @@
 
 import io
 import itertools
+import sys
 import time
 
 from test.rig.platforms.emulator import bench
@@ -164,3 +165,38 @@ def test_an_import_holds_its_port_before_the_hub_addresses_it(monkeypatch, tmp_p
                       "hs  0002 004 000 00000000 000000 0-0\n")
     monkeypatch.setattr(bench, "VHCI_STATUS", status)
     assert bench._imported_ports() == [0, 1]
+
+
+def test_a_usbip_past_its_timeout_is_terminated_and_reaped(tmp_path, monkeypatch):
+    # Stands in for sudo: a command that only ends on the SIGTERM it relays.
+    marker = tmp_path / "terminated"
+    script = (
+        "import signal, sys, time\n"
+        f"signal.signal(signal.SIGTERM, lambda *_: (open({str(marker)!r}, 'w').close(), sys.exit(0)))\n"
+        "time.sleep(30)\n"
+    )
+    cable = bench.Cable("1-0", 3240, "0123456789ABCDEF", io.StringIO())
+    cable.base = [sys.executable, "-c", script]
+    monkeypatch.setattr(bench.Cable, "USBIP_TIMEOUT_S", 0.5)
+    started = time.monotonic()
+    assert cable._usbip("attach") == (124, "usbip timed out")
+    assert time.monotonic() - started < 5
+    assert marker.exists()
+
+
+def test_a_usbip_that_ignores_sigterm_is_killed(monkeypatch):
+    cable = bench.Cable("1-0", 3240, "0123456789ABCDEF", io.StringIO())
+    cable.base = [sys.executable, "-c",
+                  "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"]
+    monkeypatch.setattr(bench.Cable, "USBIP_TIMEOUT_S", 0.5)
+    monkeypatch.setattr(bench.Cable, "USBIP_TERM_GRACE_S", 0.5)
+    started = time.monotonic()
+    assert cable._usbip("attach") == (124, "usbip timed out")
+    assert time.monotonic() - started < 5
+
+
+def test_usbip_output_and_status_come_back(monkeypatch):
+    cable = bench.Cable("1-0", 3240, "0123456789ABCDEF", io.StringIO())
+    cable.base = [sys.executable, "-c", "import sys; print('out'); print('err', file=sys.stderr); sys.exit(3)"]
+    status, detail = cable._usbip()
+    assert status == 3 and "out" in detail and "err" in detail

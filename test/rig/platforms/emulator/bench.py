@@ -198,11 +198,25 @@ class Cable(threading.Thread):
         self.imported = threading.Event()
         self.unenumerated_since = None
 
+    # usbip runs as root under sudo, so only sudo can signal it: sudo relays
+    # SIGTERM to its command but cannot relay SIGKILL. A usbip that outlives
+    # its timeout gets SIGTERM through sudo, and sudo is reaped either way.
+    USBIP_TIMEOUT_S = 5
+    USBIP_TERM_GRACE_S = 2
+
     def _usbip(self, *args):
+        process = subprocess.Popen(self.base + list(args), stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, text=True)
         try:
-            r = subprocess.run(self.base + list(args), capture_output=True, text=True, timeout=5)
-            return r.returncode, r.stdout + r.stderr
+            out, _ = process.communicate(timeout=self.USBIP_TIMEOUT_S)
+            return process.returncode, out
         except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.communicate(timeout=self.USBIP_TERM_GRACE_S)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
             return 124, "usbip timed out"
 
     # Called with the owners held. A port stops being ours once the kernel
