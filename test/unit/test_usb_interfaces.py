@@ -24,7 +24,7 @@ class LeavingDevice:
 @pytest.fixture
 def found(monkeypatch):
     def find(device):
-        monkeypatch.setattr(platform.usb.core, "find", lambda **kwargs: device)
+        monkeypatch.setattr(platform.dap, "find_harness", lambda serial: device)
         monkeypatch.setattr(platform.usb.util, "dispose_resources", lambda device: None)
     return find
 

@@ -11,6 +11,7 @@ import os
 import struct
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import usb.core
 import usb.util
@@ -104,6 +105,63 @@ class DapError(RuntimeError):
     pass
 
 
+SYSFS_USB = Path("/sys/bus/usb/devices")
+
+
+# A device's strings as the kernel read them at enumeration. Asking the
+# device instead costs a control transfer, which a busy harness can let time
+# out; usb.core.find(serial_number=...) swallows that and reports no match.
+def _sysfs_device(device) -> Path | None:
+    ports = getattr(device, "port_numbers", None)
+    if not ports:
+        return None
+    return SYSFS_USB / f"{device.bus}-{'.'.join(map(str, ports))}"
+
+
+def _read(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def _asked(read):
+    try:
+        return read()
+    except (usb.core.USBError, ValueError):
+        return None
+
+
+def find_harness(serial):
+    for device in usb.core.find(find_all=True, idVendor=VENDOR_ID, idProduct=PRODUCT_ID):
+        sysfs = _sysfs_device(device)
+        found = _read(None if sysfs is None else sysfs / "serial")
+        if found is None:
+            found = _asked(lambda: device.serial_number)
+        if found == serial:
+            return device
+    return None
+
+
+def interface_strings(device) -> list[tuple[object, str]]:
+    configuration = device.get_active_configuration()
+    sysfs = _sysfs_device(device)
+    strings = []
+    for interface in configuration:
+        if not interface.iInterface:
+            continue
+        name = None
+        if sysfs is not None:
+            function = f"{configuration.bConfigurationValue}.{interface.bInterfaceNumber}"
+            name = _read(sysfs.parent / f"{sysfs.name}:{function}" / "interface")
+        if name is None:
+            name = usb.util.get_string(device, interface.iInterface)
+        strings.append((interface, name))
+    return strings
+
+
 def usb_timeout_ms():
     value = os.environ.get(USB_TIMEOUT_ENV, "").strip()
     if not value:
@@ -150,11 +208,11 @@ class _Link:
         self.timeout_ms = usb_timeout_ms()
 
     def __enter__(self):
-        device = usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID, serial_number=self.serial)
+        device = find_harness(self.serial)
         if device is None:
             raise DapError(f"no harness {self.serial} on USB")
-        for interface in device.get_active_configuration():
-            if interface.iInterface and usb.util.get_string(device, interface.iInterface) == INTERFACE_NAME:
+        for interface, name in interface_strings(device):
+            if name == INTERFACE_NAME:
                 self.interface = interface
                 break
         if self.interface is None:

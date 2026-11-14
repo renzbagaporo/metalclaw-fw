@@ -233,12 +233,11 @@ class Harness:
     # A device that leaves mid-read is re-enumerating, so it has no
     # interfaces yet.
     def usb_interfaces(self) -> list[str]:
-        device = usb.core.find(idVendor=dap.VENDOR_ID, idProduct=dap.PRODUCT_ID, serial_number=self.serial)
+        device = dap.find_harness(self.serial)
         if device is None:
             return []
         try:
-            return [usb.util.get_string(device, interface.iInterface)
-                    for interface in device.get_active_configuration() if interface.iInterface]
+            return [name for _, name in dap.interface_strings(device)]
         except usb.core.USBError as error:
             if error.errno != errno.ENODEV:
                 raise
