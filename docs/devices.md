@@ -195,7 +195,9 @@ port exists.
   fall, so a pulse that comes and goes between two reads is still seen.
 - `swd.h`: the SWD wire: transfers, bit sequences, pin control, clock. On
   rp2 it is a PIO program; every wait is bounded and a timeout resyncs the
-  state machine.
+  state machine. A wait for the state machine's FIFOs sleeps on WFE, woken
+  by the FIFO level on one of the block's interrupt lines that no handler
+  is installed on; the interrupt itself stays disabled.
 - `i2c_target.h`: an I2C target that serves a `regmap` from hardware. The
   model arms it once and updates the image under a critical section; the
   engine answers the bus from interrupt context without the model. Counters:

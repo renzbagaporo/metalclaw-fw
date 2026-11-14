@@ -8,7 +8,9 @@
 
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
+#include "hardware/irq.h"
 #include "hardware/pio.h"
+#include "hardware/structs/scb.h"
 #include "pico/time.h"
 
 #include "metalclaw/hal/pins.h"
@@ -16,6 +18,12 @@
 #include "pio_window.h"
 
 #define PROBE_TIMEOUT_US 20000u
+
+#if PICO_RP2040
+#define PROBE_SCR_SEVONPEND M0PLUS_SCR_SEVONPEND_BITS
+#else
+#define PROBE_SCR_SEVONPEND M33_SCR_SEVONPEND_BITS
+#endif
 
 #define PROBE_MIN_CLOCK_HZ 50000u
 #define PROBE_DEFAULT_CLOCK_HZ 1000000u
@@ -104,34 +112,93 @@ static void probe_resync(struct mclw_swd *swd) {
     pio_sm_set_enabled(swd->pio, swd->sm, true);
 }
 
-static int probe_put(struct mclw_swd *swd, uint32_t value) {
-    absolute_time_t deadline = make_timeout_time_us(PROBE_TIMEOUT_US);
+static bool probe_fifo_ready(const struct mclw_swd *swd, bool rx) {
+    return rx ? !pio_sm_is_rx_fifo_empty(swd->pio, swd->sm) :
+        !pio_sm_is_tx_fifo_full(swd->pio, swd->sm);
+}
 
-    while (pio_sm_is_tx_fifo_full(swd->pio, swd->sm)) {
-        if (time_reached(deadline)) {
-            probe_resync(swd);
-            return -ETIMEDOUT;
-        }
-        tight_loop_contents();
+// The PIO interrupt line a FIFO wait may borrow: one no handler is installed
+// on (the vector table is shared, so this covers core 1's engines too),
+// since that handler would otherwise be entered for our source. -1 when
+// neither is free or this core does not turn pending interrupts into events.
+static int probe_wake_line(const struct mclw_swd *swd) {
+    if ((scb_hw->scr & PROBE_SCR_SEVONPEND) == 0u) {
+        return -1;
     }
-    pio_sm_put(swd->pio, swd->sm, value);
-    return 0;
+    for (uint line = 0u; line < NUM_PIO_IRQS; line++) {
+        if (!irq_has_handler((uint)pio_get_irq_num(swd->pio, line))) {
+            return (int)line;
+        }
+    }
+    return -1;
+}
+
+// Waits until the RX FIFO holds a word or the TX FIFO has room. Under
+// emulation every FIFO status read costs microseconds of host time, so
+// rather than spin, the wait enables the FIFO's level as a source on a free
+// PIO interrupt line and sleeps on WFE. The line stays disabled in the NVIC
+// and no handler runs: with SEVONPEND, which MicroPython's main sets on
+// core 0, the interrupt becoming pending is itself the wake-up event. Its
+// pending bit is cleared before the condition is checked again, so a level
+// that rises after that check still wakes the WFE. The alarm pool bounds
+// each sleep by the deadline.
+static int probe_fifo_wait(struct mclw_swd *swd, bool rx) {
+    absolute_time_t deadline;
+    pio_interrupt_source_t source;
+    int line;
+    int ret = 0;
+
+    if (probe_fifo_ready(swd, rx)) {
+        return 0;
+    }
+    deadline = make_timeout_time_us(PROBE_TIMEOUT_US);
+    source = rx ? pio_get_rx_fifo_not_empty_interrupt_source(swd->sm) :
+        pio_get_tx_fifo_not_full_interrupt_source(swd->sm);
+    line = probe_wake_line(swd);
+    if (line >= 0) {
+        pio_set_irqn_source_enabled(swd->pio, (uint)line, source, true);
+        irq_clear((uint)pio_get_irq_num(swd->pio, (uint)line));
+    }
+    while (!probe_fifo_ready(swd, rx)) {
+        if (time_reached(deadline)) {
+            ret = -ETIMEDOUT;
+            break;
+        }
+        if (line >= 0) {
+            (void)best_effort_wfe_or_timeout(deadline);
+        } else {
+            tight_loop_contents();
+        }
+    }
+    if (line >= 0) {
+        pio_set_irqn_source_enabled(swd->pio, (uint)line, source, false);
+    }
+    if (ret != 0) {
+        probe_resync(swd);
+    }
+    return ret;
+}
+
+static int probe_put(struct mclw_swd *swd, uint32_t value) {
+    int ret = probe_fifo_wait(swd, false);
+
+    if (ret == 0) {
+        pio_sm_put(swd->pio, swd->sm, value);
+    }
+    return ret;
 }
 
 static int probe_get(struct mclw_swd *swd, uint32_t *value) {
-    absolute_time_t deadline = make_timeout_time_us(PROBE_TIMEOUT_US);
+    int ret = probe_fifo_wait(swd, true);
 
-    while (pio_sm_is_rx_fifo_empty(swd->pio, swd->sm)) {
-        if (time_reached(deadline)) {
-            probe_resync(swd);
-            return -ETIMEDOUT;
-        }
-        tight_loop_contents();
+    if (ret == 0) {
+        *value = pio_sm_get(swd->pio, swd->sm);
     }
-    *value = pio_sm_get(swd->pio, swd->sm);
-    return 0;
+    return ret;
 }
 
+// No PIO interrupt source reports a stall, so this wait spins; it runs only
+// when the port turns off and on DAP_SWJ_Pins.
 static int probe_wait_idle(struct mclw_swd *swd) {
     const uint32_t stall = 1u << (PIO_FDEBUG_TXSTALL_LSB + swd->sm);
     absolute_time_t deadline;
