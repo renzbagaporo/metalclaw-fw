@@ -19,6 +19,7 @@ enum {
     PROP_CONNECTED,
     PROP_TRANSFERS,
     PROP_ERRORS,
+    PROP_SHORT_REPLIES,
 };
 
 enum {
@@ -29,6 +30,7 @@ enum {
 struct swd_probe_state {
     struct mclw_dap dap;
     struct mclw_usb_interface *usb;
+    uint32_t short_replies;
 };
 
 static const struct mclw_property_desc probe_properties[] = {
@@ -77,6 +79,15 @@ static const struct mclw_property_desc probe_properties[] = {
         .min = 0,
         .max = UINT32_MAX,
     },
+    {
+        .name = "short_replies",
+        .type = MCLW_TYPE_U32,
+        .count = 1,
+        .access = MCLW_ACCESS_RO,
+        .unit = NULL,
+        .min = 0,
+        .max = UINT32_MAX,
+    },
 };
 
 static const struct mclw_usb_interface_desc dap_interface = {
@@ -117,6 +128,7 @@ static void probe_deinit(struct mclw_instance *inst) {
 static int probe_reset(struct mclw_instance *inst, bool factory) {
     struct swd_probe_state *state = inst->state;
 
+    state->short_replies = 0u;
     return mclw_dap_reset(&state->dap, factory);
 }
 
@@ -138,6 +150,9 @@ static int probe_get(struct mclw_instance *inst, size_t property, struct mclw_va
             return 0;
         case PROP_ERRORS:
             out->v[0] = state->dap.errors;
+            return 0;
+        case PROP_SHORT_REPLIES:
+            out->v[0] = state->short_replies;
             return 0;
         default:
             return -EINVAL;
@@ -167,8 +182,11 @@ static size_t probe_usb_rx(struct mclw_instance *inst, size_t binding, const uin
         return len;
     }
     response_length = mclw_dap_process(&state->dap, data, len);
-    if (response_length != 0u) {
-        (void)mclw_hal_usb_write(state->usb, state->dap.response, response_length);
+    // The vendor queue drains only from the USB task this op runs in, so
+    // what it refuses now it would refuse for as long as the op waited.
+    if (response_length != 0u &&
+        mclw_hal_usb_write(state->usb, state->dap.response, response_length) != response_length) {
+        state->short_replies++;
     }
     return len;
 }

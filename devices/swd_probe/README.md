@@ -42,6 +42,7 @@ probe.detach()
 | `connected` | bool | ro | | | true between `DAP_Connect` and `DAP_Disconnect` |
 | `transfers` | u32 | ro | | | words completed by `DAP_Transfer` / `DAP_TransferBlock` |
 | `errors` | u32 | ro | | | wire errors: failed transfers, non-OK ACKs, failed sequences |
+| `short_replies` | u32 | ro | | | DAP replies the USB interface did not take whole; the rest of each is dropped |
 
 `enabled` defaults to true, so `attach()` turns the port on. Setting it false
 turns the port off, drops `connected`, and makes every wire-touching DAP
@@ -81,9 +82,14 @@ Transfer requests that ask for a value match, a match mask or a timestamp are
 answered with an error; the old core did the same, and no host on this bench
 has needed them.
 
-A packet is processed to completion inside the model's `usb_rx` op and the
-whole response is written before it returns, so requests are never reordered
-and no queue exists.
+A packet is processed to completion inside the model's `usb_rx` op and its
+response is handed to the interface before the op returns, so requests are
+never reordered and the model keeps no queue. The interface holds up to 512
+bytes the host has not read yet. When the host stops reading and a response
+does not fit, the part that does not fit is dropped and `short_replies`
+counts it, so the host sees a short or missing reply. Waiting would not free
+room: the interface's queue is emptied by the same USB task that runs
+`usb_rx`.
 
 ## Tests
 
@@ -98,3 +104,8 @@ halts the DUT while its session attaches and detaches; the DAP client goes
 straight to the memory access port and does not. On the `smoke` image, one
 case downloads the image through the probe with `probe-rs download --verify`,
 resets the DUT and waits for it to answer PING.
+
+`test/unit/test_swd_probe.py`, at the repository root, builds the model on the
+host with the strict warning set, against a fake HAL whose vendor write takes
+only part of a reply, and checks `short_replies`: a reply taken whole leaves
+it alone, one cut short or refused counts once, and `reset()` clears it.
