@@ -34,8 +34,13 @@ def test_a_device_that_leaves_mid_read_has_no_interfaces_yet(found):
     assert platform.Harness("0123456789ABCDEF").usb_interfaces() == []
 
 
-def test_any_other_usb_error_still_raises(found):
+def test_a_device_sysfs_lists_that_cannot_be_opened_yet_has_no_interfaces(found):
     found(LeavingDevice(errno.EIO))
+    assert platform.Harness("0123456789ABCDEF").usb_interfaces() == []
+
+
+def test_any_other_usb_error_still_raises(found):
+    found(LeavingDevice(errno.EPIPE))
     with pytest.raises(usb.core.USBError):
         platform.Harness("0123456789ABCDEF").usb_interfaces()
 

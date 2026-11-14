@@ -230,8 +230,8 @@ class Harness:
         self.run(f"import time\ntime.sleep_us({round(seconds * 1e6)})\n", seconds + 5.0)
 
     # By serial: another harness on the same machine has the same VID:PID.
-    # A device that leaves mid-read is re-enumerating, so it has no
-    # interfaces yet.
+    # A device that leaves mid-read, or that sysfs already lists but that
+    # cannot be opened yet, is re-enumerating, so it has no interfaces yet.
     def usb_interfaces(self) -> list[str]:
         device = dap.find_harness(self.serial)
         if device is None:
@@ -239,7 +239,7 @@ class Harness:
         try:
             return [name for _, name in dap.interface_strings(device)]
         except usb.core.USBError as error:
-            if error.errno != errno.ENODEV:
+            if error.errno not in (errno.ENODEV, errno.EIO):
                 raise
             return []
         finally:
