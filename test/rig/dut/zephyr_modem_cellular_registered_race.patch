@@ -1,0 +1,44 @@
+From 240de30227606ee8a37d4eaa1d83ba37fa2eff99 Mon Sep 17 00:00:00 2001
+From: renzbagaporo <renz.bagaporo@gmail.com>
+Date: Sat, 14 Nov 2026 08:57:10 +0900
+Subject: [PATCH] drivers: modem: cellular: attach chat before redial on
+ registered
+
+Entering RUN_DIAL_SCRIPT from DORMANT releases the chat and arms a 0 ms
+timer, whose TIMEOUT attaches the chat to DLCI1 and runs the dial
+script. A REGISTERED event handled before that timer runs, such as one
+parsed from a +CEREG URC queued behind the PPP_DEAD that left DORMANT,
+cancels the timer and runs the dial script on the released chat. That
+returns -EPERM unchecked, nothing is left armed, and the driver stays
+in RUN_DIAL_SCRIPT without dialing until it is suspended.
+
+Reschedule the timeout instead, so the dial always goes through the
+TIMEOUT path that attaches the chat first. When the chat is already
+attached this only moves a pending retry forward, as before.
+
+Signed-off-by: renzbagaporo <renz.bagaporo@gmail.com>
+---
+ drivers/modem/modem_cellular.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/modem/modem_cellular.c b/drivers/modem/modem_cellular.c
+index de2fcf73380..f740db00b24 100644
+--- a/drivers/modem/modem_cellular.c
++++ b/drivers/modem/modem_cellular.c
+@@ -1279,10 +1279,13 @@ static void modem_cellular_run_dial_script_event_handler(struct modem_cellular_d
+ 		modem_pipe_open_async(data->uart_pipe);
+ 		break;
+ 	case MODEM_CELLULAR_EVENT_REGISTERED:
+-		/* Restart immediately, if we are waiting to retry the dial-script */
++		/* Restart immediately, if we are waiting to retry the dial-script.
++		 * The timeout attaches the chat before running the script: on
++		 * entry from dormant the chat was just released, and running the
++		 * script here would fail with no timer left to retry it.
++		 */
+ 		if (!modem_chat_is_running(&data->chat)) {
+-			modem_cellular_stop_timer(data);
+-			modem_chat_run_script_async(&data->chat, config->dial_chat_script);
++			k_work_reschedule(&data->timeout_work, K_NO_WAIT);
+ 		}
+ 		break;
+ 	default:

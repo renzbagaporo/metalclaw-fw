@@ -24,6 +24,9 @@ pico_sdk_commit := "a1438dff1d38bd9c65dbd693f0e5db4b9ae91779"      # 2.2.0, as p
 # live outside the repository as well.
 zephyr_workspace := env_var_or_default("METALCLAW_ZEPHYR_WORKSPACE", project_dir / "../.zephyr-workspace")
 zephyr_base := zephyr_workspace / "zephyr"
+# A fix to Zephyr that the workspace carries on top of the pinned release
+# until upstream has it; see test/rig/dut/README.md.
+zephyr_patch := project_dir / "test/rig/dut/zephyr_modem_cellular_registered_race.patch"
 zephyr_sdk := env_var_or_default("ZEPHYR_SDK_INSTALL_DIR", env_var("HOME") / "zephyr-sdk-1.0.1")
 zephyr_sdk_url := "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v1.0.1/zephyr-sdk-1.0.1_linux-x86_64_minimal.tar.xz"
 zephyr_sdk_sha256 := "ca9bc0ff66fafca1dac9d592a36d953cf16d096a9d09b1c0357f021cf9f6a7eb"
@@ -203,9 +206,15 @@ setup-dut: setup-rig
         git clone --quiet --reference-if-able "$ref/zephyr" https://github.com/zephyrproject-rtos/zephyr.git "{{zephyr_base}}"
     fi
     cd "{{zephyr_workspace}}" && "{{venv}}/bin/west" update --narrow --fetch-opt=--filter=blob:none
+    # west update checks the release out again, dropping the patch, unless
+    # it left HEAD alone; apply it only when HEAD is not it already.
+    want=$(git patch-id --stable < "{{zephyr_patch}}" | cut -d' ' -f1)
+    if [[ "$(git -C "{{zephyr_base}}" show HEAD | git patch-id --stable | cut -d' ' -f1)" != "$want" ]]; then
+        git -C "{{zephyr_base}}" -c user.name=metalclaw -c user.email=metalclaw@localhost am --quiet "{{zephyr_patch}}"
+    fi
     "{{rig_python}}" -m pip install --quiet -r "{{zephyr_base}}/scripts/requirements-base.txt"
     "{{venv}}/bin/west" -v list
-    echo "Zephyr $(git -C "{{zephyr_base}}" describe --tags)"
+    echo "Zephyr $(git -C "{{zephyr_base}}" describe --tags), with $(git -C "{{zephyr_base}}" log -1 --format=%s)"
 
 # Install the Zephyr SDK with only the Arm toolchain, at ZEPHYR_SDK_INSTALL_DIR.
 setup-zephyr-sdk:
@@ -230,6 +239,11 @@ build-dut DEVICE="": setup-rig
     #!/usr/bin/env bash
     set -euo pipefail
     test -f "{{zephyr_base}}/VERSION" || { echo "no Zephyr workspace at {{zephyr_workspace}}; run 'just setup-dut'" >&2; exit 2; }
+    want=$(git patch-id --stable < "{{zephyr_patch}}" | cut -d' ' -f1)
+    if [[ "$(git -C "{{zephyr_base}}" show HEAD | git patch-id --stable | cut -d' ' -f1)" != "$want" ]]; then
+        echo "the Zephyr workspace at {{zephyr_workspace}} lacks $(basename "{{zephyr_patch}}") at HEAD; run 'just setup-dut'" >&2
+        exit 2
+    fi
     test -d "{{zephyr_sdk}}" || { echo "no Zephyr SDK at {{zephyr_sdk}}; set ZEPHYR_SDK_INSTALL_DIR" >&2; exit 2; }
     export ZEPHYR_BASE="{{zephyr_base}}" ZEPHYR_SDK_INSTALL_DIR="{{zephyr_sdk}}" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
     export PATH="{{venv}}/bin:$PATH"

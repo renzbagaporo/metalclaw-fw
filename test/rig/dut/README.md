@@ -37,6 +37,14 @@ with `just build-dut <name>/<variant>`; the `cellular` package has one per
 model: `cellular/sim7080g`, `cellular/a7672x`, `cellular/sequans_monarch`
 and `cellular/sim7000`.
 
+The Zephyr workspace carries one fix on top of the release `west.yml` pins:
+`zephyr_modem_cellular_registered_race.patch`, which `just setup-dut` applies
+after `west update` and without which `just build-dut` refuses to build. In
+v4.4.0, modem_cellular can take a registration URC that arrives just after
+PPP dies, while it enters the dial script, and run the dial on its released
+chat; that fails and leaves no timer, so the driver never redials. The patch
+goes once upstream Zephyr has the fix.
+
 ## The UART echo
 
 An image whose devicetree has an `echo-uart` alias, with
