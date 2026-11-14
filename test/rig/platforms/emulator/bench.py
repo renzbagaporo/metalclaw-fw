@@ -177,6 +177,10 @@ class Cable(threading.Thread):
         while not self.stopping.is_set():
             ports = self._own_ports()
             if not ports:
+                # The kernel dropped the import, and the next attach anywhere
+                # takes the lowest free port: another bench's import may land
+                # on this number while ours is still down.
+                self.vhci_port = None
                 self.unenumerated_since = None
                 with _attach_lock():
                     before = set(_imported_ports())
