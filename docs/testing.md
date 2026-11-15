@@ -430,3 +430,22 @@ their difference, and pytest's exit status. The line goes to the file
 probe: 3 probe-rs runs, 0 failed; 1514 DAP accesses, 1 failed (usb_timeout 1), 1 retried; probe counted transfers +41230, errors +0, short_replies +0; logged to build/emulator/probe_telemetry.jsonl
 ```
 
+
+`test/rig/probe_report.py` rolls any number of these files up, given as
+paths or quoted globs: per bench, and apart for rig sessions and each kind
+of soak, one row per operation with its calls, errors and error rate,
+retries and retry rate, how many retries recovered, the p50, p95 and p99
+durations and the longest, and the errors by kind; then the harness probe's
+own counters summed over the sessions that read them. `--source rig|soak`,
+`--platform` and `--since <ISO time>` narrow it.
+
+```text
+$ test/rig/probe_report.py 'build/emulator/*.jsonl'
+hardware E6612483CB313225 fixture1_pico [rig]: 2 sessions, 2026-11-15 09:46 .. 2026-11-15 10:46 UTC, 1.9min in all
+  layer     operation  calls  errors  error%  retries  retry%  recovered      p50      p95      p99      max  errors by kind
+  dap       connect     3000       0  0.000%        0  0.000%          0    2.0ms    2.9ms    3.4ms    4.5ms
+  dap       read        3002       2  0.067%        2  0.067%          2    4.5ms    6.9ms    8.2ms    1.00s  usb_timeout 2
+  probe_rs  download       2       0  0.000%        0  0.000%          0    4.15s    4.15s    4.15s    4.15s
+  probe_rs  reset          2       0  0.000%        0  0.000%          0  400.0ms  400.0ms  400.0ms  400.0ms
+  harness probe: 420000 transfers, 2 wire errors (1 in 210000), 0 short replies, over 2 of 2 sessions
+```
