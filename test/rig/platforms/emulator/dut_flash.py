@@ -22,16 +22,39 @@ class DutFlashError(ValueError):
     pass
 
 
-def flash_contents(elf: bytes) -> bytes:
+def segments(elf: bytes) -> list[tuple[int, int, int]]:
+    # (physical address, file offset, size) of each loadable segment.
     if len(elf) < HEADER.size or elf[:4] != ELF_MAGIC or elf[4] != ELFCLASS32 or elf[5] != ELFDATA2LSB:
         raise DutFlashError("the DUT image is not a little-endian 32-bit ELF")
     _, _, _, _, phoff, _, _, _, phentsize, phnum, _, _, _ = HEADER.unpack_from(elf)
     if phentsize < PROGRAM_HEADER.size or phoff + phnum * phentsize > len(elf):
         raise DutFlashError("the DUT image's program headers are truncated")
-    image = bytearray()
+    found = []
     for index in range(phnum):
         kind, offset, _, physical, size, _, _, _ = PROGRAM_HEADER.unpack_from(elf, phoff + index * phentsize)
-        if kind != PT_LOAD or size == 0 or not FLASH_BASE <= physical < FLASH_BASE + FLASH_BYTES:
+        if kind == PT_LOAD and size:
+            found.append((physical, offset, size))
+    return found
+
+
+def in_flash(address: int) -> bool:
+    return FLASH_BASE <= address < FLASH_BASE + FLASH_BYTES
+
+
+def entry(elf: bytes) -> int:
+    segments(elf)
+    return HEADER.unpack_from(elf)[3]
+
+
+# An image that loads nothing into flash (a no_flash build) runs from SRAM:
+# the probe writes it there and starts it. Its flash stays erased.
+ERASED_FLASH = bytes([ERASED]) * 4096
+
+
+def flash_contents(elf: bytes, allow_empty: bool = False) -> bytes:
+    image = bytearray()
+    for physical, offset, size in segments(elf):
+        if not in_flash(physical):
             continue
         start = physical - FLASH_BASE
         end = start + size
@@ -43,5 +66,7 @@ def flash_contents(elf: bytes) -> bytes:
             image.extend(bytes([ERASED]) * (end - len(image)))
         image[start:end] = elf[offset:offset + size]
     if not image:
+        if allow_empty:
+            return ERASED_FLASH
         raise DutFlashError("the DUT image loads nothing into flash")
     return bytes(image)

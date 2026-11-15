@@ -18,7 +18,8 @@ import usb.util
 
 from test.rig.platforms.hardware import dap
 from test.rig.platforms.hardware.dap import DapMemory
-from test.rig.platforms.hardware.mailbox import Mailbox, MailboxError
+from test.rig.platforms.emulator import dut_flash
+from test.rig.platforms.hardware.mailbox import Mailbox, MailboxError, symbol_addresses
 from test.rig.platforms.hardware.probe import ProbeError, ProbeRs
 from test.rig.platforms.hardware.repl import Repl
 
@@ -455,13 +456,72 @@ def probe(harness: Harness, fixture: dict):
     return harness.probe_id
 
 
+# Armv6-M / Armv8-M debug registers (ARMv6-M and ARMv8-M ARM, C1.6).
+DEMCR, AIRCR, VTOR = 0xE000EDFC, 0xE000ED0C, 0xE000ED08
+DCRSR, DCRDR = 0xE000EDF4, 0xE000EDF8
+DHCSR_HALT = 0xA05F0003
+DHCSR_S_HALT, DHCSR_S_REGRDY = 1 << 17, 1 << 16
+DEMCR_VC_CORERESET = 1
+AIRCR_SYSRESETREQ = 0x05FA0004
+REG_SP, REG_PC, REG_XPSR = 13, 15, 16
+XPSR_T = 1 << 24
+START_TIMEOUT_S = 5.0
+
+
+def write_core_register(link, register: int, value: int) -> None:
+    link.write_words(DCRDR, [value])
+    link.write_words(DCRSR, [(1 << 16) | register])
+    deadline = time.monotonic() + START_TIMEOUT_S
+    while not link.read_words(DHCSR, 1)[0] & DHCSR_S_REGRDY:
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"the DUT core never took register {register}")
+
+
+# The way probe-rs and the SDK's own no_flash flow start an image that loads
+# nothing into flash: the core halts at its reset vector, the segments go
+# into SRAM, and it starts at the image's entry with VTOR on __vectors and SP
+# from its first word.
+def start_from_ram(link, elf: bytes, vectors: int) -> None:
+    link.write_words(DHCSR, [DHCSR_HALT])
+    link.write_words(DEMCR, [DEMCR_VC_CORERESET])
+    link.write_words(AIRCR, [AIRCR_SYSRESETREQ])
+    deadline = time.monotonic() + START_TIMEOUT_S
+    while not link.read_words(DHCSR, 1)[0] & DHCSR_S_HALT:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("the DUT core never halted at its reset vector")
+    for physical, offset, size in dut_flash.segments(elf):
+        data = elf[offset:offset + size] + bytes(-size % 4)
+        link.write_words(physical, list(int.from_bytes(data[i:i + 4], "little") for i in range(0, len(data), 4)))
+    link.write_words(VTOR, [vectors])
+    write_core_register(link, REG_SP, link.read_words(vectors, 1)[0])
+    write_core_register(link, REG_PC, dut_flash.entry(elf) & ~1)
+    write_core_register(link, REG_XPSR, XPSR_T)
+    link.write_words(DEMCR, [0])
+    link.write_words(DHCSR, [DHCSR_RESUME])
+
+
 # An unmodified pico-examples program: no mailbox, judged by what it does on
-# its pins (test/pico_examples).
+# its pins (test/pico_examples). One that loads nothing into flash runs from
+# SRAM, so a restart loads it again.
 class Example(Target):
-    def __init__(self, harness: Harness, image: Path):
+    def __init__(self, harness: Harness, image: Path, toolchain_dir: str):
         super().__init__(harness, image)
         self.metadata = example_metadata(image)
         self.target = self.metadata["target"]
+        self.elf = image.read_bytes()
+        self.ram_only = not any(dut_flash.in_flash(p) for p, _, _ in dut_flash.segments(self.elf))
+        self.vectors = symbol_addresses(image, ("__vectors",), toolchain_dir)["__vectors"] if self.ram_only else None
+
+    def flash(self) -> None:
+        if not self.ram_only:
+            super().flash()
+
+    def restart(self) -> None:
+        if self.ram_only:
+            with self.memory.link() as link:
+                start_from_ram(link, self.elf, self.vectors)
+        else:
+            self.reset()
 
 
 def require_rig_image(image: Path) -> None:
@@ -478,7 +538,7 @@ def require_example_image(image: Path) -> None:
 def example(harness: Harness, probe, fixture: dict) -> Example:
     image = dut_image()
     require_example_image(image)
-    e = Example(harness, image)
+    e = Example(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
     hold_idle(harness, fixture)
     e.flash()
     return e

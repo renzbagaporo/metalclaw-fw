@@ -68,7 +68,7 @@ def test_the_example_completes(harness, example, console):
         pytest.skip(f"no completion criteria for {example.target} yet")
     with serial.Serial(console, BAUD, timeout=0.1, exclusive=True) as port:
         port.reset_input_buffer()
-        example.reset()
+        example.restart()
         text = read_console(harness, port, spec)
     missing, forbidden = spec.match(text)
     assert not forbidden, f"{example.target} printed {forbidden}:\n{text[-2000:]}"
@@ -79,7 +79,7 @@ def test_the_example_drives_its_pins(example, parts):
     spec = PIN_SPECS.get(example.target)
     if spec is None:
         pytest.skip(f"no pin criteria for {example.target}")
-    example.reset()
+    example.restart()
     samples = pins.watch(example.memory, example.metadata["chip"], spec.seconds)
     problems = [p for toggle in spec.toggles for p in toggle.check(samples)]
     assert not problems, f"{example.target}: {problems} ({len(samples)} samples over {spec.seconds} s)"

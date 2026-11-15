@@ -199,9 +199,9 @@ def probe(harness: Harness, fixture: dict):
 @pytest.fixture(scope="session")
 def example(bench: Bench, harness: Harness, probe, fixture: dict) -> Example:
     require_example_image(bench.dut_image)
-    e = Example(harness, bench.dut_image)
+    e = Example(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
     hold_idle(harness, fixture)
-    e.reset()
+    e.restart()
     return e
 
 

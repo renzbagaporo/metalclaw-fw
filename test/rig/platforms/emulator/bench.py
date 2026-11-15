@@ -344,7 +344,8 @@ class Bench:
                 raise BenchError(f"port {port} is already in use; another Renode is running "
                                  f"(another {INSTANCE_ENV} runs on its own ports)")
         try:
-            contents = dut_flash.flash_contents(self.dut_image.read_bytes())
+            example = (self.dut_image.parent / "example.json").is_file()
+            contents = dut_flash.flash_contents(self.dut_image.read_bytes(), allow_empty=example)
         except dut_flash.DutFlashError as error:
             raise BenchError(f"{self.dut_image}: {error}") from error
         try:
