@@ -135,4 +135,59 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     # mpl3115a2_i2c.c:28-29: 0x60, INT1 on GP16.
     "mpl3115a2_i2c": _i2c_part("mpl3115a2", 0x60, {"pressure": 95000, "altitude": 321500, "temperature": 21625},
                            int1=16),
+    # uart/gps_uart/gps_uart.c:20-23: uart1 at 9600, the program's TX on GP4
+    # and RX on GP5, so the part's TX (the binding's first pin) is GP5. The
+    # program takes $GPRMC only (line 147), which a u-blox M8 sends with GPS
+    # as its one GNSS (gnss=1).
+    "gps_uart": (
+        Attach("neo_m8n", "gps", {"uart": (5, 4)}, {},
+               {"gnss": 1, "latitude": 473977420, "longitude": -1223321500, "speed": 1500, "heading": 9000000,
+                "satellites": 8, "fix": 3, "time": (2026, 11, 15, 12, 34, 56)}),
+    ),
+    # i2c/pa1010d_i2c/pa1010d_i2c.c:26: 0x10 on i2c_default. Its PMTK 314
+    # (line 125) leaves RMC alone; the part keeps what it was told.
+    "pa1010d_i2c": (
+        Attach("pa1010d", "gnss", {"i2c": (4, 5, 0x10)}, {"i2c": 2},
+               {"latitude": 473977420, "longitude": -1223321500, "speed": 1500, "heading": 9000000,
+                "satellites": 8, "fix": 3, "time": (2026, 11, 15, 12, 34, 56)},
+               checks=(Check("part.nmea_rates", lambda v: tuple(v) == (0, 1, 0, 0, 0, 0),
+                             "the program's PMTK 314 set RMC every fix and every other sentence off"),
+                       Check("part.packets", lambda v: v >= 2, "the program read the I2C buffer"))),
+    ),
+    # uart/lcd_uart/lcd_uart.c:29-31: uart1 at 9600, TX only, on GP8; the
+    # part's TX would reach GP9, which the program leaves alone. It prints
+    # nothing; what it sent is in the part (lines 125-149).
+    "lcd_uart": (
+        Attach("lcd_backpack", "lcd", {"uart": (9, 8)}, {}, {},
+               checks=(Check("(part.columns, part.rows)", lambda v: tuple(v) == (16, 2), "the size is 16x2"),
+                       Check("part.contrast", lambda v: v == 155, "the contrast is the program's 155"),
+                       Check("(part.brightness, part.backlight)", lambda v: tuple(v) == (255, True),
+                             "the backlight is on at 255"),
+                       Check("(part.underline_cursor, part.block_cursor)", lambda v: tuple(v) == (False, False),
+                             "both cursors are off"),
+                       Check("bytes(part.read_region('splash', 0, 16)) + bytes(part.read_region('splash', 20, 16))",
+                             lambda v: v == b"Hello LCD, from Pi Towers!      ", "the splash screen is the program's"),
+                       Check("bytes(part.read_region('display', 0, 16)) + bytes(part.read_region('display', 20, 16))",
+                             lambda v: v == b" " * 32, "the screen is clear"))),
+    ),
+    # spi/mpu9250_spi/mpu9250_spi.c:43-46: MISO GP4, CS GP5, SCK GP6, MOSI GP7.
+    "mpu9250_spi": (
+        Attach("mpu9250", "imu", {"spi": (6, 7, 4, 5)}, {},
+               {"acceleration": (-125, 750, 980), "angular_rate": (5000, -12000, 250), "temperature": 31000}),
+    ),
+    # spi/spi_flash/spi_flash.c and pio/spi/spi_flash.c: spi_default's pins,
+    # chip select GP17. The programs end with the sector erased, so the part
+    # counts what they did.
+    "spi_flash": (
+        Attach("w25q16jv", "flash", {"spi": (18, 19, 16, 17)}, {},
+               checks=(Check("(part.programs, part.erases, part.lost, part.ignored)",
+                             lambda v: v[0] >= 1 and v[1] >= 2 and v[2:] == (0, 0),
+                             "the program erased, programmed and erased the first sector, nothing refused"),)),
+    ),
+    "pio_spi_flash": (
+        Attach("w25q16jv", "flash", {"spi": (18, 19, 16, 17)}, {},
+               checks=(Check("(part.programs, part.erases, part.lost, part.ignored)",
+                             lambda v: v[0] >= 1 and v[1] >= 2 and v[2:] == (0, 0),
+                             "the program erased, programmed and erased the first sector, nothing refused"),)),
+    ),
 }
