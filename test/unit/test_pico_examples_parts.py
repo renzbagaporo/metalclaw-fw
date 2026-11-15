@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from test.pico_examples.part_targets import PART_SPECS
-from test.pico_examples.parts import PARTS, Attach, PinError, harness_pins, i2c_pins
+from test.pico_examples.parts import PARTS, Attach, PinError, harness_pins, i2c_pins, parts_for
 from test.pico_examples.targets import SPECS
 from test.rig.platforms.hardware.platform import FIXTURE, METALCLAW_PICO_RP2_FIXTURE
 
@@ -110,3 +110,40 @@ def test_a_part_carries_its_checks():
     c = Check("part.frames", lambda v: v > 0, "the program drew a frame")
     a = Attach("ssd1306", "oled", {"i2c": (4, 5, 0x3C)}, {"i2c": 2}, checks=(c,))
     assert a.checks[0].test(3) and not a.checks[0].test(0)
+
+
+# On a bench where a DUT pin reaches two harness pins (the carrier's
+# two-branch nets), two harness drivers on one net would short two harness
+# outputs. In a program's session the rig takes one harness pin per net:
+# its parts' bindings, the console bridge where a case reads the console,
+# and the probe's SWD pins.
+def session_harness_pins(target, fixture):
+    from test.pico_examples.part_targets import PART_SPECS
+    from test.pico_examples.pin_specs import PIN_SPECS
+    from test.pico_examples.targets import SPECS
+    pins = [p for part in parts_for(target, "pico") for p in sum(part._pins(fixture).values(), ())]
+    if any(target in specs for specs in (SPECS, PART_SPECS, PIN_SPECS)):
+        pins += [fixture["uart"]["tx"], fixture["uart"]["rx"]]
+    return pins + list(fixture["swd"])
+
+
+def test_no_session_puts_two_harness_pins_on_one_dut_net():
+    for fixture in (FIXTURE, METALCLAW_PICO_RP2_FIXTURE):
+        net = {h: d for d, branches in fixture["dut_pins"].items() for h in branches}
+        for target in PARTS:
+            try:
+                pins = session_harness_pins(target, fixture)
+            except PinError:
+                continue
+            by_net = {}
+            for pin in pins:
+                if pin in net:
+                    by_net.setdefault(net[pin], set()).add(pin)
+            assert all(len(p) == 1 for p in by_net.values()), (target, {n: p for n, p in by_net.items() if len(p) > 1})
+
+
+def test_the_duty_cycle_jumper_drives_one_branch_of_gp5_on_the_carrier():
+    (jumper,) = PARTS["pwm_measure_duty_cycle"]
+    pins = jumper._pins(METALCLAW_PICO_RP2_FIXTURE)
+    assert pins == {"source": (6,), "sink": (10,)}
+    assert METALCLAW_PICO_RP2_FIXTURE["dut_pins"][5] == (10, 13)
