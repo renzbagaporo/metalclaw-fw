@@ -129,6 +129,20 @@ def _i2c_part(model: str, address: int, properties: dict, **gpio) -> tuple[Attac
     return (Attach(model, model, bindings, {"i2c": 2}, properties),)
 
 
+# A strip's frames once the program is sending again after the check's
+# restart. On the carrier the line's pull-up holds DIN high from the reset
+# until the program drives it, and that pulse ends one spoiled frame: the
+# frame the reset cut, at the first good frame at the latest
+# (pio_ws2812_parallel's two strips: bad_frames 0 before the restart, 1 by
+# 0.3 s after it, still 1 at 2.7 s). The count starts after two good
+# frames; a part that has seen no restart counts from 0.
+def _ws2812_frames(name: str, length: int, description: str) -> Check:
+    return Check(f"(part.frames > 10, part.bad_frames - globals().get('_{name}_bad', 0), part.length)",
+                 lambda v: v == (True, 0, length), description, 2.5,
+                 setup=f"import time\n_f = part.frames\nwhile part.frames < _f + 2:\n    time.sleep_ms(1)\n"
+                       f"_{name}_bad = part.bad_frames\n")
+
+
 PARTS: dict[str, tuple[Attach, ...]] = {
     # i2c/bmp280_i2c/bmp280_i2c.c: ADDR 0x76.
     "bmp280_i2c": (
@@ -321,8 +335,7 @@ PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("ws2812b", "strip", {"din": (2,)}, properties={"count": 150}, checks=(
             Check("part.read_region('leds', 0, 450)", lights.ws2812_shows_a_random_frame,
                   "a frame of 150 rand() pixels the 'Random data' pattern sent", 2.5),
-            Check("(part.frames > 10, part.bad_frames, part.length)", lambda v: v == (True, 0, 450),
-                  "frames of 450 bytes, none with a pulse out of the datasheet's windows", 2.5),
+            _ws2812_frames("strip", 450, "frames of 450 bytes, none with a pulse out of the datasheet's windows"),
         )),
     ),
     # pio/ws2812/ws2812_parallel.c:19-20, 188-203, 295-298: strips on GP2
@@ -331,14 +344,12 @@ PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("ws2812b", "strip0", {"din": (2,)}, properties={"count": 64, "channels": 3}, checks=(
             Check("part.read_region('leds', 0, 192)", lambda v: lights.ws2812_parallel_shows_a_frame(v, 0),
                   "strip 0 holding a frame the program dithered and sent", 2.5),
-            Check("(part.frames > 10, part.bad_frames, part.length)", lambda v: v == (True, 0, 256),
-                  "frames of 256 bytes, none spoiled", 2.5),
+            _ws2812_frames("strip0", 256, "frames of 256 bytes, none spoiled"),
         )),
         Attach("ws2812b", "strip1", {"din": (3,)}, properties={"count": 64, "channels": 4}, checks=(
             Check("part.read_region('leds', 0, 256)", lambda v: lights.ws2812_parallel_shows_a_frame(v, 1),
                   "strip 1 holding a frame the program dithered and sent, W always 0", 2.5),
-            Check("(part.frames > 10, part.bad_frames, part.length)", lambda v: v == (True, 0, 256),
-                  "frames of 256 bytes, none spoiled", 2.5),
+            _ws2812_frames("strip1", 256, "frames of 256 bytes, none spoiled"),
         )),
     ),
     # pio/apa102/apa102.c:14-21: CLK on GP2, DIN on GP3, 150 LEDs at 5 MHz;
