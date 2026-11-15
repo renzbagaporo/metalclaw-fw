@@ -449,3 +449,68 @@ hardware E6612483CB313225 fixture1_pico [rig]: 2 sessions, 2026-11-15 09:46 .. 2
   probe_rs  reset          2       0  0.000%        0  0.000%          0  400.0ms  400.0ms  400.0ms  400.0ms
   harness probe: 420000 transfers, 2 wire errors (1 in 210000), 0 short replies, over 2 of 2 sessions
 ```
+
+## Probe soaks
+
+`test/rig/probe_soak.py` works one bench's SWD path hard and logs it in
+the same format, for the same rollup. It needs the harness's serial, never
+scans, and refuses to start on anything it cannot check.
+
+```sh
+test/rig/probe_soak.py flash --serial <serial> \
+    --image build/dut/smoke/zephyr/zephyr.elf \
+    --image build/dut/bmp388/zephyr/zephyr.elf \
+    --cycles 1000 --log probe_soak.jsonl
+test/rig/probe_soak.py memory --serial <serial> \
+    --image build/dut/smoke/zephyr/zephyr.elf \
+    --duration 1h --log probe_soak.jsonl
+test/rig/probe_soak.py memory --jlink <J-Link serial> --harness <serial> \
+    --image build/dut/smoke/zephyr/zephyr.elf \
+    --duration 1h --log probe_soak.jsonl
+```
+
+`flash` runs `probe-rs download --verify` and then `probe-rs reset` through
+the harness probe, alternating the two images so the flash changes every
+cycle. A failed step is tried again up to `--retries` times (default 2), and
+the soak stops after `--max-failed-cycles` failed cycles in a row (default
+5). It refuses two images that put the same bytes in flash or are for
+different chips, and when it ends, interrupted or not, it downloads the
+first image again unless that was the last one flashed (`--no-restore`
+leaves it).
+
+`memory` runs for `--duration` (default 1 h) against a DUT running
+`--image`: it writes a pseudo-random block (`--block-words`, default 64) to
+the image's scratch RAM, reads it back and compares, and reads a window of
+the image's flash (`--flash-words`, default 64) and compares it with the
+ELF's bytes, going round every whole word the image puts in flash. The
+scratch RAM is the image's `mclw_dut_scratch` (see
+[the DUT fixture](../test/rig/dut/README.md#the-scratch-area)); without it
+the soak refuses, unless `--scratch ADDRESS:BYTES` names an area in the
+chip's SRAM that holds none of the image's RAM objects and is not in
+picolibc's malloc arena or a MicroPython heap. `--read-only` writes nothing.
+Before the first write it checks that the DUT's flash holds the image and
+that the image's mailbox header is initialised, so the image is running;
+`--flash` downloads the image and resets the DUT first. A halted core is
+resumed, as the rig does after a cut-off probe-rs session. Every access goes
+through the rig's DAP client, as the mailbox does, and is counted in the
+`dap` rows; each comparison is a `soak` row whose failures are a `mismatch`
+or the access's error kind. The soak stops after `--max-consecutive-errors`
+iterations in a row (default 100) that cannot reach the DUT.
+
+With `--jlink` the same memory soak goes through a J-Link instead, as a
+baseline: by pylink over one connection when pylink is installed
+(`--jlink-device` names the target, default `RP2350_M33_0` or
+`RP2040_M0_0`), or by probe-rs (`--backend probe-rs`), whose every access
+is a session that halts the core. The same checks apply, so a J-Link that
+is wired to another chip than the image's is refused at the flash check,
+and it never flashes: `--flash` with `--jlink` is refused, since a J-Link on
+the harness's own SWD pads would download the DUT image into the harness.
+
+Each run appends a line per flash cycle and per failed memory comparison
+(up to 1000, the rest counted), then the session line, whose `soak` field
+holds the mode, the arguments, the seed, the cycles or iterations, why it
+stopped and whether it was interrupted; then it prints the session's
+rollup. The harness probe's counters are read at both ends. Ctrl-C or
+SIGTERM ends a soak early with the same line and summary, marked
+interrupted. `--log` defaults to `METALCLAW_PROBE_LOG`; there is no other
+default.

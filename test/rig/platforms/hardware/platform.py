@@ -219,6 +219,10 @@ class Harness:
     def repl(self) -> Repl:
         return Repl(self.serial)
 
+    def close(self) -> None:
+        if self._held is not None:
+            self._drop()
+
     def board(self) -> str:
         return self.run("import sys\nprint(sys.implementation._build)").strip()
 
