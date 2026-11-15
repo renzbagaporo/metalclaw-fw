@@ -5,7 +5,7 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct mclw_model` and nothing else the
-runtime needs to know about. Sixteen exist:
+runtime needs to know about. Twenty-one exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
 [`console_bridge`](../devices/console_bridge/README.md), a USB serial port on
 the board's console UART;
@@ -35,15 +35,25 @@ monitors on I2C, one engine shared by four models: `ina219`, `ina228`,
 `ina237` and `ina260`;
 [`mpu6050`](../devices/mpu6050/README.md), an InvenSense six-axis IMU on I2C;
 [`lis3dh`](../devices/lis3dh/README.md), an ST accelerometer on I2C;
-[`mma8451q`](../devices/mma8451q/README.md), an NXP accelerometer on I2C; and
+[`mma8451q`](../devices/mma8451q/README.md), an NXP accelerometer on I2C;
 [`mpl3115a2`](../devices/mpl3115a2/README.md), an NXP pressure and altitude
-sensor on I2C with its interrupt lines.
+sensor on I2C with its interrupt lines; and five displays, each a sink:
+[`ssd130x`](../devices/ssd130x/README.md), Solomon Systech SSD1306 and SSD1309
+OLED controllers on I2C or 4-wire SPI, two models;
+[`ht16k33`](../devices/ht16k33/README.md), a Holtek LED matrix driver on I2C;
+[`hd44780`](../devices/hd44780/README.md), an HD44780 character LCD behind a
+PCF8574 I2C backpack (`hd44780_pcf8574`);
+[`max7219`](../devices/max7219/README.md), Maxim LED display drivers on SPI,
+one or a cascade of up to eight; and
+[`st7789`](../devices/st7789/README.md), a Sitronix ST7789V TFT controller on
+4-wire SPI (`st7789v`).
 
 A device is written from its datasheet and contains no bus code. It declares
 which buses the part speaks, fills an image the datasheet describes (a
 register map, a frame, or a command image), and arms the engine that serves
-it; or, on UART, it parses what arrives and answers. The transports live in
-the port.
+it; or, for a part that only listens, arms a sink and decodes what the
+engine captures; or, on UART, it parses what arrives and answers. The
+transports live in the port.
 
 ## The model
 

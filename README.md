@@ -28,9 +28,9 @@ model's own descriptors.
 
 ## Devices
 
-Sixteen device packages exist; `bmx280` and `icm4268x` define two models
-each and `sx126x`, `cellular` and `ina2xx` four each, so `models()` lists
-twenty-seven. The SWD debug probe: attaching it adds a CMSIS-DAP v2
+Twenty-one device packages exist; `bmx280`, `icm4268x` and `ssd130x`
+define two models each and `sx126x`, `cellular` and `ina2xx` four each, so
+`models()` lists thirty-three. The SWD debug probe: attaching it adds a CMSIS-DAP v2
 interface to the USB device, and `probe-rs` then drives the board under
 test through the harness. The console bridge: attaching it adds a serial port to the USB device that carries the board
 under test's console UART. And six simulated parts the board under test's
@@ -43,14 +43,18 @@ unmodified pico-examples programs talk to: BMP280 and BME280 environmental
 sensors on I²C or SPI; on I²C an MCP9808 temperature sensor, a PCF8523
 real-time clock, INA219, INA228, INA237 and INA260 current and power
 monitors, an MPU-6050 IMU, LIS3DH and MMA8451Q accelerometers and an
-MPL3115A2 pressure and altitude sensor. A device is written from its
+MPL3115A2 pressure and altitude sensor; and the displays they drive:
+SSD1306 and SSD1309 OLED controllers on I²C or SPI, an HT16K33 LED matrix
+driver and an HD44780 character LCD behind a PCF8574 backpack on I²C, MAX7219
+LED drivers on SPI, and an ST7789V TFT controller on SPI, whose memories and
+settings the host reads. A device is written from its
 datasheet with no bus code; the SPI, I²C and UART engines live in the port
 and serve every transfer with no CPU in the byte path.
 
 ```python
 >>> import metalclaw
 >>> metalclaw.models()
-('ads7883', 'bmp388', 'bmp280', 'bme280', 'sim7080g', 'sim7000', 'a7672x', 'sequans_monarch', 'console_bridge', 'icm42688', 'icm42686', 'ina219', 'ina228', 'ina237', 'ina260', 'lis3dh', 'mcp9808', 'mma8451q', 'mpl3115a2', 'mpu6050', 'neo_m8n', 'pcf8523', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68')
+('ads7883', 'bmp388', 'bmp280', 'bme280', 'sim7080g', 'sim7000', 'a7672x', 'sequans_monarch', 'console_bridge', 'hd44780_pcf8574', 'ht16k33', 'icm42688', 'icm42686', 'ina219', 'ina228', 'ina237', 'ina260', 'lis3dh', 'max7219', 'mcp9808', 'mma8451q', 'mpl3115a2', 'mpu6050', 'neo_m8n', 'pcf8523', 'ssd1306', 'ssd1309', 'st7789v', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68')
 >>> probe = metalclaw.attach("swd_probe", "dut", swd=(2, 3, 28))
 >>> baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
 >>> baro.pressure = 101325
