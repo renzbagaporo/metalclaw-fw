@@ -407,7 +407,11 @@ port exists.
   engine: a transmit and a receive state machine, 14 instruction words
   shared by every PIO UART on that block, DMA both
   ways, 8 data bits, no parity, one or two stop bits, two at once at most.
-  Its receive ring holds 1 KiB, about 90 ms at 115200 baud.
+  Its receive ring holds 1 KiB, about 90 ms at 115200 baud. Counters:
+  `bytes_rx`, `bytes_tx`, `frame_errors` and `overruns`, the received bytes
+  lost, split into `fifo_overruns` (the receiver's FIFO was full: a PL011's
+  overrun flag, a PIO receiver stalled) and `ring_overruns` (the port's
+  receive ring was), and `baud`.
 - `wire.h`: a few pins whose timing a part defines, run by one of the
   port's wire engines, which the binding's facts name: `pulse_bits_in` (a
   single-wire LED line: each high pulse a bit by its width, frames ended by

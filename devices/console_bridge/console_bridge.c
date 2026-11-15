@@ -25,6 +25,7 @@ enum {
     PROP_OVERRUNS,
     PROP_DISCARDED,
     PROP_CODINGS_REFUSED,
+    PROP_SHORT_WRITES,
 };
 
 enum {
@@ -46,6 +47,7 @@ struct console_bridge_state {
     uint32_t overruns;
     uint32_t discarded;
     uint32_t codings_refused;
+    uint32_t short_writes;
 };
 
 #define COUNTER(prop_name) \
@@ -95,6 +97,15 @@ static const struct mclw_property_desc bridge_properties[] = {
     COUNTER("discarded"),
     {
         .name = "codings_refused",
+        .type = MCLW_TYPE_U32,
+        .count = 1,
+        .access = MCLW_ACCESS_RO,
+        .unit = NULL,
+        .min = 0,
+        .max = UINT32_MAX,
+    },
+    {
+        .name = "short_writes",
         .type = MCLW_TYPE_U32,
         .count = 1,
         .access = MCLW_ACCESS_RO,
@@ -177,6 +188,7 @@ static void on_rx(struct mclw_uart *uart, const uint8_t *bytes, size_t len, void
     (void)uart;
     state->to_host += (uint32_t)queued;
     if (queued < len) {
+        state->short_writes++;
         if (mclw_hal_usb_connected(state->usb)) {
             state->overruns += (uint32_t)(len - queued);
         } else {
@@ -227,6 +239,7 @@ static int bridge_reset(struct mclw_instance *inst, bool factory) {
     state->overruns = 0;
     state->discarded = 0;
     state->codings_refused = 0;
+    state->short_writes = 0;
     return 0;
 }
 
@@ -261,6 +274,9 @@ static int bridge_get(struct mclw_instance *inst, size_t property, struct mclw_v
             return 0;
         case PROP_CODINGS_REFUSED:
             out->v[0] = state->codings_refused;
+            return 0;
+        case PROP_SHORT_WRITES:
+            out->v[0] = state->short_writes;
             return 0;
         default:
             return -EINVAL;

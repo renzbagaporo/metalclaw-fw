@@ -633,6 +633,8 @@ int mclw_binding_stats(struct mclw_instance *inst, size_t binding, struct mclw_s
             STAT("bytes_tx", st.bytes_tx);
             STAT("overruns", st.overruns);
             STAT("frame_errors", st.frame_errors);
+            STAT("fifo_overruns", st.fifo_overruns);
+            STAT("ring_overruns", st.ring_overruns);
             STAT("baud", mclw_hal_uart_baud(b->uart));
             break;
         }

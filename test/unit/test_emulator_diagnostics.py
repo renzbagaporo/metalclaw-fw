@@ -120,10 +120,14 @@ def test_each_console_bridges_uart_counters_are_recorded(monkeypatch):
     recorded = []
     monkeypatch.setitem(platform._session, "record", lambda name, value: recorded.append((name, value)))
     config = FakeConfig()
-    harness = FakeHarness("example_console 2 5\n")
+    harness = FakeHarness("example_console frame_errors=2 overruns=5 fifo_overruns=1 ring_overruns=4 "
+                          "short_writes=3\n")
     platform.record_console_stats(config, harness)
     assert recorded == [("console_bridge_example_console_frame_errors", "2"),
-                        ("console_bridge_example_console_overruns", "5")]
+                        ("console_bridge_example_console_overruns", "5"),
+                        ("console_bridge_example_console_fifo_overruns", "1"),
+                        ("console_bridge_example_console_ring_overruns", "4"),
+                        ("console_bridge_example_console_short_writes", "3")]
     assert config.stash[platform.DIAGNOSTICS] == recorded
     assert harness.calls[0][1] == platform.CONSOLE_STATS_TIMEOUT_S
 
@@ -174,7 +178,7 @@ EVENTS = []
 class Harness:
     def run(self, code, timeout=5.0):
         EVENTS.append("stats read")
-        return "example_console 0 7\\n"
+        return "example_console frame_errors=0 overruns=7\\n"
 
 
 @pytest.fixture(scope="session", autouse=True)

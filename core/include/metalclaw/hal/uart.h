@@ -15,11 +15,16 @@
 
 struct mclw_uart;
 
+// `overruns` is every received byte lost, the sum of the two below:
+// `fifo_overruns` the receiver's own FIFO was full (a PL011's OE, a PIO
+// receiver stalled), `ring_overruns` the port's receive ring was.
 struct mclw_uart_stats {
     uint32_t bytes_rx;
     uint32_t bytes_tx;
     uint32_t overruns;
     uint32_t frame_errors;
+    uint32_t fifo_overruns;
+    uint32_t ring_overruns;
 };
 
 typedef void (*mclw_uart_rx_t)(struct mclw_uart *uart, const uint8_t *bytes, size_t len, void *ctx);

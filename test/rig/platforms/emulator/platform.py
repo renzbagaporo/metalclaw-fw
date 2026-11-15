@@ -212,12 +212,21 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             terminalreporter.write_line(f"{name}: {value}")
 
 
-# Every console bridge on the harness and its UART's counters, one line each.
-CONSOLE_STATS = """import metalclaw
+# Every console bridge on the harness, one line each: its name, then as
+# key=value its UART's frame errors and overruns, those split into the
+# receiver's FIFO and the port's ring, and the host writes it took short.
+# A harness built before a counter existed leaves that one out.
+CONSOLE_COUNTERS = ("frame_errors", "overruns", "fifo_overruns", "ring_overruns")
+CONSOLE_STATS = f"""import metalclaw
 for i in metalclaw.instances():
     if i.model == 'console_bridge':
         s = i.stats('uart')
-        print(i.name, s['frame_errors'], s['overruns'])
+        c = [(k, s[k]) for k in {CONSOLE_COUNTERS!r} if k in s]
+        try:
+            c.append(('short_writes', i.short_writes))
+        except AttributeError:
+            pass
+        print(i.name, ' '.join('%s=%d' % kv for kv in c))
 """
 # Bench seconds: an emulated REPL round trip, with room for a loaded host.
 CONSOLE_STATS_TIMEOUT_S = 2.0
@@ -230,11 +239,11 @@ def record_console_stats(config: pytest.Config, harness: Harness) -> None:
         record_diagnostic(config, "console_bridge_stats", f"unavailable: {error}")
         return
     for line in text.splitlines():
-        fields = line.split()
-        if len(fields) == 3 and fields[1].isdigit() and fields[2].isdigit():
-            name, frame_errors, overruns = fields
-            record_diagnostic(config, f"console_bridge_{name}_frame_errors", frame_errors)
-            record_diagnostic(config, f"console_bridge_{name}_overruns", overruns)
+        name, *counters = line.split()
+        for counter in counters:
+            key, _, value = counter.partition("=")
+            if key and value.isdigit():
+                record_diagnostic(config, f"console_bridge_{name}_{key}", value)
 
 
 # A program's console bridge lives as long as the module's `console`

@@ -259,6 +259,7 @@ static void rx_deliver(struct uart_pio *u) {
         uint32_t state = mclw_hal_critical_enter();
         if (avail > UART_PIO_RX_RING_SIZE - UART_PIO_RX_SLACK) {
             u->base.stats.overruns += avail;
+            u->base.stats.ring_overruns += avail;
         } else {
             u->base.stats.bytes_rx += avail;
             deliver = u->base.on_rx != NULL;
@@ -305,6 +306,7 @@ static void uart_pio_poll(void *ctx) {
         if ((u->pio->fdebug & stall) != 0u) {
             u->pio->fdebug = stall;
             u->base.stats.overruns++;
+            u->base.stats.fifo_overruns++;
         }
         mclw_hal_critical_exit(state);
         rx_deliver(u);
@@ -591,6 +593,8 @@ struct mclw_uart *mclw_uart_pio_open(uint8_t tx, uint8_t rx, uint32_t baud,
     u->base.stats.bytes_tx = 0;
     u->base.stats.overruns = 0;
     u->base.stats.frame_errors = 0;
+    u->base.stats.fifo_overruns = 0;
+    u->base.stats.ring_overruns = 0;
     u->tx_pin = tx;
     u->rx_pin = rx;
     u->stop_bits = format->stop_bits;

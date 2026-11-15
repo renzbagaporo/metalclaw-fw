@@ -123,22 +123,19 @@ static void rx_service(struct pl011 *u) {
         uint32_t dr = hw->dr;
         uint16_t next = (uint16_t)((head + 1u) & UART_RX_RING_MASK);
 
-        if ((dr & UART_UARTDR_OE_BITS) != 0u) {
-            u->base.stats.overruns++;
+        bool overrun = (dr & UART_UARTDR_OE_BITS) != 0u;
+
+        if (overrun) {
             hw->rsr = 0u;
         }
-        if ((dr & (UART_UARTDR_FE_BITS | UART_UARTDR_PE_BITS | UART_UARTDR_BE_BITS)) != 0u) {
-            u->base.stats.frame_errors++;
-            continue;
-        }
-        if (next == u->rx_tail) {
-            u->base.stats.overruns++;
+        if (!mclw_uart_rx_count(&u->base.stats, overrun,
+                (dr & (UART_UARTDR_FE_BITS | UART_UARTDR_PE_BITS | UART_UARTDR_BE_BITS)) != 0u,
+                next == u->rx_tail)) {
             continue;
         }
         u->rx_ring[head] = (uint8_t)dr;
         head = next;
         pushed = true;
-        u->base.stats.bytes_rx++;
     }
     if (pushed) {
         __compiler_memory_barrier();
@@ -338,6 +335,8 @@ static struct mclw_uart *pl011_open(uart_inst_t *inst, uint8_t tx, uint8_t rx, u
     u->base.stats.bytes_tx = 0;
     u->base.stats.overruns = 0;
     u->base.stats.frame_errors = 0;
+    u->base.stats.fifo_overruns = 0;
+    u->base.stats.ring_overruns = 0;
     u->rx_head = 0;
     u->rx_tail = 0;
     u->tx_head = 0;

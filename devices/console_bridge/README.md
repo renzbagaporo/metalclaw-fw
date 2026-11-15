@@ -45,7 +45,7 @@ console = metalclaw.attach("console_bridge", "dut_console", uart=(0, 1))
 console.baud = 921600                  # the rate the DUT's UART runs at
 console.follow_line_coding = True      # or take it from the host's port settings
 console.dtr, console.to_host, console.from_host, console.overruns
-console.stats("uart")
+console.stats("uart")                  # overruns = fifo_overruns + ring_overruns
 console.reset(factory=True)
 console.detach()
 ```
@@ -63,6 +63,7 @@ console.detach()
 | `overruns` | u32 | ro | bytes | | DUT bytes lost because the host queue was full while the host held DTR |
 | `discarded` | u32 | ro | bytes | | DUT bytes lost because the host queue was full while it did not |
 | `codings_refused` | u32 | ro | | | host line codings the UART could not take, while following |
+| `short_writes` | u32 | ro | | | hand-offs to the host queue that it took only part of, either way |
 
 `baud` defaults to 115200. A host's line coding (the baud, data bits, parity
 and stop bits a program sets on the port) is ignored unless
