@@ -67,3 +67,37 @@ class Attach:
 
 # The parts each needs_part target uses, filled in as their models land.
 PARTS: dict[str, tuple[Attach, ...]] = {}
+
+
+# ---- Batch B: TI INA2xx, InvenSense MPU-6050, ST LIS3DH, NXP MMA8451Q and
+# MPL3115A2. Every program uses i2c_default on the Pico's default pins (SDA
+# GP4, SCL GP5) at the address its source names; property values are picked
+# away from the defaults and from %f rounding ties.
+def _batch_b(model: str, address: int, properties: dict, **gpio) -> tuple[Attach, ...]:
+    bindings = {"i2c": (4, 5, address), **{name: (pin,) for name, pin in gpio.items()}}
+    return (Attach(model, model, bindings, {"i2c": 2}, properties),)
+
+
+PARTS.update({
+    # ina219_i2c.c:7, 21-23: 0x40, calibrated for a 0.1 ohm shunt.
+    "ina219_i2c": _batch_b("ina219", 0x40, {"bus_voltage": 5124, "current": 123400, "shunt_resistance": 100000}),
+    # ina228_i2c.c:23, 27: 0x40, the stock 15 mohm shunt.
+    "ina228_i2c": _batch_b("ina228", 0x40, {"bus_voltage": 4850, "current": 92500, "shunt_resistance": 15000,
+                                        "temperature": 41000}),
+    # ina237_i2c.c:12, 26: 0x40, a 15 mohm shunt.
+    "ina237_i2c": _batch_b("ina237", 0x40, {"bus_voltage": 3300, "current": 200000, "shunt_resistance": 15000,
+                                        "temperature": 31250}),
+    # ina260_i2c.c:11: 0x40; the shunt is inside the part.
+    "ina260_i2c": _batch_b("ina260", 0x40, {"bus_voltage": 5000, "current": 742500}),
+    # mpu6050_i2c.c:34: 0x68.
+    "mpu6050_i2c": _batch_b("mpu6050", 0x68, {"acceleration": (250, -500, 1125),
+                                          "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
+    # lis3dh_i2c.c:27: 0x18.
+    "lis3dh_i2c": _batch_b("lis3dh", 0x18, {"acceleration": (252, -500, 1020), "temperature": 28750}),
+    # mma8451_i2c.c:26: 0x1D.
+    "mma8451_i2c": _batch_b("mma8451q", 0x1D, {"acceleration": (500, -250, 2000)}),
+    # mpl3115a2_i2c.c:28-29: 0x60, INT1 on GP16.
+    "mpl3115a2_i2c": _batch_b("mpl3115a2", 0x60, {"pressure": 95000, "altitude": 321500, "temperature": 21625},
+                          int1=16),
+})
+# ---- end of batch B
