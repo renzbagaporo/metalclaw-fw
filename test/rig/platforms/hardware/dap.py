@@ -60,6 +60,11 @@ CSW_SIZE_MASK = 0x7
 CSW_SIZE_32 = 0x2
 CSW_ADDRINC_MASK = 0x30
 CSW_ADDRINC_SINGLE = 0x10
+# AHB5-AP CSW.HNONSEC. The RP2350 datasheet (3.5.9.1) has it reset to 0,
+# Secure, but after a RUN reset fixture 1's Pico 2 reads CSW 0x43800052:
+# Non-secure, and every Secure-only target (SRAM, TIMER0, RESETS) answers
+# FAULT. A probe-rs session clears it, and a probe reset keeps the AP.
+CSW_HNONSEC = 1 << 30
 # TAR auto-increment is only guaranteed within a 1 KiB block.
 TAR_WRAP = 0x400
 
@@ -374,7 +379,7 @@ class _Link:
                 if time.monotonic() > deadline:
                     raise DapError("the debug port did not power up")
         csw = self._ap_read(AP_CSW)
-        csw = (csw & ~(CSW_SIZE_MASK | CSW_ADDRINC_MASK)) | CSW_SIZE_32 | CSW_ADDRINC_SINGLE
+        csw = (csw & ~(CSW_SIZE_MASK | CSW_ADDRINC_MASK | CSW_HNONSEC)) | CSW_SIZE_32 | CSW_ADDRINC_SINGLE
         self._ap_write(AP_CSW, csw)
 
     def _wake(self):
