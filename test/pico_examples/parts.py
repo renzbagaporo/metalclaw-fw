@@ -508,9 +508,11 @@ PEERS: dict[str, tuple[Attach, ...]] = {
 PARTS.update(PEERS)
 
 
-# The parts a program's build on `board` (example.json "board") uses.
-def parts_for(target: str, board: str | None) -> tuple[Attach, ...]:
-    return tuple(p for p in PARTS.get(target, ()) if not p.boards or board in p.boards)
+# The parts a program's build on `board` (example.json "board") uses, but
+# those named in `replaced`, which the bench provides by other means.
+def parts_for(target: str, board: str | None, replaced=()) -> tuple[Attach, ...]:
+    return tuple(p for p in PARTS.get(target, ())
+                 if (not p.boards or board in p.boards) and p.name not in replaced)
 
 
 # The DUT pins they take.

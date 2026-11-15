@@ -229,6 +229,24 @@ in seconds. The Pico harness's serial is the emulated flash's unique ID,
 `0123456789ABCDEF`. The RP2354B harness's is its OTP chip ID, which the
 carrier's bench script sets: `00000000C0FFEE01`.
 
+A pico-examples program can need more of the bench than the bench script's
+defaults; `test/pico_examples/emulation.py` says what, per program, and the
+platform sets it when the bench starts, as the script's per-session
+variables: `$quantum`, `$wire_latency_us` (whole microseconds, more than two
+quanta, checked before Renode starts; `$spi_input_delay_ns` follows as the
+round trip) and `$i2c0_wiring` (the byte-level bus or pin-level wires, each
+a script beside the bench script, `<script>_i2c0_bus.resc` and
+`<script>_i2c0_wires.resc`). The harness-relayed jumpers run at a 1 µs
+quantum with 3 µs wires. Where the harness relay cannot keep up (the
+open-drain I2C pair of `slave_mem_i2c`), a wire inside the emulated DUT
+stands in for it and the harness part is not attached; every result of
+such a session carries the stand-ins in its test name
+(`[stand-in-jumper_gp4_gp6+jumper_gp5_gp7]`) and in an `emulator_stand_ins`
+property, so it is never taken for a pass through the harness. A variable the
+package's bench script does not declare, or a wiring script it does not
+ship, is left out and named in `renode.log`, and the program's cases skip.
+`METALCLAW_RENODE_QUANTUM` takes the place of the program's quantum.
+
 `METALCLAW_RENODE_INSTANCE` (0 to 7, default 0) lets several benches run on
 one host. Instance N's Renode takes monitor port 1234 + N and USB/IP port
 3240 + N, and its cable attaches, replugs and detaches only its own vhci

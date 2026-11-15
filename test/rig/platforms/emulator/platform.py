@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from test.pico_examples.emulation import DEFAULT, Emulation, emulation_for
 from test.rig.platforms.emulator.bench import LAYOUTS, Bench, BenchError, Layout, harness_serial, instance
 from test.rig.platforms.hardware.platform import (
     _DEFAULT_MAILBOX_TIMEOUT,
@@ -21,6 +22,7 @@ from test.rig.platforms.hardware.platform import (
     board_fixture,
     detach_all_but_probe,
     dut_image,
+    example_metadata,
     hold_idle,
     require_example_image,
     require_rig_image,
@@ -144,8 +146,46 @@ def fixture(harness: Harness) -> dict:
     return board_fixture(harness)
 
 
+# What the session's DUT image needs of the bench, or the defaults where no
+# image is there yet (the bench fixture then stops the run).
+def image_emulation() -> Emulation:
+    try:
+        image = dut_image()
+    except pytest.exit.Exception:
+        return DEFAULT
+    return emulation_for(example_metadata(image))
+
+
+# A session whose program runs with stand-ins inside the emulated DUT
+# reports every result under a name that says so, and as a property, so no
+# such pass is ever taken for one through the harness.
+def pytest_generate_tests(metafunc):
+    if "emulation" not in metafunc.fixturenames:
+        return
+    emulation = image_emulation()
+    if emulation.stand_ins:
+        metafunc.parametrize("emulation", [emulation], ids=[emulation.stand_in_label], indirect=True,
+                             scope="session")
+
+
+def pytest_collection_modifyitems(items):
+    for item in items:
+        emulation = getattr(getattr(item, "callspec", None), "params", {}).get("emulation")
+        if emulation is not None and emulation.stand_ins:
+            item.user_properties.append(("emulator_stand_ins", " ".join(s.wire for s in emulation.stand_ins)))
+
+
+def session_emulation(param: Emulation | None) -> Emulation:
+    return param or image_emulation()
+
+
 @pytest.fixture(scope="session")
-def bench():
+def emulation(request) -> Emulation:
+    return session_emulation(getattr(request, "param", None))
+
+
+@pytest.fixture(scope="session")
+def bench(emulation: Emulation):
     for name, value in SLOW_HOST_DEFAULTS.items():
         os.environ.setdefault(name, value)
     bench_layout = layout()
@@ -164,6 +204,7 @@ def bench():
         work=Path(os.environ.get("METALCLAW_RENODE_WORK", ROOT / "build/emulator")),
         serial=_serial(),
         instance=_instance(),
+        emulation=emulation,
     )
     try:
         b.start()
@@ -195,11 +236,17 @@ def probe(harness: Harness, fixture: dict):
 
 # The bench started with the image already in the DUT's flash; swd_probe's
 # cases download it through the probe. The DUT booted with the bench, before
-# the harness could hold any idle level, so it boots again once they are.
+# the harness could hold any idle level, so it boots again once they are. A
+# program that needs what this Renode package's bench script does not take
+# is not judged on it; a part a stand-in replaces is not attached.
 @pytest.fixture(scope="session")
-def example(bench: Bench, harness: Harness, probe, fixture: dict) -> Example:
+def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emulation) -> Example:
     require_example_image(bench.dut_image)
     e = Example(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
+    if bench.settings.unmet:
+        pytest.skip(f"{e.target} needs {', '.join(bench.settings.unmet)}, which {bench.layout.script} in this "
+                    f"Renode package does not take")
+    e.replaced_parts = frozenset(s.replaces for s in emulation.stand_ins)
     hold_idle(harness, fixture, e.parts_dut_pins())
     e.restart()
     return e

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from test.pico_examples.emulation import I2C_STAND_INS, Emulation, StandIn
 from test.rig.platforms.emulator import bench
 
 
@@ -27,9 +28,11 @@ def free_port():
         return probe.getsockname()[1]
 
 
-def commands(quantum=None, dut_machine="pico2"):
+def commands(quantum=None, dut_machine="pico2", settings=None):
+    if settings is None and quantum:
+        settings = bench.Settings((("quantum", f'"{quantum}"'),))
     return bench.monitor_commands(Path("/renode/bench.resc"), Path("/w/rom.bin"), Path("/w/flash.bin"),
-                                  Path("/roms/dut.bin"), Path("/w/dut_flash.bin"), dut_machine, quantum)
+                                  Path("/roms/dut.bin"), Path("/w/dut_flash.bin"), dut_machine, settings)
 
 
 def test_a_bench_refuses_to_start_beside_another_renode(tmp_path, monkeypatch):
@@ -138,7 +141,7 @@ class Launched(Exception):
 
 
 # Starts a bench up to launching Renode and returns Renode's monitor commands.
-def launch(tmp_path, monkeypatch, board):
+def launch(tmp_path, monkeypatch, board, prepare=None):
     monkeypatch.setattr(bench, "MONITOR_PORT", free_port())
     monkeypatch.setattr(bench, "USBIP_PORT", free_port())
     monkeypatch.setattr(bench.dut_flash, "flash_contents", lambda elf: b"dut")
@@ -155,6 +158,8 @@ def launch(tmp_path, monkeypatch, board):
     monkeypatch.setattr(bench.subprocess, "run", extract)
     monkeypatch.setattr(bench.subprocess, "Popen", popen)
     b = bench_files(tmp_path, board)
+    if prepare is not None:
+        prepare(b)
     chip = b.layout.harness_chip
     b.harness_uf2.write_bytes(uf2_block(0x10000000, {"rp2040": 0xE48BFF56, "rp2350": 0xE48BFF59}[chip]))
     with pytest.raises(Launched) as launched:
@@ -258,3 +263,125 @@ def test_an_instance_refuses_to_start_when_its_own_port_is_taken(tmp_path, monke
         with pytest.raises(bench.BenchError, match=f"port {server.getsockname()[1]} is already in use"):
             b.start()
     assert b.process is None
+
+
+# ---- per-session variables and stand-ins ------------------------------------
+
+SCRIPT = '''$usbip_port?=3240
+$quantum?="0.0001"
+$wire_latency_us?=300
+$spi_input_delay_ns?=600000
+$i2c0_wiring?=@scripts/multi-node/metalclaw_carrier_i2c0_bus.resc
+mach create "carrier"
+'''
+# A Renode package without the I2C0 wiring scripts.
+OLD_SCRIPT = "\n".join(line for line in SCRIPT.splitlines() if "i2c0" not in line)
+
+
+def carrier_script(tmp_path, text=SCRIPT, wirings=("bus", "wires")):
+    script = tmp_path / "metalclaw_carrier.resc"
+    script.write_text(text)
+    for wiring in wirings:
+        (tmp_path / f"metalclaw_carrier_i2c0_{wiring}.resc").touch()
+    return script
+
+
+def settings(emulation, script, quantum=None):
+    return bench.bench_settings(emulation, script, script.read_text(), "pico", quantum)
+
+
+def test_a_script_declares_its_variables_with_defaults():
+    assert bench.script_variables(SCRIPT) == {
+        "usbip_port": "3240", "quantum": '"0.0001"', "wire_latency_us": "300", "spi_input_delay_ns": "600000",
+        "i2c0_wiring": "@scripts/multi-node/metalclaw_carrier_i2c0_bus.resc"}
+
+
+def test_no_needs_set_nothing(tmp_path):
+    assert settings(Emulation(), carrier_script(tmp_path)) == bench.Settings()
+
+
+def test_a_relayed_jumper_sets_the_quantum_the_latency_and_the_spi_round_trip(tmp_path):
+    s = settings(Emulation(quantum="0.000001", wire_latency_us=3), carrier_script(tmp_path))
+    assert s.variables == (("quantum", '"0.000001"'), ("wire_latency_us", "3"), ("spi_input_delay_ns", "6000"))
+    assert s.unmet == () and s.commands == ()
+
+
+def test_the_wire_script_is_chosen_beside_the_bench_script(tmp_path):
+    script = carrier_script(tmp_path)
+    s = settings(Emulation(i2c0_wiring="wires"), script)
+    assert s.variables == (("i2c0_wiring", f"@{tmp_path}/metalclaw_carrier_i2c0_wires.resc"),)
+    assert settings(Emulation(i2c0_wiring="bus"), script).variables == (
+        ("i2c0_wiring", f"@{tmp_path}/metalclaw_carrier_i2c0_bus.resc"),)
+
+
+def test_a_package_without_the_i2c0_wiring_leaves_it_unmet(tmp_path):
+    script = carrier_script(tmp_path, OLD_SCRIPT, wirings=())
+    s = settings(Emulation(i2c0_wiring="wires"), script)
+    assert s.variables == ()
+    assert s.unmet == ("$i2c0_wiring wires (metalclaw_carrier_i2c0_wires.resc)",)
+    # Its own I2C0 is the byte-level bus.
+    assert settings(Emulation(i2c0_wiring="bus"), script) == bench.Settings()
+
+
+def test_a_declared_wiring_whose_script_is_missing_is_unmet(tmp_path):
+    s = settings(Emulation(i2c0_wiring="wires"), carrier_script(tmp_path, wirings=("bus",)))
+    assert s.unmet == ("$i2c0_wiring wires (metalclaw_carrier_i2c0_wires.resc)",)
+
+
+def test_a_script_without_the_variables_leaves_them_unmet(tmp_path):
+    script = carrier_script(tmp_path, 'mach create "carrier"\n', wirings=())
+    s = settings(Emulation(quantum="0.000001", wire_latency_us=3), script)
+    assert s.variables == ()
+    assert s.unmet == ("$quantum 0.000001", "$wire_latency_us 3")
+
+
+@pytest.mark.parametrize("emulation, quantum", [
+    (Emulation(quantum="0.000001", wire_latency_us=2), None),
+    (Emulation(wire_latency_us=200), None),
+    (Emulation(quantum="0.0002"), None),
+    (Emulation(quantum="0.000001", wire_latency_us=3), "0.00001"),
+])
+def test_a_latency_of_two_quanta_or_less_is_refused(tmp_path, emulation, quantum):
+    with pytest.raises(bench.BenchError, match="does not exceed two quanta"):
+        settings(emulation, carrier_script(tmp_path), quantum)
+
+
+@pytest.mark.parametrize("latency", [0, -3, 2.5, True])
+def test_a_latency_in_anything_but_whole_microseconds_is_refused(tmp_path, latency):
+    with pytest.raises(bench.BenchError, match="whole microseconds"):
+        settings(Emulation(wire_latency_us=latency), carrier_script(tmp_path))
+
+
+def test_the_environment_quantum_overrides_the_programs(tmp_path):
+    s = settings(Emulation(quantum="0.000001", wire_latency_us=3), carrier_script(tmp_path), "0.0000012")
+    assert dict(s.variables)["quantum"] == '"0.0000012"'
+
+
+def test_a_stand_in_is_wired_inside_the_dut_after_the_bench_script(tmp_path):
+    s = settings(Emulation(stand_ins=(StandIn(4, 6, "sda"),)), carrier_script(tmp_path))
+    assert s.commands == ('emulation CreateDigitalWire "jumper_gp4_gp6" false', 'mach set "pico"',
+                          "jumper_gp4_gp6 Connect gpio 4", "jumper_gp4_gp6 Connect gpio 6")
+    run = commands(dut_machine="pico", settings=s)
+    include = run.index("include @/renode/bench.resc")
+    assert run[include + 1:include + 5] == list(s.commands)
+    assert run[include + 5:] == ['mach set "pico"', "xipMemory LoadBinary @/w/dut_flash.bin", "start"]
+
+
+def test_variables_are_set_before_the_bench_script_is_included(tmp_path):
+    s = settings(Emulation(quantum="0.000001", wire_latency_us=3, i2c0_wiring="wires"), carrier_script(tmp_path))
+    run = commands(dut_machine="pico", settings=s)
+    include = run.index("include @/renode/bench.resc")
+    for name, value in s.variables:
+        assert run.index(f"${name}={value}") < include
+
+
+def test_a_starting_bench_sets_its_programs_needs_and_notes_them(tmp_path, monkeypatch):
+    def emulated(b):
+        b.emulation = I2C_STAND_INS
+    run, _ = launch(tmp_path, monkeypatch, "metalclaw_pico_rp2", emulated)
+    assert 'emulation CreateDigitalWire "jumper_gp5_gp7" false' in run
+    log = (tmp_path / "work" / "renode.log").read_text()
+    assert "rig: emulator-only stand-ins jumper_gp4_gp6 jumper_gp5_gp7\n" in log
+    # The empty test script declares nothing.
+    assert ("rig: scripts/multi-node/metalclaw_carrier.resc does not take $i2c0_wiring wires "
+            "(metalclaw_carrier_i2c0_wires.resc)\n") in log

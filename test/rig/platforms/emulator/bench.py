@@ -7,13 +7,17 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import socket
 import subprocess
 import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+
+from test.pico_examples.emulation import DEFAULT, Emulation
 
 from . import dut_flash, storage, uf2
 
@@ -275,20 +279,97 @@ class Cable(threading.Thread):
             self._detach(self._own_ports(owners), owners)
 
 
+# The variables a bench script takes, with their defaults: its `$name?=value`
+# lines.
+def script_variables(text: str) -> dict[str, str]:
+    return dict(re.findall(r"^\$(\w+)\?=(.*?)\s*$", text, re.M))
+
+
+@dataclass(frozen=True)
+class Settings:
+    # (name, value) set before the bench script is included.
+    variables: tuple[tuple[str, str], ...] = ()
+    # Monitor commands after it, before the DUT's flash is loaded.
+    commands: tuple[str, ...] = ()
+    # What the program needs that this bench script does not take.
+    unmet: tuple[str, ...] = ()
+
+
+def _seconds(value: str, what: str) -> Decimal:
+    try:
+        seconds = Decimal(value.strip().strip('"'))
+    except InvalidOperation:
+        raise BenchError(f"invalid {what} {value!r}; expected seconds") from None
+    if not seconds.is_finite() or seconds <= 0:
+        raise BenchError(f"invalid {what} {value!r}; expected positive seconds")
+    return seconds
+
+
+# What a program's Emulation (test/pico_examples/emulation.py) sets on the
+# bench `script`. A variable the script does not declare, or an I2C0 wiring
+# whose script is not in the package, is left out and named in `unmet`. A
+# wire latency also sets the DUT's SPI input delay, the round trip, where the
+# script has one. `quantum` (METALCLAW_RENODE_QUANTUM) overrides the
+# program's.
+def bench_settings(emulation: Emulation, script: Path, script_text: str, dut_machine: str,
+                   quantum: str | None = None) -> Settings:
+    declared = script_variables(script_text)
+    variables, unmet = [], []
+
+    def need(name: str, value: str, shown) -> None:
+        if name in declared:
+            variables.append((name, value))
+        else:
+            unmet.append(f"${name} {shown}")
+
+    if quantum:
+        variables.append(("quantum", f'"{quantum}"'))
+    elif emulation.quantum is not None:
+        need("quantum", f'"{emulation.quantum}"', emulation.quantum)
+    latency = emulation.wire_latency_us
+    if latency is not None:
+        if isinstance(latency, bool) or not isinstance(latency, int) or latency <= 0:
+            raise BenchError(f"invalid wire latency {latency!r}; expected whole microseconds")
+        need("wire_latency_us", str(latency), latency)
+        if "spi_input_delay_ns" in declared:
+            variables.append(("spi_input_delay_ns", str(2000 * latency)))
+    set_quantum = dict(variables).get("quantum", declared.get("quantum"))
+    set_latency = dict(variables).get("wire_latency_us", declared.get("wire_latency_us"))
+    if (quantum or emulation.quantum or latency) and set_quantum is not None and set_latency is not None:
+        q = _seconds(set_quantum, "quantum")
+        if Decimal(set_latency) / 1_000_000 <= 2 * q:
+            raise BenchError(f"a wire latency of {set_latency} us does not exceed two quanta of {q} s")
+    wiring = emulation.i2c0_wiring
+    if wiring is not None:
+        if wiring not in ("bus", "wires"):
+            raise BenchError(f"invalid I2C0 wiring {wiring!r}; expected bus or wires")
+        wiring_script = script.with_name(f"{script.stem}_i2c0_{wiring}.resc")
+        if "i2c0_wiring" in declared and wiring_script.is_file():
+            variables.append(("i2c0_wiring", f"@{wiring_script}"))
+        elif wiring != "bus":
+            # The scripts' own I2C0 is the byte-level bus.
+            unmet.append(f"$i2c0_wiring {wiring} ({wiring_script.name})")
+    commands = []
+    for s in emulation.stand_ins:
+        commands += [f'emulation CreateDigitalWire "{s.wire}" false', f'mach set "{dut_machine}"',
+                     f"{s.wire} Connect gpio {s.a}", f"{s.wire} Connect gpio {s.b}"]
+    return Settings(tuple(variables), tuple(commands), tuple(unmet))
+
+
 # The monitor commands that bring the bench up. The DUT image goes straight
 # into the DUT's flash, as a probe download would leave it: downloading it
 # through the emulated probe takes 20-30 minutes of host time.
 def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_rom: Path, dut_flash_bin: Path,
-                     dut_machine: str, quantum: str | None = None, usbip_port: int | None = None,
+                     dut_machine: str, settings: Settings | None = None, usbip_port: int | None = None,
                      chip_id: tuple[str, str] | None = None) -> list[str]:
+    settings = settings or Settings()
     commands = [
         f"$harness_rom=@{harness_rom}",
         f"$harness_flash=@{harness_flash}",
         f"$dut_rom=@{dut_rom}",
         f"$usbip_port={USBIP_PORT if usbip_port is None else usbip_port}",
     ]
-    if quantum:
-        commands.append(f'$quantum="{quantum}"')
+    commands += [f"${name}={value}" for name, value in settings.variables]
     if chip_id is not None:
         variable, serial = chip_id
         commands.append(f"${variable}=0x{serial}")
@@ -297,6 +378,7 @@ def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_r
     # address translation puts at 0x10000000.
     return commands + [
         f"include @{script}",
+        *settings.commands,
         f'mach set "{dut_machine}"',
         f"xipMemory LoadBinary @{dut_flash_bin}",
         "start",
@@ -305,8 +387,10 @@ def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_r
 
 class Bench:
     def __init__(self, renode_dir: Path, layout: Layout, harness_uf2: Path, roms: Path, dut_image: Path,
-                 work: Path, serial: str, instance: int = 0):
+                 work: Path, serial: str, instance: int = 0, emulation: Emulation = DEFAULT):
         self.renode_dir = renode_dir
+        self.emulation = emulation
+        self.settings = Settings()
         self.layout = layout
         self.serial = serial
         self.instance = instance
@@ -363,11 +447,14 @@ class Bench:
         payload.write_bytes(harness_flash)
         harness_rom = self._rom(layout.harness_chip, "harness_rom.bin")
         dut_rom = self._rom(layout.dut_chip, "dut_rom.bin")
+        script = self.renode_dir / layout.script
+        self.settings = bench_settings(self.emulation, script, script.read_text(), layout.dut_machine,
+                                       os.environ.get("METALCLAW_RENODE_QUANTUM"))
         self.log = (self.work / "renode.log").open("w")
+        self._note_settings()
         chip_id = None if layout.chip_id_variable is None else (layout.chip_id_variable, self.serial)
-        commands = monitor_commands(self.renode_dir / layout.script, harness_rom, payload, dut_rom, flash_bin,
-                                    layout.dut_machine, os.environ.get("METALCLAW_RENODE_QUANTUM"), usbip_port,
-                                    chip_id)
+        commands = monitor_commands(script, harness_rom, payload, dut_rom, flash_bin, layout.dut_machine,
+                                    self.settings, usbip_port, chip_id)
         argv = [str(self.renode_dir / "renode"), "--disable-gui", "--plain", "--port", str(monitor_port)]
         for command in commands:
             argv += ["-e", command]
@@ -379,6 +466,17 @@ class Bench:
         self.cable.start()
         if not self.cable.imported.wait(STARTUP_TIMEOUT_S):
             raise BenchError(f"the harness's USB/IP bus {USBIP_BUSID} was never imported")
+
+    def _note_settings(self) -> None:
+        s = self.settings
+        if s.variables:
+            self.log.write("rig: bench variables " + " ".join(f"${n}={v}" for n, v in s.variables) + "\n")
+        if self.emulation.stand_ins:
+            self.log.write("rig: emulator-only stand-ins " + " ".join(x.wire for x in self.emulation.stand_ins)
+                           + "\n")
+        if s.unmet:
+            self.log.write(f"rig: {self.layout.script} does not take " + ", ".join(s.unmet) + "\n")
+        self.log.flush()
 
     def stop(self) -> None:
         if self.cable is not None:
