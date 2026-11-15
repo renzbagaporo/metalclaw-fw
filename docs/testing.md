@@ -258,6 +258,22 @@ does not ship, or a stand-in type its `Infrastructure.dll` lacks, is left
 out and named in `renode.log`, and the program's cases skip.
 `METALCLAW_RENODE_QUANTUM` takes the place of the program's quantum.
 
+The bench script exports the DUT's own USB too, as USB/IP bus `1-1` on the
+harness's server. Neither bench cables the DUT's USB to the rig host, so
+only the emulator imports it, for the cases that ask for it (`dut_usb`,
+which the hardware platform skips): once the program has turned its USB
+controller on with its pull-up, read over SWD, a second cable imports
+`1-1`, finds the program's device on its own vhci port by the VID:PID its
+descriptors give (`test/pico_examples/usb_devices.py`), waits for this
+host's drivers to bind its ttys and hidraw nodes, and detaches it after
+the module's cases. `test_the_example_presents_its_usb_device` judges what
+the device presents; a Spec's `usb_console` patterns are matched on its
+first CDC ACM function (`hello_usb`, `hello_anything`, `dev_multi_cdc`), and
+its `usb_input` writes to the CDC function it names. Each import is a TCP
+connection of its own, and Renode's server takes the next connection only
+once the current one closes, so while the harness's import is open the
+DUT's is never answered: those cases fail after 120 s until the server
+serves both.
 
 A session that ends early still stops its Renode: an interrupt or
 `pytest.exit` while the bench starts or stops, SIGINT, SIGTERM and SIGHUP

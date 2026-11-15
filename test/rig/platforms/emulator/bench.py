@@ -62,6 +62,8 @@ ROMS = {"rp2040": "b2.elf", "rp2350": "bootrom-combined.bin"}
 MONITOR_PORT = 1234
 USBIP_PORT = 3240
 USBIP_BUSID = "1-0"
+# The DUT's own USB device, on the same server.
+DUT_USBIP_BUSID = "1-1"
 INSTANCE_ENV = "METALCLAW_RENODE_INSTANCE"
 MAX_INSTANCES = 8
 # Held while a bench attaches, checks or detaches its import, and records which
@@ -160,16 +162,38 @@ USB_DEVICES = Path("/sys/bus/usb/devices")
 SERIAL_BY_ID = Path("/dev/serial/by-id")
 
 
-# The serial of the device enumerated on a vhci port, if one is.
-def _port_serial(port: int) -> str | None:
+# The device enumerated on a vhci port, as its sysfs name, if one is.
+def _port_device(port: int) -> str | None:
     for line in VHCI_STATUS.read_text().splitlines()[1:]:
         fields = line.split()
         if len(fields) >= 7 and int(fields[1]) == port and fields[6] != "0-0":
-            try:
-                return (USB_DEVICES / fields[6] / "serial").read_text().strip()
-            except OSError:
-                return None
+            return fields[6]
     return None
+
+
+def _device_attribute(device: str, name: str) -> str | None:
+    try:
+        return (USB_DEVICES / device / name).read_text().strip()
+    except OSError:
+        return None
+
+
+# The serial of the device enumerated on a vhci port, if one is.
+def _port_serial(port: int) -> str | None:
+    device = _port_device(port)
+    return None if device is None else _device_attribute(device, "serial")
+
+
+# The VID:PID of the device enumerated on a vhci port, if one is.
+def _port_identity(port: int) -> tuple[int, int] | None:
+    device = _port_device(port)
+    if device is None:
+        return None
+    vid, pid = _device_attribute(device, "idVendor"), _device_attribute(device, "idProduct")
+    try:
+        return int(vid, 16), int(pid, 16)
+    except (TypeError, ValueError):
+        return None
 
 
 # Enumerated means the kernel lists the harness and its REPL tty is up. A
@@ -226,13 +250,21 @@ class Cable(threading.Thread):
                 process.communicate()
             return 124, "usbip timed out"
 
+    # Whether the device on a vhci port, while none has enumerated there yet
+    # or once one has, can be the one this cable carries.
+    def _carries(self, port: int) -> bool:
+        return _port_serial(port) in (None, self.serial)
+
+    def _enumerated(self, ports: list[int]) -> bool:
+        return _enumerated(self.serial)
+
     # Called with the owners held. A port stops being ours once the kernel
-    # frees it, or once it holds a device with another serial: an import made
-    # outside the rig never takes the lock.
+    # frees it, or once it holds another device: an import made outside the
+    # rig never takes the lock.
     def _own_ports(self, owners) -> list[int]:
         imported = _imported_ports()
         for port in [port for port, target in owners.items() if target == self.target]:
-            if port not in imported or _port_serial(port) not in (None, self.serial):
+            if port not in imported or not self._carries(port):
                 del owners[port]
         return [port for port, target in owners.items() if target == self.target]
 
@@ -257,7 +289,7 @@ class Cable(threading.Thread):
         else:
             self.imported.set()
             now = time.monotonic()
-            if _enumerated(self.serial):
+            if self._enumerated(ports):
                 self.unenumerated_since = None
             elif self.unenumerated_since is None:
                 self.unenumerated_since = now
@@ -280,6 +312,71 @@ class Cable(threading.Thread):
         self.join(timeout=5)
         with _port_owners() as owners:
             self._detach(self._own_ports(owners), owners)
+
+
+DEV = Path("/dev")
+
+
+# What a USB device presents to this host once its drivers bound, from
+# sysfs: its CDC ACM ttys as (interface string, device node) in interface
+# order, its hidraw nodes, and its endpoints but EP0 as bEndpointAddress in
+# two hex digits.
+@dataclass(frozen=True)
+class UsbFunctions:
+    device: str
+    vid: int
+    pid: int
+    ttys: tuple[tuple[str, str], ...] = ()
+    hidraw: tuple[str, ...] = ()
+    endpoints: tuple[str, ...] = ()
+
+
+def _interface_number(interface: Path) -> int:
+    try:
+        return int((interface / "bInterfaceNumber").read_text().strip(), 16)
+    except (OSError, ValueError):
+        return -1
+
+
+def usb_functions(device: str) -> UsbFunctions | None:
+    try:
+        vid = int(_device_attribute(device, "idVendor"), 16)
+        pid = int(_device_attribute(device, "idProduct"), 16)
+    except (TypeError, ValueError):
+        return None
+    ttys, hidraw, endpoints = [], [], set()
+    for interface in sorted(USB_DEVICES.glob(f"{device}:*"), key=_interface_number):
+        label = _device_attribute(interface.name, "interface") or ""
+        ttys += [(label, str(DEV / tty.name)) for tty in sorted(interface.glob("tty/tty*"))]
+        hidraw += [str(DEV / node.name) for node in sorted(interface.glob("*/hidraw/hidraw*"))]
+        endpoints |= {ep.name[3:] for ep in interface.glob("ep_*")}
+    return UsbFunctions(device, vid, pid, tuple(ttys), tuple(hidraw), tuple(sorted(endpoints)))
+
+
+class DutCable(Cable):
+    # The DUT's own USB, which the bench exports as a second device on the
+    # harness's USB/IP server, as its USB connector would reach this host:
+    # the program's device, known by its VID:PID, since its serial comes
+    # from the DUT's flash.
+    def __init__(self, busid: str, port: int, vid: int, pid: int, log):
+        super().__init__(busid, port, f"{vid:04x}:{pid:04x}", log)
+        self.identity = (vid, pid)
+
+    def _carries(self, port: int) -> bool:
+        return _port_identity(port) in (None, self.identity)
+
+    def _enumerated(self, ports: list[int]) -> bool:
+        return any(_port_identity(port) == self.identity for port in ports)
+
+    # The program's device on this cable's import, once it enumerated.
+    def functions(self) -> UsbFunctions | None:
+        with _port_owners() as owners:
+            ports = self._own_ports(owners)
+        for port in ports:
+            device = _port_device(port)
+            if device is not None and _port_identity(port) == self.identity:
+                return usb_functions(device)
+        return None
 
 
 # The variables a bench script takes, with their defaults: its `$name?=value`
@@ -485,8 +582,10 @@ class Bench:
         self.roms = roms
         self.dut_image = dut_image
         self.work = work
+        self.usbip_port = None
         self.process = None
         self.cable = None
+        self.dut_cable = None
         self.log = None
         self._handlers = {}
         # Set once stop() has dealt with the Renode in `process`.
@@ -560,6 +659,7 @@ class Bench:
                                         start_new_session=True)
         self._ended = False
         self.monitor_port = monitor_port
+        self.usbip_port = usbip_port
         _wait_port(usbip_port, STARTUP_TIMEOUT_S)
         self.cable = Cable(USBIP_BUSID, usbip_port, self.serial, self.log)
         self.cable.start()
@@ -591,6 +691,22 @@ class Bench:
         for wire, command, reply in zip(LATE_DELIVERY_WIRES, commands, replies):
             counts[wire] = None if reply is None else monitor_value(reply, command)
         return counts
+
+    # The DUT's own USB, imported into this host: only while the emulation
+    # runs, and once the program has its device up.
+    def import_dut_usb(self, vid: int, pid: int) -> DutCable:
+        if self.process is None or self.usbip_port is None:
+            raise BenchError("the bench is not running")
+        if self.dut_cable is not None:
+            raise BenchError("the DUT's USB is already imported")
+        self.dut_cable = DutCable(DUT_USBIP_BUSID, self.usbip_port, vid, pid, self.log)
+        self.dut_cable.start()
+        return self.dut_cable
+
+    def release_dut_usb(self) -> None:
+        cable, self.dut_cable = self.dut_cable, None
+        if cable is not None:
+            cable.stop()
 
     # Until stop(), every way out of the session stops the bench: an
     # interpreter exit through atexit, SIGTERM and SIGHUP as a KeyboardInterrupt
@@ -626,8 +742,8 @@ class Bench:
             self._release_exits()
 
     def _stop_cables(self) -> None:
-        cables = [c for c in (self.cable,) if c is not None]
-        self.cable = None
+        cables = [c for c in (self.dut_cable, self.cable) if c is not None]
+        self.dut_cable = self.cable = None
         failed = None
         for cable in cables:
             try:

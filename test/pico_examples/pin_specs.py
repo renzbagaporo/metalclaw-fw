@@ -70,7 +70,8 @@ PIN_SPECS: dict[str, PinSpec] = {
     # system/hello_double_tap/hello_double_tap.c:20-25: 250 ms half periods.
     "hello_double_tap": PinSpec(3.0, (Toggle(LED, 8, half(0.25)),), "system/hello_double_tap/hello_double_tap.c"),
     # usb/device/dev_hid_composite: TinyUSB's board LED blinks every 250 ms
-    # while unmounted; the DUT's USB reaches no host on either bench.
+    # while unmounted; the DUT's USB reaches no host on either bench, and
+    # the emulator imports it only for the USB cases, which come after.
     "dev_hid_composite": PinSpec(3.0, (Toggle(LED, 8, half(0.25)),), "usb/device/dev_hid_composite/main.c"),
     # bootloaders/uart/uart_binary.c:12-14, 79-85 (pico2, no_flash): 500 ms half periods.
     "uart_binary": PinSpec(4.0, (Toggle(LED, 5, half(0.5)),), "bootloaders/uart/uart_binary.c"),

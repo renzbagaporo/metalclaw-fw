@@ -5,14 +5,25 @@
 
 import math
 import os
+import time
 from pathlib import Path
 
 import pytest
 
+from test.pico_examples import pins
 from test.pico_examples.emulation import DEFAULT, Emulation, emulation_for
 from test.pico_examples.parts import parts_for
+from test.pico_examples.usb_devices import UsbDevice, usb_device
 from test.rig import probe_telemetry
-from test.rig.platforms.emulator.bench import LAYOUTS, Bench, BenchError, Layout, harness_serial, instance
+from test.rig.platforms.emulator.bench import (
+    LAYOUTS,
+    Bench,
+    BenchError,
+    Layout,
+    UsbFunctions,
+    harness_serial,
+    instance,
+)
 from test.rig.platforms.hardware.platform import (
     _DEFAULT_MAILBOX_TIMEOUT,
     ROOT,
@@ -358,6 +369,87 @@ def stand_in_clashes(target: str, board: str | None, emulation: Emulation) -> li
     attached = parts_for(target, board, {s.replaces for s in emulation.stand_ins})
     return [f"{part.name} on GP{sorted(taken & set(part.dut_pins()))}" for part in attached
             if taken & set(part.dut_pins())]
+
+
+# Bench seconds a program gets, from when its cases want its USB, to turn
+# its USB controller on with its pull-up.
+DUT_USB_PRESENT_S = 10.0
+# Host seconds the bench's USB/IP server gets to answer the import. Each
+# import is a TCP connection of its own; a server that takes the next
+# connection only once the current one closes (Renode's SocketServerProvider
+# as of the fork's 2026-11-16 build) leaves it in the backlog for as long
+# as the harness's import is open, and never answers it.
+DUT_USB_IMPORT_S = 120.0
+# Host seconds the import gets to enumerate (room for the cable to replug
+# a few times), then for this host's drivers to bind to its interfaces.
+DUT_USB_ENUMERATION_S = ENUMERATION_TIMEOUT_S
+DUT_USB_BIND_S = 120.0
+
+
+def usb_presenting(example: Example) -> bool:
+    with example.memory.link() as link:
+        return pins.usb_presenting(link, example.metadata["chip"])
+
+
+def wait_presenting(harness: Harness, example: Example, seconds: float = DUT_USB_PRESENT_S) -> bool:
+    deadline = harness.clock() + seconds
+    while not usb_presenting(example):
+        if harness.clock() >= deadline:
+            return False
+        time.sleep(0.5)
+    return True
+
+
+# Whether a device's drivers have bound every function it should present.
+def usb_bound(found: UsbFunctions, device: UsbDevice) -> bool:
+    return (len(found.ttys) >= len(device.ttys) and len(found.hidraw) >= device.hidraw
+            and len(found.endpoints) >= len(device.endpoints))
+
+
+# The program's device on the cable's import, once its functions are
+# bound or the time for them is up; None if it never enumerated.
+def wait_usb_functions(cable, device: UsbDevice, enumeration_s: float = DUT_USB_ENUMERATION_S,
+                       bind_s: float = DUT_USB_BIND_S, poll_s: float = 0.5) -> UsbFunctions | None:
+    deadline = time.monotonic() + enumeration_s
+    found = None
+    while True:
+        latest = cable.functions()
+        if latest is not None:
+            if found is None:
+                deadline = time.monotonic() + bind_s
+            found = latest
+            if usb_bound(found, device):
+                return found
+        if time.monotonic() >= deadline:
+            return found
+        time.sleep(poll_s)
+
+
+# The DUT's own USB, imported into this host while the module's cases that
+# ask for it run, from once the program has its device up; detached after.
+# A program whose device the rig does not know has nothing to import.
+@pytest.fixture(scope="module")
+def dut_usb(bench: Bench, harness: Harness, example: Example) -> UsbFunctions:
+    device = usb_device(example.target, example.metadata["chip"])
+    if device is None:
+        pytest.skip(f"{example.target} presents no USB device the rig knows")
+    if not wait_presenting(harness, example):
+        pytest.fail(f"{example.target} never turned its USB on within {DUT_USB_PRESENT_S:.0f} s")
+    try:
+        cable = bench.import_dut_usb(device.vid, device.pid)
+    except BenchError as error:
+        pytest.fail(str(error))
+    try:
+        if not cable.imported.wait(DUT_USB_IMPORT_S):
+            pytest.fail(f"the bench's USB/IP server did not answer the import of the DUT's USB "
+                        f"({cable.target}) within {DUT_USB_IMPORT_S:.0f} s")
+        found = wait_usb_functions(cable, device)
+        if found is None:
+            pytest.fail(f"{example.target}'s device {device.vid:04x}:{device.pid:04x} never enumerated on this "
+                        f"host after its import")
+        yield found
+    finally:
+        bench.release_dut_usb()
 
 
 @pytest.fixture(scope="session")

@@ -669,6 +669,13 @@ def example(harness: Harness, probe, fixture: dict, pytestconfig) -> Example:
     return e
 
 
+# Neither bench cables the DUT's own USB to the rig host; the emulator
+# imports it.
+@pytest.fixture(scope="module")
+def dut_usb():
+    pytest.skip("the DUT's own USB reaches no rig host on either bench")
+
+
 @pytest.fixture(scope="session")
 def dut(harness: Harness, probe, fixture: dict, pytestconfig) -> Dut:
     require_rig_image(dut_image())

@@ -35,6 +35,15 @@ class Spec:
     # on the console, (pattern, str) runs code on the harness, for a part
     # that is to act then.
     input: tuple[tuple[str, bytes | str], ...] = ()
+    # Patterns as `console`, matched on the DUT's own USB console instead:
+    # the first CDC ACM function of the device it presents
+    # (test/pico_examples/usb_devices.py), which reaches the rig host only
+    # in the emulator, and the same `seconds` and `forbidden`. A Spec with
+    # these and no `console` prints nothing on its UART.
+    usb_console: tuple[str, ...] = ()
+    # As `input`, for the USB console: (pattern, interface string, bytes)
+    # writes the bytes to that CDC function of the DUT's device.
+    usb_input: tuple[tuple[str, str, bytes], ...] = ()
     # The DUT pins these criteria take an analog level on, and the fields
     # that differ on a bench whose harness can only drive them high or low
     # (fixture "analog_pins").
@@ -55,10 +64,11 @@ class Spec:
             spec = replace(spec, without_analog={}, **spec.without_analog)
         return spec
 
-    def match(self, text: str) -> tuple[list[str], list[str]]:
-        # The expected patterns not found in order, and the forbidden ones found.
+    def match(self, text: str, patterns: tuple[str, ...] | None = None) -> tuple[list[str], list[str]]:
+        # The expected patterns (`console` unless given) not found in order,
+        # and the forbidden ones found.
         missing, at = [], 0
-        for pattern in self.console:
+        for pattern in self.console if patterns is None else patterns:
             m = re.compile(pattern).search(text, at)
             if m is None:
                 missing.append(pattern)
@@ -164,8 +174,11 @@ SPECS: dict[str, Spec] = {
     # With no USB host each printf also waits out stdio_usb's 500 ms stdout
     # timeout (PICO_STDIO_USB_STDOUT_TIMEOUT_US), so a line comes about
     # every 1.5 s on the benches.
+    # The same lines reach its USB console, judged where that reaches the
+    # rig host (hello_anything.c:27-38).
     "hello_anything": Spec(
         console=(r"Hello, world!\r?\n",) * 3,
+        usb_console=(r"Hello, world!\r?\n",) * 3,
         seconds=8.0,
         source="binary_info/hello_anything/hello_anything.c",
     ),
@@ -668,5 +681,43 @@ SPECS: dict[str, Spec] = {
         console=(r"Hello, world!\r?\n",) * 3,
         seconds=4.0,
         source="hello_world/serial/hello_serial.c",
+    ),
+    # hello_world/usb/hello_usb.c:10-16 and CMakeLists.txt:9-11: the same
+    # loop on stdio_usb alone; the UART stays silent.
+    "hello_usb": Spec(
+        console=(),
+        usb_console=(r"Hello, world!\r?\n",) * 3,
+        seconds=4.0,
+        source="hello_world/usb/hello_usb.c",
+    ),
+    # usb/device/dev_multi_cdc/main.c:43-85: CDC 0 is stdio; once it is
+    # open it says so every 5 s (:53-57), and what comes in on CDC 1 is
+    # named and echoed on CDC 0 (:66, :79). Nothing prints until a host
+    # opens CDC 0.
+    "dev_multi_cdc": Spec(
+        console=(),
+        usb_console=(r"Connected to CDC 0" + NL, r"RX CDC 1" + NL, r"Received on CDC 1: metalclaw" + NL),
+        usb_input=((r"Connected to CDC 0" + NL, "Custom CDC", b"metalclaw"),),
+        seconds=4.0,
+        source="usb/device/dev_multi_cdc/main.c",
+    ),
+    # usb/device/dev_lowlevel/dev_lowlevel.c:565-568, 149-150, 170-178, 54-89:
+    # the banner, then each of EP0 OUT, EP0 IN, EP1 OUT and EP2 IN set up
+    # (%p prints its own 0x), before the pull-up presents the device.
+    "dev_lowlevel": Spec(
+        console=(r"USB Device Low-Level hardware example" + NL,
+                 *(rf"Set up endpoint 0x{ep:x} with buffer address 0x\S+" + NL for ep in (0x00, 0x80, 0x01, 0x82))),
+        seconds=3.0,
+        source="usb/device/dev_lowlevel/dev_lowlevel.c",
+    ),
+    # usb/host/host_cdc_msc_hid/main.c:47-50: TinyUSB's board_init puts
+    # stdio on the default UART and the banner follows. The rest of the
+    # program answers devices plugged into the DUT's USB host port, which
+    # nothing reaches on either bench or in the emulator, where the DUT's
+    # USB is a device port.
+    "host_cdc_msc_hid": Spec(
+        console=(r"TinyUSB Host CDC MSC HID Example" + NL,),
+        seconds=3.0,
+        source="usb/host/host_cdc_msc_hid/main.c",
     ),
 }

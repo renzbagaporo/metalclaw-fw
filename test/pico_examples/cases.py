@@ -6,6 +6,7 @@
 # expected line is in or the program's time is up on the harness's clock.
 
 import ast
+import contextlib
 import re
 import time
 
@@ -17,6 +18,7 @@ from test.pico_examples.part_targets import PART_SPECS
 from test.pico_examples.parts import PinError, parts_for
 from test.pico_examples.pin_specs import BOOTSEL_SPECS, PIN_SPECS
 from test.pico_examples.targets import SPECS
+from test.pico_examples.usb_devices import usb_device
 
 NAME = "example_console"
 INTERFACE = "Metalclaw DUT console"
@@ -83,10 +85,12 @@ MIN_SECONDS = 10.0
 class Typist:
     # Sends each of a Spec's inputs once its pattern has come in, after where
     # the one before it matched: bytes to the console, a str to the harness
-    # as code, for a part that is to act then.
-    def __init__(self, port, inputs, harness=None):
+    # as code, for a part that is to act then, (name, bytes) to the port of
+    # that name in `ports`.
+    def __init__(self, port, inputs, harness=None, ports=None):
         self.port = port
         self.harness = harness
+        self.ports = ports or {}
         self.inputs = list(inputs)
         self.at = 0
 
@@ -99,23 +103,30 @@ class Typist:
             if isinstance(data, str):
                 self.harness.run(data)
             else:
-                self.port.write(data)
-                self.port.flush()
+                port = self.port
+                if isinstance(data, tuple):
+                    name, data = data
+                    port = self.ports[name]
+                port.write(data)
+                port.flush()
             self.at = m.end()
             self.inputs.pop(0)
 
 
-def read_console(harness, port, spec) -> str:
+# Until `patterns` (the Spec's console unless given) all matched, or the
+# Spec's time is up; `inputs` (its own unless given) are typed as they come
+# due.
+def read_console(harness, port, spec, patterns=None, inputs=None, ports=None) -> str:
     got = bytearray()
     deadline = harness.clock() + max(spec.seconds, MIN_SECONDS)
     checked = time.monotonic()
-    typist = Typist(port, spec.input, harness)
+    typist = Typist(port, spec.input if inputs is None else inputs, harness, ports)
     while True:
         chunk = port.read(4096)
         got += chunk
         if chunk:
             typist(got.decode(errors="replace"))
-        if chunk and not spec.match(got.decode(errors="replace"))[0]:
+        if chunk and not spec.match(got.decode(errors="replace"), patterns)[0]:
             break
         if not chunk or time.monotonic() - checked >= CLOCK_EVERY_S:
             checked = time.monotonic()
@@ -133,6 +144,8 @@ def test_the_example_completes(harness, example, fixture, console):
     if spec is None:
         pytest.skip(f"{example.target}'s console cannot judge its {board} build")
     spec = spec.for_bench(fixture["line_pullups"], fixture.get("analog_pins", ()))
+    if not spec.console and spec.usb_console:
+        pytest.skip(f"{example.target} prints only on its own USB console")
     with serial.Serial(console, BAUD, timeout=0.1, exclusive=True) as port:
         port.reset_input_buffer()
         example.restart()
@@ -222,3 +235,40 @@ def test_the_example_parts_saw_the_program(harness, example, parts):
         if not check.test(value):
             problems.append(f"{part.name}: {check.description} (got {value!r:.200})")
     assert not problems, f"{example.target}: {problems}"
+
+
+# The program's device on the DUT's own USB, which the rig host reaches only
+# on a bench that cables it (the `dut_usb` fixture): what its descriptors
+# say it presents (usb_devices.py).
+def test_the_example_presents_its_usb_device(example, dut_usb):
+    device = usb_device(example.target, example.metadata["chip"])
+    found = {"VID:PID": f"{dut_usb.vid:04x}:{dut_usb.pid:04x}", "ttys": tuple(name for name, _ in dut_usb.ttys),
+             "hidraw": len(dut_usb.hidraw)}
+    expected = {"VID:PID": f"{device.vid:04x}:{device.pid:04x}", "ttys": device.ttys, "hidraw": device.hidraw}
+    if device.endpoints:
+        found["endpoints"] = tuple(int(ep, 16) for ep in dut_usb.endpoints)
+        expected["endpoints"] = tuple(sorted(device.endpoints))
+    assert found == expected, f"{example.target} on {dut_usb.device}"
+
+
+def test_the_example_completes_on_its_usb_console(harness, example, fixture, dut_usb):
+    spec = SPECS.get(example.target) or PART_SPECS.get(example.target)
+    if spec is None or not spec.usb_console:
+        pytest.skip(f"no USB console criteria for {example.target}")
+    board = example.metadata.get("board")
+    spec = spec.for_board(board)
+    if spec is None:
+        pytest.skip(f"{example.target}'s console cannot judge its {board} build")
+    spec = spec.for_bench(fixture["line_pullups"], fixture.get("analog_pins", ()))
+    assert dut_usb.ttys, f"{example.target} presents no CDC ACM function on {dut_usb.device}"
+    inputs = tuple((pattern, (name, data)) for pattern, name, data in spec.usb_input)
+    # Opening a CDC function raises its DTR, which stdio_usb waits for: a
+    # program prints nothing there before.
+    with contextlib.ExitStack() as stack:
+        ports = {name: stack.enter_context(serial.Serial(node, BAUD, timeout=0.1, exclusive=True))
+                 for name, node in dut_usb.ttys}
+        text = read_console(harness, ports[dut_usb.ttys[0][0]], spec, spec.usb_console, inputs, ports)
+    missing, forbidden = spec.match(text, spec.usb_console)
+    assert not forbidden, f"{example.target} printed {forbidden} on its USB console:\n{text[-2000:]}"
+    assert not missing, (f"{example.target} never printed {missing} on its USB console within "
+                         f"{max(spec.seconds, MIN_SECONDS)} s:\n{text[-2000:]}")
