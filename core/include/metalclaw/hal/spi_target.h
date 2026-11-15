@@ -38,11 +38,13 @@ struct mclw_spi_target_stats {
     // Windows that clocked more than the image could answer.
     uint32_t long_windows;
     uint32_t dma_faults;
-    // Windows served before a pending image rebuild had landed: for a
-    // command image, windows that began while BUSY was high.
+    // For a stream, windows open when a frame was published, which serve
+    // the frame before it; for a command image, windows that began while
+    // BUSY was high, or that found the worker's queue full.
     uint32_t stale_windows;
-    // For a command image without a BUSY line: windows that began before the
-    // engine had re-armed after the previous one, and that it did not serve.
+    // Windows the engine served but could not hand to the model: a command
+    // image's queue was full, or a chip-select rise came while the engine
+    // was still re-arming after the one before (see the port's timing).
     uint32_t missed_windows;
 };
 
@@ -73,7 +75,8 @@ int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_comma
 void mclw_hal_spi_target_set_busy(struct mclw_spi_target *t, bool busy);
 void mclw_hal_spi_target_disarm(struct mclw_spi_target *t);
 
-// The engine's worker poll; a lost chip-select edge is recovered here.
+// The engine's worker poll: windows the engine's interrupt has not handed
+// on yet, and image copies a window was reading when they were published.
 void mclw_hal_spi_target_poll(void);
 
 void mclw_hal_spi_target_stats(const struct mclw_spi_target *t, struct mclw_spi_target_stats *out);
