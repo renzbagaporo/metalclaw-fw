@@ -17,4 +17,14 @@ class PinSpec:
     source: str = ""
 
 
-PIN_SPECS: dict[str, PinSpec] = {}
+# PICO_DEFAULT_LED_PIN is GP25 on both pico and pico2 (pico-sdk
+# src/boards/include/boards/pico.h, pico2.h).
+LED = 25
+
+PIN_SPECS: dict[str, PinSpec] = {
+    # blink/blink.c:46-51: LED on, sleep_ms(LED_DELAY_MS), off, sleep, forever;
+    # LED_DELAY_MS 250 (blink.c:16).
+    "blink": PinSpec(3.0, (Toggle(LED, 8, (0.24, 0.27)),), "blink/blink.c"),
+    # blink_simple/blink_simple.c:36-41: the same loop, LED_DELAY_MS 250 (:10).
+    "blink_simple": PinSpec(3.0, (Toggle(LED, 8, (0.24, 0.27)),), "blink_simple/blink_simple.c"),
+}
