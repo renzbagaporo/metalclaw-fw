@@ -274,7 +274,9 @@ host's drivers to bind its ttys and hidraw nodes, and detaches it after
 the module's cases. `test_the_example_presents_its_usb_device` judges what
 the device presents; a Spec's `usb_console` patterns are matched on its
 first CDC ACM function (`hello_usb`, `hello_anything`, `dev_multi_cdc`), and
-its `usb_input` writes to the CDC function it names. A Renode package whose
+its `usb_input` writes to the CDC function it names, and its `usb_replies`
+are matched on what a named CDC function answers on its own tty
+(`dev_multi_cdc`'s "OK" on CDC 1). A Renode package whose
 bench script lacks `$dut_usbip_port` leaves those cases skipped as unmet.
 
 A session that ends early still stops its Renode: an interrupt or

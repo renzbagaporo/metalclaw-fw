@@ -12,7 +12,7 @@ import types
 import pytest
 
 from test.pico_examples import cases
-from test.pico_examples.cases import Typist, read_console
+from test.pico_examples.cases import Typist, read_console, read_reply
 from test.pico_examples.targets import SPECS, Spec
 from test.pico_examples.usb_devices import USB_DEVICES, UsbDevice, usb_device
 from test.rig.platforms.emulator import bench, platform
@@ -244,7 +244,8 @@ def test_every_usb_console_spec_reads_a_cdc_function_of_its_programs_device():
             device = usb_device(target, chip)
             assert device is not None and device.ttys, (target, chip)
             assert all(name in device.ttys for _, name, _ in spec.usb_input), target
-        for pattern in spec.usb_console + tuple(p for p, _, _ in spec.usb_input):
+            assert all(name in device.ttys for name, _ in spec.usb_replies), target
+        for pattern in spec.usb_console + tuple(p for p, _, _ in spec.usb_input) + tuple(p for _, p in spec.usb_replies):
             re.compile(pattern)
 
 
@@ -288,24 +289,31 @@ class Clock:
         return self.now
 
 
-def test_dev_multi_cdc_echoes_what_the_case_types_on_its_second_cdc():
+def test_dev_multi_cdc_is_judged_by_the_answer_on_its_second_cdc():
     spec = SPECS["dev_multi_cdc"]
-    custom = FakePort()
 
-    class Echo(FakePort):
-        # The program: what comes in on CDC 1 is named on CDC 0.
+    class Custom(FakePort):
+        # The program: what comes in on CDC 1 is answered OK there.
         def read(self, size):
-            if custom.written and not getattr(self, "echoed", False):
-                self.echoed = True
-                data = custom.written[-1].decode()
-                return f"RX CDC 1\r\nReceived on CDC 1: {data}\r\n".encode()
+            if self.written and not getattr(self, "answered", False):
+                self.answered = True
+                return b"OK\r\n"
             return super().read(size)
 
-    console = Echo([b"Connected to CDC 0\r\n"])
+    custom = Custom()
+    console = FakePort([b"Connected to CDC 0\r\n"])
     inputs = tuple((p, (name, data)) for p, name, data in spec.usb_input)
     text = read_console(Clock(), console, spec, spec.usb_console, inputs, {"Custom CDC": custom})
     assert spec.match(text, spec.usb_console) == ([], [])
+    assert custom.written == [b"metalclaw"]
+    ((name, pattern),) = spec.usb_replies
+    assert name == "Custom CDC" and re.search(pattern, read_reply(Clock(), custom, pattern, spec))
     assert spec.match(text) == ([], [])  # no UART console criteria at all
+
+
+def test_a_reply_read_gives_up_at_the_specs_deadline():
+    spec = Spec(console=(), seconds=1000.0)
+    assert read_reply(Clock(), FakePort([b"nope"]), r"OK", spec) == "nope"
 
 
 def test_a_usb_console_read_ends_once_its_own_patterns_matched():

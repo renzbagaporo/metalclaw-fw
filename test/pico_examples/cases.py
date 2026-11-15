@@ -283,7 +283,27 @@ def test_the_example_completes_on_its_usb_console(harness, example, fixture, dut
         ports = {name: stack.enter_context(serial.Serial(node, BAUD, timeout=0.1, exclusive=True))
                  for name, node in dut_usb.ttys}
         text = read_console(harness, ports[dut_usb.ttys[0][0]], spec, spec.usb_console, inputs, ports)
+        replies = {name: read_reply(harness, ports[name], pattern, spec) for name, pattern in spec.usb_replies}
     missing, forbidden = spec.match(text, spec.usb_console)
     assert not forbidden, f"{example.target} printed {forbidden} on its USB console:\n{text[-2000:]}"
     assert not missing, (f"{example.target} never printed {missing} on its USB console within "
                          f"{max(spec.seconds, MIN_SECONDS)} s:\n{text[-2000:]}")
+    for name, pattern in spec.usb_replies:
+        assert re.search(pattern, replies[name]), (f"{example.target} never answered {pattern!r} on {name!r} within "
+                                                   f"{max(spec.seconds, MIN_SECONDS)} s: {replies[name][-500:]!r}")
+
+
+# What one CDC function answers on its own tty, until `pattern` matched or
+# the Spec's seconds passed on the bench's clock.
+def read_reply(harness, port, pattern: str, spec) -> str:
+    got = bytearray()
+    deadline = harness.clock() + max(spec.seconds, MIN_SECONDS)
+    checked = time.monotonic()
+    while not re.search(pattern, got.decode(errors="replace")):
+        chunk = port.read(4096)
+        got += chunk
+        if not chunk or time.monotonic() - checked >= CLOCK_EVERY_S:
+            checked = time.monotonic()
+            if harness.clock() >= deadline:
+                break
+    return got.decode(errors="replace")

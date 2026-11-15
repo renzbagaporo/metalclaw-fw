@@ -44,6 +44,10 @@ class Spec:
     # As `input`, for the USB console: (pattern, interface string, bytes)
     # writes the bytes to that CDC function of the DUT's device.
     usb_input: tuple[tuple[str, str, bytes], ...] = ()
+    # (interface string, pattern): what a CDC function of the DUT's device
+    # answers on its own tty, read once the USB console's patterns matched,
+    # within the same `seconds`.
+    usb_replies: tuple[tuple[str, str], ...] = ()
     # The DUT pins these criteria take an analog level on, and the fields
     # that differ on a bench whose harness can only drive them high or low
     # (fixture "analog_pins").
@@ -692,12 +696,19 @@ SPECS: dict[str, Spec] = {
     ),
     # usb/device/dev_multi_cdc/main.c:43-85: CDC 0 is stdio; once it is
     # open it says so every 5 s (:53-57), and what comes in on CDC 1 is
-    # named and echoed on CDC 0 (:66, :79). Nothing prints until a host
-    # opens CDC 0.
+    # answered "OK" on CDC 1 (:81-83). Its callback also names the input on
+    # CDC 0 (:66, :79), but that line is dropped whenever stdio_usb's
+    # low-priority IRQ ran the tud_task that took it: the IRQ holds
+    # stdio_usb_mutex (pico-sdk 2.3.0 stdio_usb.c:62-64), and the printf's
+    # mutex_try_enter_block_until gives up on a mutex its own caller owns
+    # (pico_sync/mutex.c:121). Which tud_task takes it is timing, on either
+    # chip, so only the answer is judged. Nothing prints until a host opens
+    # CDC 0.
     "dev_multi_cdc": Spec(
         console=(),
-        usb_console=(r"Connected to CDC 0" + NL, r"RX CDC 1" + NL, r"Received on CDC 1: metalclaw" + NL),
+        usb_console=(r"Connected to CDC 0" + NL,),
         usb_input=((r"Connected to CDC 0" + NL, "Custom CDC", b"metalclaw"),),
+        usb_replies=(("Custom CDC", r"OK\r\n"),),
         seconds=4.0,
         source="usb/device/dev_multi_cdc/main.c",
     ),
