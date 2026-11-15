@@ -86,3 +86,28 @@ def test_a_bench_with_line_pullups_takes_its_own_fields():
     spec = Spec(console=("a",), with_line_pullups={"console": ("b",)})
     assert spec.for_bench(True).console == ("b",)
     assert spec.for_bench(False).console == ("a",)
+
+
+def test_pio_spi_flash_is_not_judged_on_fixture_1s_pico_2_build_only():
+    from test.pico_examples.hazards import BENCH_LIMITS, bench_limit
+    from test.pico_examples.part_targets import PART_SPECS
+    for board in ("fixture1_pico", "rpi_pi_pico"):
+        reason = bench_limit("pio_spi_flash", board, "pico2")
+        assert "7-13 ns" in reason and "tSHSL2" in reason and "3 of 15" in reason
+    assert bench_limit("pio_spi_flash", "metalclaw_pico_rp2", "pico") is None
+    assert bench_limit("pio_spi_flash", "rpi_pi_pico", "pico") is None
+    assert bench_limit("spi_flash", "rpi_pi_pico", "pico2") is None
+    assert set(BENCH_LIMITS) <= set(SPECS) | set(PART_SPECS)
+
+
+def test_the_hardware_example_fixture_skips_a_bench_limit_before_flashing(tmp_path, monkeypatch):
+    image = tmp_path / "pio_spi_flash.elf"
+    image.touch()
+    (tmp_path / "example.json").write_text(json.dumps({"target": "pio_spi_flash", "board": "pico2",
+                                                       "chip": "rp2350"}))
+    monkeypatch.setenv("METALCLAW_DUT_IMAGE", str(image))
+    harness = type("H", (), {"board": lambda self: "fixture1_pico"})()
+    example = platform.example
+    function = getattr(example, "_get_wrapped_function", lambda: example.__wrapped__)()
+    with pytest.raises(pytest.skip.Exception, match="pio_spi_flash's pico2 build holds chip select high"):
+        function(harness, None, {}, None)

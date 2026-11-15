@@ -655,10 +655,14 @@ def example(harness: Harness, probe, fixture: dict, pytestconfig) -> Example:
     image = dut_image()
     require_example_image(image)
     # Checked before anything is flashed: a reset alone would run it.
-    from test.pico_examples.hazards import HARDWARE_HAZARDS
-    target = example_metadata(image)["target"]
+    from test.pico_examples.hazards import HARDWARE_HAZARDS, bench_limit
+    metadata = example_metadata(image)
+    target = metadata["target"]
     if target in HARDWARE_HAZARDS:
         pytest.skip(f"{target} {HARDWARE_HAZARDS[target]}; it runs only in the emulator")
+    limit = bench_limit(target, harness.board(), metadata.get("board"))
+    if limit is not None:
+        pytest.skip(f"{target}'s {metadata.get('board')} build {limit}; this bench does not judge it")
     e = Example(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"), probe_telemetry.recorder(pytestconfig))
     hold_idle(harness, fixture, e.parts_dut_pins())
     e.flash(fixture["dut_pins"][Target.WAKE_PIN][0])
