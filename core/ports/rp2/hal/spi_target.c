@@ -24,7 +24,8 @@
 //
 // Timing, measured on a 150 MHz RP2350 from the list's first block after
 // the token (docs/devices.md): a command image's and a register map's data
-// state machine runs again after 36 to 38 cycles, and a window may start
+// state machine runs again after 36 to 38 cycles, and one DMA transfer more
+// for the forced jump that parks it, not measured; a window may start
 // clocking from then on; the response program is armed after about 285
 // cycles for a register map and 410 for a command image. Its first byte out of the TX FIFO is needed once the
 // window's first byte has been clocked, and a register map's descriptor is
@@ -96,7 +97,7 @@
 // a part without is polled back to back and has a write enable and the
 // erase right behind it.
 #define SPI_QUEUE 8u
-#define SPI_FORCED 5u
+#define SPI_FORCED 6u
 // Longer than any reset program, which runs in about 3 us.
 #define SPI_KICK_WAIT_US 20u
 #define SPI_LOADER_WAIT_LOOPS 64u
@@ -789,12 +790,12 @@ static void emit_word(struct list_builder *b, const volatile void *read, const v
 
 // The common front of every list: wait for the rise, then start the data
 // state machine on the next window before anything else, with forced
-// instructions that clear the ISR, set the OSR and jump to the image's
-// start (none of them stalls). A command image's first byte is Y, which
-// holds its status, and a register map's is don't-care, so neither depends
-// on the FIFOs: they restart in the list's second block, and D is aborted
-// and the FIFOs cleared after, before the first byte has been clocked and
-// the OSR wants the second. A stream's first byte comes from the TX FIFO,
+// instructions that park it, clear the ISR, set the OSR and jump to the
+// image's start (none of them stalls). A command image's first byte is Y,
+// which holds its status, and a register map's is don't-care, so neither
+// depends on the FIFOs: they restart in the list's second block, and D is
+// aborted and the FIFOs cleared after, before the first byte has been
+// clocked and the OSR wants the second. A stream's first byte comes from the TX FIFO,
 // so there D is stopped and the FIFOs cleared first (D is stalled on its
 // DREQ there and chains to nothing, the case an abort is clean in) and the
 // start waits in the program for D's first byte, with the OSR emptied (with
@@ -834,11 +835,20 @@ static void emit_front(struct list_builder *b, struct mclw_spi_target *t, struct
 }
 
 // The forced instructions that start the next window at `entry` with the
-// OSR full of `osr`, or empty.
-static void forced_start(struct mclw_spi_target *t, uint8_t entry, enum pio_src_dest osr, bool empty) {
+// OSR full of `osr`, or empty. The state machine runs its own program in
+// any cycle between two of them (RP2040 datasheet 3.5.7), so the first
+// jumps it to `wait`, the start's loop on chip select high, which changes
+// nothing. Left where the window ended, an OUT stalled on an empty OSR (at
+// the arm, or after D ran dry) would shift a bit out of the OSR the next
+// one sets, and the next window would take its command byte in seven bits. The
+// DMA can write every cycle (2.5), leaving no such cycle; Renode's DMA
+// writes every other one.
+static void forced_start(struct mclw_spi_target *t, uint8_t wait, uint8_t entry, enum pio_src_dest osr,
+    bool empty) {
     struct spi_engine *e = t->engine;
     uint32_t n = 0;
 
+    e->instr[n++] = jmp_to(t->bus, wait);
     e->instr[n++] = (uint16_t)pio_encode_mov(pio_isr, pio_null);
     e->instr[n++] = (uint16_t)pio_encode_mov(pio_osr, osr);
     if (empty) {
@@ -887,7 +897,7 @@ static void command_lists(struct mclw_spi_target *t) {
     struct spi_command_block *b = command_block(t);
     uint8_t *s = t->status;
 
-    forced_start(t, SPI_ENTRY, pio_y, false);
+    forced_start(t, SPI_ENTRY_WAIT, SPI_ENTRY, pio_y, false);
     e->no_jump = address_of(b->lists) | SPI_COMMAND_NO_OPCODE;
     {
         dma_channel_config c = default_config((uint)t->loader_dma);
@@ -945,7 +955,7 @@ static void regmap_lists(struct mclw_spi_target *t) {
     uint L = (uint)t->loader_dma;
     uint rx_dreq = pio_get_dreq(SPI_PIO, t->sm, false);
 
-    forced_start(t, SPI_REGMAP_ENTRY, pio_null, false);
+    forced_start(t, SPI_REGMAP_WAIT, SPI_REGMAP_ENTRY, pio_null, false);
     // The command byte's word is its descriptor's address; the descriptor
     // goes into D's (TRANS_COUNT, READ_ADDR_TRIG), which starts the answer.
     p[SPI_REGMAP_COMMAND] = (struct spi_cb){ address_of(&SPI_PIO->rxf[t->sm]),
@@ -992,7 +1002,7 @@ static void stream_lists(struct mclw_spi_target *t) {
     struct spi_engine *e = t->engine;
     uint rx_dreq = pio_get_dreq(SPI_PIO, t->sm, false);
 
-    forced_start(t, SPI_ENTRY, pio_null, true);
+    forced_start(t, SPI_ENTRY_WAIT, SPI_ENTRY, pio_null, true);
     e->abort_mask = channel_bit(t->rx_dma) | channel_bit(t->tx_dma);
     e->d_cfg[1] = address_of(&SPI_PIO->txf[t->sm]);
     e->d_cfg[2] = SPI_BUFFER_BYTES;

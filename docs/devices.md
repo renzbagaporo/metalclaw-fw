@@ -378,10 +378,11 @@ port exists.
   keeps its own chip select. Measured on the carrier's 150 MHz RP2350
   harness from the reset program's first block: the data state machine runs
   again 0.25 µs after it (36 to 38 cycles) for a command image or a
-  register map and 0.46 µs (68 to 72) for a stream, so a window may begin
-  clocking that soon after the rise before it, and the response program is
-  armed 1.9 µs after it for a register map and 2.7 µs for a command image,
-  so a window's first byte must take at least that long. A rise that comes
+  register map and 0.46 µs (68 to 72) for a stream, and one DMA transfer
+  later for the forced jump that first parks it, not measured, so a window
+  may begin clocking that soon after the rise before it, and the response
+  program is armed 1.9 µs after it for a register map and 2.7 µs for a
+  command image, so a window's first byte must take at least that long. A rise that comes
   while the reset program for the one before it still runs, under about
   3 µs apart, is re-armed for only once that one ends. Not measured on
   fixture 1's 125 MHz RP2040; scaled by clock, about 0.3 µs, 0.55 µs and
