@@ -29,6 +29,7 @@ struct mclw_regmap;
 
 typedef void (*mclw_regmap_on_write_t)(struct mclw_regmap *map, uint8_t bank, uint8_t reg,
     uint8_t value, void *ctx);
+typedef void (*mclw_regmap_on_input_t)(struct mclw_regmap *map, uint8_t value, void *ctx);
 
 struct mclw_regmap {
     uint8_t bank_count;
@@ -40,6 +41,8 @@ struct mclw_regmap {
     mclw_regmap_on_write_t on_write;
     void *on_write_ctx;
     const uint8_t *pointer_map;
+    mclw_regmap_on_input_t on_input;
+    void *on_input_ctx;
 };
 
 // Clears the hook and the pointer map as well as the image.
@@ -69,12 +72,24 @@ void mclw_regmap_set_on_write(struct mclw_regmap *map, mclw_regmap_on_write_t fn
 // the image directly.
 void mclw_regmap_set_pointer_map(struct mclw_regmap *map, const uint8_t *addresses);
 
+// For a part with no register pointer at all, a byte stream behind its bus
+// address (MediaTek's NMEA port over I2C: GlobalTop's "NMEA over I2C
+// Software Guide" 3.1 and 4). Every transaction starts at image address 0,
+// and every byte the master writes goes to `fn`, in interrupt context and
+// with the same rules as on_write, instead of selecting a register or
+// landing in the image. The I2C engine applies it; SPI framing addresses the
+// image directly. NULL, the default, restores the register pointer.
+void mclw_regmap_set_on_input(struct mclw_regmap *map, mclw_regmap_on_input_t fn, void *ctx);
+
 // The engine side: the image address a pointer value the bus wrote selects;
 // where the next transaction starts, given the address the last pointer byte
 // selected and the one this transaction would have gone on to; then what a
 // bus read or write of `reg` in the active bank does.
 uint8_t mclw_regmap_bus_select(const struct mclw_regmap *map, uint8_t pointer);
 uint8_t mclw_regmap_bus_restart(const struct mclw_regmap *map, uint8_t selected, uint8_t next);
+// bus_input hands a written byte to the map's on_input and says whether it
+// took it; a map without one leaves the byte to the pointer and bus_write.
+bool mclw_regmap_bus_input(struct mclw_regmap *map, uint8_t value);
 // bus_write commits the value (bank select included) and fires on_write.
 uint8_t mclw_regmap_bus_read(struct mclw_regmap *map, uint8_t reg);
 void mclw_regmap_bus_write(struct mclw_regmap *map, uint8_t reg, uint8_t value);

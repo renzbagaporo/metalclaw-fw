@@ -183,7 +183,12 @@ selected, so a read with no pointer write re-reads the selected register
 from its first byte; arming the map selects pointer value 0. That is how
 the pointer registers of TI's INA2xx (SBOS448G 8.5.6, SLYS021A 7.5.1.1) and
 Microchip's MCP9808 (DS25095A 4.1.1) behave. Without one, the pointer is a
-byte address that runs on from one transaction to the next.
+byte address that runs on from one transaction to the next. A part with no
+register pointer at all, a byte stream behind its address, gives the map an
+`on_input` hook instead: every transaction starts at image address 0 and
+every byte the master writes goes to the hook, in interrupt context, rather
+than into the image. That is the I2C buffer of MediaTek's GNSS receivers
+(GlobalTop's "NMEA over I2C" guide, 3 and 4), which `pa1010d` serves.
 
 `core/include/metalclaw/stream.h` is the other image: a fixed-length frame
 of up to 64 bytes, double-buffered, that the part drives out (`OUT`, an ADC)
@@ -227,8 +232,9 @@ port exists.
   model arms it once and updates the image under a critical section; the
   engine answers the bus from interrupt context without the model. The
   first byte the master writes is the register pointer; with the image's
-  pointer map, each transaction starts again at the register it selected.
-  Counters: `transactions`, `bytes`.
+  pointer map, each transaction starts again at the register it selected;
+  with its `on_input` hook there is no pointer and written bytes go to the
+  hook. Counters: `transactions`, `bytes`.
 - `spi_target.h`: an SPI target that serves a `regmap` (with its framing),
   a `stream` or a `command` image from hardware, in the mode the model
   asked for, with `set_mode` to change it. It publishes a clock ceiling per

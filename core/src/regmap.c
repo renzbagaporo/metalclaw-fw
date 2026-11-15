@@ -53,12 +53,31 @@ void mclw_regmap_set_pointer_map(struct mclw_regmap *map, const uint8_t *address
     map->pointer_map = addresses;
 }
 
+void mclw_regmap_set_on_input(struct mclw_regmap *map, mclw_regmap_on_input_t fn, void *ctx) {
+    map->on_input = fn;
+    map->on_input_ctx = ctx;
+}
+
 uint8_t MCLW_RAM_FUNC(mclw_regmap_bus_select)(const struct mclw_regmap *map, uint8_t pointer) {
+    if (map->on_input != NULL) {
+        return 0;
+    }
     return map->pointer_map != NULL ? map->pointer_map[pointer] : pointer;
 }
 
 uint8_t MCLW_RAM_FUNC(mclw_regmap_bus_restart)(const struct mclw_regmap *map, uint8_t selected, uint8_t next) {
+    if (map->on_input != NULL) {
+        return 0;
+    }
     return map->pointer_map != NULL ? selected : next;
+}
+
+bool MCLW_RAM_FUNC(mclw_regmap_bus_input)(struct mclw_regmap *map, uint8_t value) {
+    if (map->on_input == NULL) {
+        return false;
+    }
+    map->on_input(map, value, map->on_input_ctx);
+    return true;
 }
 
 static inline uint8_t MCLW_RAM_FUNC(read_one)(struct mclw_regmap *map, uint8_t reg) {

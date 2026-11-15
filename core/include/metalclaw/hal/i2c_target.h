@@ -12,7 +12,9 @@
 // its first byte, as TI's INA2xx (SBOS448G 8.5.6) and Microchip's MCP9808
 // (DS25095A 4.1.1) retain their register pointer. Arming such an image
 // selects pointer value 0. Without a map the pointer is a byte address that
-// runs on from one transaction to the next.
+// runs on from one transaction to the next. An image with an on_input hook
+// has no pointer: every written byte goes to the hook and every transaction
+// starts at image address 0.
 
 #ifndef MCLW_HAL_I2C_TARGET_H
 #define MCLW_HAL_I2C_TARGET_H
