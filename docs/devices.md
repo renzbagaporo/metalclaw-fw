@@ -257,7 +257,10 @@ hands them to the sink's `on_bytes` on the worker under the runtime lock, a
 batch at a time, with whether the window they end has closed. The model
 decodes them there, so its state needs no critical section: the host reads
 it under the same lock. An I2C read of a sink returns the one byte the
-model leaves in `read_byte`.
+model leaves in `read_byte`, so a part with no register pointer whose reads
+carry data, as `pa1010d`'s NMEA buffer does, takes a regmap with an
+`on_input` hook instead. An I2C target holds one image or one sink; arming
+either replaces the other.
 
 ## The HAL
 
