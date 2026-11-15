@@ -356,10 +356,10 @@ static const struct mclw_property_desc neo_m8n_properties[] = {
         .name = "gnss",
         .type = MCLW_TYPE_U32,
         .count = 1,
-        .access = MCLW_ACCESS_RO,
+        .access = MCLW_ACCESS_RW,
         .unit = NULL,
-        .min = 0,
-        .max = 255,
+        .min = 1,
+        .max = UBX_GNSS_GPS | UBX_GNSS_GLONASS | UBX_GNSS_BEIDOU | UBX_GNSS_GALILEO,
     },
     {
         .name = "backup",
@@ -1734,6 +1734,9 @@ static int neo_m8n_set(struct mclw_instance *inst, size_t property, const struct
             return 0;
         case PROP_VDOP:
             state->vdop = (uint16_t)in->v[0];
+            return 0;
+        case PROP_GNSS:
+            state->gnss = (uint8_t)in->v[0];
             return 0;
         default:
             return -EINVAL;
