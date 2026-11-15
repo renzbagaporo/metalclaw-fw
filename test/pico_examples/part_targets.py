@@ -309,7 +309,15 @@ PART_SPECS: dict[str, Spec] = {
     # while it moves. Steps exactly 1 ms apart are 64 substeps each, so the
     # speed estimate is 64000 substeps/s, give or take the DUT's 1 us
     # timestamps (63935..64063), negative the other way.
+    # The pico2 build cannot count that: quadrature_encoder_substep.pio's
+    # init writes EXECCTRL's low bits as 0x12, RP2040's STATUS_SEL RXLEVEL
+    # with N 2. On RP2350 those bits are STATUS_SEL TXLEVEL with N 18, a
+    # reserved level, and on fixture 1's Pico 2 the state machine takes its
+    # push path every pass: RX FIFO full (FSTAT 0x0f000e01) and stalled on
+    # autopush, so it samples the pins only as the program drains it, about
+    # one step a line at 1000 steps/s, speed 2543.
     "pio_quadrature_encoder_substep": Spec(
+        boards=("pico",),
         console=(r"Hello from quadrature encoder substep" + NL,
                  *(r"pos: -?\d+ +speed: 6[34]\d{3} +raw_steps: -?\d+ *" + NL,) * 3,
                  *(r"pos: -?\d+ +speed: -6[34]\d{3} +raw_steps: -?\d+ *" + NL,) * 3),
