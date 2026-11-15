@@ -46,6 +46,20 @@ def entry(elf: bytes) -> int:
     return HEADER.unpack_from(elf)[3]
 
 
+# Every loadable segment that lands in flash, as (address, bytes).
+def flash_segments(elf: bytes) -> list[tuple[int, bytes]]:
+    found = []
+    for physical, offset, size in segments(elf):
+        if not in_flash(physical):
+            continue
+        if physical - FLASH_BASE + size > FLASH_BYTES:
+            raise DutFlashError(f"the segment at 0x{physical:08x} runs past the end of flash")
+        if offset + size > len(elf):
+            raise DutFlashError(f"the segment at 0x{physical:08x} is truncated")
+        found.append((physical, elf[offset:offset + size]))
+    return found
+
+
 # An image that loads nothing into flash (a no_flash build) runs from SRAM:
 # the probe writes it there and starts it. Its flash stays erased.
 ERASED_FLASH = bytes([ERASED]) * 4096
@@ -53,18 +67,12 @@ ERASED_FLASH = bytes([ERASED]) * 4096
 
 def flash_contents(elf: bytes, allow_empty: bool = False) -> bytes:
     image = bytearray()
-    for physical, offset, size in segments(elf):
-        if not in_flash(physical):
-            continue
+    for physical, data in flash_segments(elf):
         start = physical - FLASH_BASE
-        end = start + size
-        if end > FLASH_BYTES:
-            raise DutFlashError(f"the segment at 0x{physical:08x} runs past the end of flash")
-        if offset + size > len(elf):
-            raise DutFlashError(f"the segment at 0x{physical:08x} is truncated")
+        end = start + len(data)
         if len(image) < end:
             image.extend(bytes([ERASED]) * (end - len(image)))
-        image[start:end] = elf[offset:offset + size]
+        image[start:end] = data
     if not image:
         if allow_empty:
             return ERASED_FLASH
