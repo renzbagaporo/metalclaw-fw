@@ -327,8 +327,7 @@ port exists.
   uses in mode 0: a target that shifts out the next byte of a 256-byte
   ring per window and keeps what came in at the same place, or a controller
   that clocks a transfer at its own rate. On rp2 one PIO state machine
-  (nine and seven instructions) and two DMA channels each, PIO0 first, then
-  PIO2, then PIO1.
+  (nine and seven instructions) and two DMA channels each.
 - `swd.h`: the SWD wire: transfers, bit sequences, pin control, clock. On
   rp2 it is a PIO program; every wait is bounded and a timeout resyncs the
   state machine. A wait for the state machine's FIFOs sleeps on WFE, woken
@@ -367,9 +366,8 @@ port exists.
 - `spi_sink.h`: a receive-only SPI target for a sink, on `(sck, mosi,
   cs[, line])`. Chip select may rise after every byte, as a PL022 does in
   Motorola mode with CPHA 0, or stay low for a whole frame: the CPU
-  re-arms nothing between windows. On rp2 it is two state machines on
-  PIO0, PIO2 where there is one, or PIO1 last (20 instruction words), and
-  two DMA channels: one state machine shifts each byte in with a window
+  re-arms nothing between windows. On rp2 it is two state machines (20
+  instruction words) and two DMA channels: one state machine shifts each byte in with a window
   flag and the line's level; at every chip-select rise the other has a DMA
   channel write a jump into the first's instruction register, which drops
   a partial byte and waits for the next fall, so SCK edges while chip
@@ -385,8 +383,8 @@ port exists.
   interrupt, so a model parses, touches its state and answers from inside it.
   On rp2 any pin pair works: a pair that carries a PL011's TX and RX
   functions gets that block while it is free; any other pair gets a PIO
-  engine: a transmit and a receive state machine on PIO0 if it has room,
-  14 instruction words shared by every PIO UART on that block, DMA both
+  engine: a transmit and a receive state machine, 14 instruction words
+  shared by every PIO UART on that block, DMA both
   ways, 8 data bits, no parity, one or two stop bits, two at once at most.
   Its receive ring holds 1 KiB, about 90 ms at 115200 baud.
 - `wire.h`: a few pins whose timing a part defines, run by one of the
@@ -403,8 +401,8 @@ port exists.
   output following a carrier, with each burst and gap timed). A model reads
   what an input engine captured, or queues what an output engine sends,
   from its poll. On rp2 each engine is a PIO program encoded at open from
-  the facts and the system clock, on PIO0, then PIO2 where there is one,
-  then PIO1 last, state machines with identical programs sharing one copy:
+  the facts and the system clock, state machines with identical programs
+  sharing one copy:
   `pulse_bits_in` 26 instruction words, `clocked_in` 3, `latched_in` 30 on
   two state machines, `onewire` 27, `responder` 15, `steps_out` 3,
   `envelope` 14. Input engines but `envelope` stream through a DMA channel
@@ -419,6 +417,27 @@ port exists.
   a write; see [usb.md](usb.md).
 - `console.h`: the channel the harness's own REPL runs over; the port owns
   the transport.
+
+On rp2 the SPI target engine takes PIO1 alone, all 32 of its instruction
+words, two state machines and three DMA channels a target, and owns
+PIO1_IRQ_1. Every other PIO engine (the SWD probe, the PIO UART, the SPI
+sink, the SPI peer, gpio links and the wire engines) tries PIO0, then PIO2
+where the chip has one (the RP2354B; the RP2040 has two blocks), then
+PIO1, and takes the first with room and a GPIO window that reaches its
+pins. The probe is attached for every rig run and takes 11 words of PIO0,
+which leaves 21: `pulse_bits_in` (26), `onewire` (27) and `latched_in`
+(30) never fit beside it, so on an RP2040 harness they take PIO1 and
+exclude an SPI target part, and on an RP2354B they take PIO2. DMA_IRQ_1 is
+shared by the SPI target and the `onewire` engine, each a shared handler.
+
+Engines that look alike serve different framings and are kept apart. The
+SPI sink frames bytes by chip select and samples a data/command line;
+`clocked_in` has no chip select and delivers 32-bit words from the first
+clock, as an APA102's start frame needs. The SPI peer moves one byte per
+chip-select window from a ring, which a PL022 in mode 0 needs and the SPI
+target, which takes a window's first byte as a command and re-arms after
+it, cannot serve. A gpio link relays a level between two DUT pins;
+`envelope` drives its output from a carrier it demodulates and times.
 
 On rp2 the worker is core 1, launched before the first `mp_init` with its
 own stack and never reset; a soft reset leaves it running. It parks itself

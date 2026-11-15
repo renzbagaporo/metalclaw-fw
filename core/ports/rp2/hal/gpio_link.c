@@ -120,20 +120,18 @@ static const pio_program_t *program_of(enum link_kind kind) {
     return kind == LINK_FOLLOW ? &follow_program : &join_program;
 }
 
-// PIO0 first, then a third block if the chip has one; PIO1 last, since the
-// SPI target engine needs all of its instruction memory.
 static int acquire(struct gpio_link *l, uint64_t pins) {
-    static const uint8_t order[] = { 0u, 2u, 1u };
     const pio_program_t *program = program_of(l->kind);
     int err = -ENOSPC;
 
     encode_programs();
-    for (size_t i = 0; i < sizeof(order); i++) {
-        if (order[i] >= NUM_PIOS) {
+    for (size_t n = 0; n < MCLW_PIO_TRIES; n++) {
+        PIO pio = mclw_pio_try(n);
+        if (pio == NULL) {
             continue;
         }
-        PIO pio = pio_get_instance(order[i]);
-        struct link_program *shared = &programs[l->kind][order[i]];
+        uint block = pio_get_index(pio);
+        struct link_program *shared = &programs[l->kind][block];
 
         if ((shared->users == 0u && !pio_can_add_program(pio, program)) || !mclw_pio_window(pio, pins)) {
             continue;
@@ -147,7 +145,7 @@ static int acquire(struct gpio_link *l, uint64_t pins) {
         }
         shared->users++;
         l->pio = pio;
-        l->pio_index = order[i];
+        l->pio_index = (uint8_t)block;
         l->sm = (uint8_t)sm;
         return 0;
     }

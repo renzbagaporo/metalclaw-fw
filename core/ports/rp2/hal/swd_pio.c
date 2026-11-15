@@ -298,11 +298,11 @@ static void probe_release_pads(const struct mclw_swd *swd) {
 static int probe_acquire_sm(struct mclw_swd *swd) {
     int err = -ENOMEM;
 
-    for (uint32_t i = 0; i < NUM_PIOS; i++) {
-        PIO pio = pio_get_instance(i);
+    for (size_t n = 0; n < MCLW_PIO_TRIES; n++) {
+        PIO pio = mclw_pio_try(n);
         int sm;
 
-        if (!pio_can_add_program(pio, &probe_program) ||
+        if (pio == NULL || !pio_can_add_program(pio, &probe_program) ||
             !mclw_pio_window(pio, MCLW_PIO_PIN(swd->swclk) | MCLW_PIO_PIN(swd->swdio))) {
             continue;
         }

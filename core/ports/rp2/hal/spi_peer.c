@@ -120,17 +120,10 @@ static uint64_t pin_mask(const struct mclw_spi_peer *p) {
     return mask;
 }
 
-// PIO0 first, then a third block if the chip has one; PIO1 last, since the
-// SPI target engine needs all of its instruction memory.
 static int acquire(struct mclw_spi_peer *p) {
-    static const uint8_t order[] = { 0u, 2u, 1u };
-
-    for (size_t i = 0; i < sizeof(order); i++) {
-        if (order[i] >= NUM_PIOS) {
-            continue;
-        }
-        PIO pio = pio_get_instance(order[i]);
-        if (!pio_can_add_program(pio, &p->program) || !mclw_pio_window(pio, pin_mask(p))) {
+    for (size_t n = 0; n < MCLW_PIO_TRIES; n++) {
+        PIO pio = mclw_pio_try(n);
+        if (pio == NULL || !pio_can_add_program(pio, &p->program) || !mclw_pio_window(pio, pin_mask(p))) {
             continue;
         }
         int sm = pio_claim_unused_sm(pio, false);

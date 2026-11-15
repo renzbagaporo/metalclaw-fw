@@ -312,13 +312,16 @@ static void uart_pio_poll(void *ctx) {
 }
 
 // Programs are shared by every UART on one PIO; the first loads them and
-// the last unloads them. PIO0 is tried first: PIO1 is where the SPI target
-// engine needs all of its instruction memory.
+// the last unloads them.
 static int acquire_pio(struct uart_pio *u, uint8_t tx, uint8_t rx) {
     int err = -ENOSPC;
 
-    for (uint32_t i = 0; i < NUM_PIOS; i++) {
-        PIO pio = pio_get_instance(i);
+    for (size_t n = 0; n < MCLW_PIO_TRIES; n++) {
+        PIO pio = mclw_pio_try(n);
+        if (pio == NULL) {
+            continue;
+        }
+        uint i = pio_get_index(pio);
         struct pio_programs *p = &programs[i];
 
         if ((p->users == 0u && !pio_can_add_program(pio, &tx_program)) ||

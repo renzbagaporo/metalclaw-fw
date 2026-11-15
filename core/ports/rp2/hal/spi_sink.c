@@ -174,20 +174,14 @@ static uint32_t channel_count(int8_t channel) {
     return dma_channel_hw_addr((uint)channel)->transfer_count & SINK_COUNT_MASK;
 }
 
-// PIO0 first, then a third block if the chip has one; PIO1 last, since the
-// SPI target engine needs all of its instruction memory.
 static int acquire_pio(struct mclw_spi_sink *s) {
-    static const uint8_t order[] = { 0u, 2u, 1u };
     uint64_t pins = MCLW_PIO_PIN(s->sck) | MCLW_PIO_PIN(s->mosi) | MCLW_PIO_PIN(s->cs) |
         (s->line != MCLW_PIN_NONE ? MCLW_PIO_PIN(s->line) : 0u);
     int err = -ENOSPC;
 
-    for (size_t i = 0; i < sizeof(order); i++) {
-        if (order[i] >= NUM_PIOS) {
-            continue;
-        }
-        PIO pio = pio_get_instance(order[i]);
-        if (!pio_can_add_program(pio, &data_program) || !mclw_pio_window(pio, pins)) {
+    for (size_t n = 0; n < MCLW_PIO_TRIES; n++) {
+        PIO pio = mclw_pio_try(n);
+        if (pio == NULL || !pio_can_add_program(pio, &data_program) || !mclw_pio_window(pio, pins)) {
             continue;
         }
         int data_sm = pio_claim_unused_sm(pio, false);

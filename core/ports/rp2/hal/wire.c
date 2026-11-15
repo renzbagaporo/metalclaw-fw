@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 // hal/wire.h on rp2. Each engine is a PIO program that open() encodes from
-// the facts' times and the harness clock, on PIO0, then a third block if
-// the chip has one, then PIO1 (the SPI target engine needs all of PIO1);
-// state machines with identical programs share one copy. Input engines
-// stream through a DMA channel into a 2 KiB block of a static pool that
-// the model's poll reads; nothing runs per bit but the 1-Wire engine's
-// slot handler, once a slot, on DMA_IRQ_1 on the worker core, beside the
-// SPI target engine's handler.
+// the facts' times and the harness clock, on the first block in
+// mclw_pio_try()'s order with room; state machines with identical programs
+// share one copy. Input engines stream through a DMA channel into a 2 KiB
+// block of a static pool that the model's poll reads; nothing runs per bit
+// but the 1-Wire engine's slot handler, once a slot, on DMA_IRQ_1 on the
+// worker core, beside the SPI target engine's handler.
 //
 // Edges are timed to two harness cycles or so: the input synchronizer's
 // two cycles and a polling loop's pass (8 to 16 ns at 125 MHz).
@@ -164,18 +163,12 @@ static void release_pio(struct mclw_wire *w) {
     w->programs = 0;
 }
 
-// PIO0 first, then a third block if the chip has one; PIO1 last, since the
-// SPI target engine needs all of its instruction memory.
 static int acquire_pio(struct mclw_wire *w, const struct wire_program *programs, uint8_t count) {
-    static const uint8_t order[] = { 0u, 2u, 1u };
     int err = -ENOSPC;
 
-    for (size_t o = 0; o < sizeof(order); o++) {
-        if (order[o] >= NUM_PIOS) {
-            continue;
-        }
-        PIO pio = pio_get_instance(order[o]);
-        if (!mclw_pio_window(pio, pin_mask(w))) {
+    for (size_t n = 0; n < MCLW_PIO_TRIES; n++) {
+        PIO pio = mclw_pio_try(n);
+        if (pio == NULL || !mclw_pio_window(pio, pin_mask(w))) {
             continue;
         }
         w->pio = pio;
