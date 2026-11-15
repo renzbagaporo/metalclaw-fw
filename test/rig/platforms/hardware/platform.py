@@ -538,6 +538,11 @@ def require_example_image(image: Path) -> None:
 def example(harness: Harness, probe, fixture: dict) -> Example:
     image = dut_image()
     require_example_image(image)
+    # Checked before anything is flashed: a reset alone would run it.
+    from test.pico_examples.hazards import HARDWARE_HAZARDS
+    target = example_metadata(image)["target"]
+    if target in HARDWARE_HAZARDS:
+        pytest.skip(f"{target} {HARDWARE_HAZARDS[target]}; it runs only in the emulator")
     e = Example(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
     hold_idle(harness, fixture)
     e.flash()
