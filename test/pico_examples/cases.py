@@ -5,6 +5,7 @@
 # restarts from reset with the port open, and the case reads until every
 # expected line is in or the program's time is up on the harness's clock.
 
+import ast
 import time
 
 import pytest
@@ -106,3 +107,17 @@ def test_the_example_drives_its_pins(example, parts):
     samples = pins.watch(example.memory, example.metadata["chip"], spec.seconds, watched)
     problems = [p for toggle in spec.toggles for p in toggle.check(samples)]
     assert not problems, f"{example.target}: {problems} ({len(samples)} samples over {spec.seconds} s)"
+
+
+def test_the_parts_saw_the_program(harness, example, parts):
+    checks = [(part, check) for part in parts for check in part.checks]
+    if not checks:
+        pytest.skip(f"no part checks for {example.target}")
+    example.restart()
+    harness.sleep(max(check.after_seconds for _, check in checks))
+    problems = []
+    for part, check in checks:
+        value = ast.literal_eval(harness.run(f"part = {part.name}\nprint(repr({check.expression}))\n").strip())
+        if not check.test(value):
+            problems.append(f"{part.name}: {check.description} (got {value!r:.200})")
+    assert not problems, f"{example.target}: {problems}"

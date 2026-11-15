@@ -43,6 +43,20 @@ def harness_pins(fixture: dict, dut_pins, rule=None) -> tuple[int, ...]:
 
 
 @dataclass(frozen=True)
+class Check:
+    # What a part saw of the program, read on the harness once the program
+    # has run: `expression` is evaluated there with the attached instance as
+    # `part` (a property, a region, a stats() field), and `test` judges the
+    # value that comes back. A display's frame, an LED strip's colours, the
+    # bytes a flash part was given.
+    expression: str
+    test: object  # callable(value) -> bool
+    description: str
+    # Bench seconds the program gets before the check, after a restart.
+    after_seconds: float = 2.0
+
+
+@dataclass(frozen=True)
 class Attach:
     # metalclaw.attach(model, name, **bindings): each binding a tuple of DUT
     # pins, then any plain values (an I2C address, say) after them.
@@ -53,6 +67,7 @@ class Attach:
     pin_counts: dict = field(default_factory=dict)
     # Properties set once attached: name -> value.
     properties: dict = field(default_factory=dict)
+    checks: tuple = ()
 
     def code(self, fixture: dict) -> str:
         args = []

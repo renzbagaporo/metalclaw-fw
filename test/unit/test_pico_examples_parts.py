@@ -69,3 +69,10 @@ def test_every_attached_model_is_a_device_and_every_target_has_criteria():
     for target, parts in PARTS.items():
         assert {p.model for p in parts} <= models, target
         assert PART_SPECS[target].source, target
+
+
+def test_a_part_carries_its_checks():
+    from test.pico_examples.parts import Check
+    c = Check("part.frames", lambda v: v > 0, "the program drew a frame")
+    a = Attach("ssd1306", "oled", {"i2c": (4, 5, 0x3C)}, {"i2c": 2}, checks=(c,))
+    assert a.checks[0].test(3) and not a.checks[0].test(0)
