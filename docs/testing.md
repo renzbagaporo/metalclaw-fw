@@ -258,10 +258,12 @@ does not ship, or a stand-in type its `Infrastructure.dll` lacks, is left
 out and named in `renode.log`, and the program's cases skip.
 `METALCLAW_RENODE_QUANTUM` takes the place of the program's quantum.
 
-The bench script exports the DUT's own USB too, as USB/IP bus `1-1` on the
-harness's server. Neither bench cables the DUT's USB to the rig host, so
-only the emulator imports it, for the cases that ask for it (`dut_usb`,
-which the hardware platform skips): once the program has turned its USB
+The bench script exports the DUT's own USB too, as USB/IP bus `1-1` on a
+server of its own at `$dut_usbip_port`: Renode's server takes one
+connection at a time, and the harness's import holds its server's for the
+whole session. Neither bench cables the DUT's USB to the rig host, so only
+the emulator imports it, for the cases that ask for it (`dut_usb`, which
+the hardware platform skips): once the program has turned its USB
 controller on with its pull-up, read over SWD, a second cable imports
 `1-1`, finds the program's device on its own vhci port by the VID:PID its
 descriptors give (`test/pico_examples/usb_devices.py`), waits for this
@@ -269,11 +271,8 @@ host's drivers to bind its ttys and hidraw nodes, and detaches it after
 the module's cases. `test_the_example_presents_its_usb_device` judges what
 the device presents; a Spec's `usb_console` patterns are matched on its
 first CDC ACM function (`hello_usb`, `hello_anything`, `dev_multi_cdc`), and
-its `usb_input` writes to the CDC function it names. Each import is a TCP
-connection of its own, and Renode's server takes the next connection only
-once the current one closes, so while the harness's import is open the
-DUT's is never answered: those cases fail after 120 s until the server
-serves both.
+its `usb_input` writes to the CDC function it names. A Renode package whose
+bench script lacks `$dut_usbip_port` leaves those cases skipped as unmet.
 
 A session that ends early still stops its Renode: an interrupt or
 `pytest.exit` while the bench starts or stops, SIGINT, SIGTERM and SIGHUP
@@ -285,9 +284,9 @@ util-linux's `setpriv --pdeathsig KILL` where that exists, Renode also dies
 with a rig killed outright.
 
 `METALCLAW_RENODE_INSTANCE` (0 to 7, default 0) lets several benches run on
-one host. Instance N's Renode takes monitor port 1234 + N and USB/IP port
-3240 + N, and its cable attaches, replugs and detaches only its own vhci
-port. On the carrier, instance N's harness reports chip ID
+one host. Instance N's Renode takes monitor port 1234 + N and USB/IP ports
+3240 + N for the harness and 3250 + N for the DUT, and its cables attach,
+replug and detach only their own vhci ports. On the carrier, instance N's harness reports chip ID
 `00000000C0FFEE01` + N, and that is its serial. The Pico harness's serial is
 fixed by the emulated flash, so fixture 1 runs only instance 0.
 

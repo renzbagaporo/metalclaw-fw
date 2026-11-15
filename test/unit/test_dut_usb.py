@@ -165,9 +165,10 @@ def test_the_duts_usb_is_imported_only_while_the_bench_runs(tmp_path, monkeypatc
                     tmp_path, "00000000C0FFEE07", 6)
     with pytest.raises(bench.BenchError, match="not running"):
         b.import_dut_usb(0x2E8A, 0x000A)
-    b.process, b.usbip_port = types.SimpleNamespace(), 3246
+    b.process, b.usbip_port, b.dut_usbip_port = types.SimpleNamespace(), 3246, 3256
     cable = b.import_dut_usb(0x2E8A, 0x000A)
-    assert cable.started and cable.args[:4] == ("1-1", 3246, 0x2E8A, 0x000A)
+    # On the DUT's own server, not the harness's.
+    assert cable.started and cable.args[:4] == ("1-1", 3256, 0x2E8A, 0x000A)
     with pytest.raises(bench.BenchError, match="already imported"):
         b.import_dut_usb(0x2E8A, 0x000A)
     b.release_dut_usb()
@@ -331,7 +332,7 @@ def test_an_import_the_server_never_answers_fails_the_cases_that_asked_for_it(mo
         imported = threading.Event()
 
     released = []
-    bench_ = types.SimpleNamespace(import_dut_usb=lambda vid, pid: Unanswered(),
+    bench_ = types.SimpleNamespace(import_dut_usb=lambda vid, pid: Unanswered(), dut_usb_unmet=lambda: None,
                                    release_dut_usb=lambda: released.append(True))
     example = types.SimpleNamespace(target="hello_usb", metadata={"chip": "rp2040"})
     monkeypatch.setattr(platform, "wait_presenting", lambda harness, example: True)
@@ -341,3 +342,73 @@ def test_an_import_the_server_never_answers_fails_the_cases_that_asked_for_it(mo
     with pytest.raises(pytest.fail.Exception, match="did not answer the import .*1-1"):
         next(function(bench_, None, example))
     assert released == [True]
+
+
+def test_a_bench_script_without_the_duts_usbip_port_leaves_its_usb_unmet(tmp_path, monkeypatch):
+    monkeypatch.setattr(bench, "DutCable", FakeCable)
+    b = bench.Bench(tmp_path, bench.LAYOUTS["rpi_pi_pico"], tmp_path / "h.uf2", tmp_path, tmp_path / "d.elf",
+                    tmp_path, "0123456789ABCDEF")
+    assert b.dut_usb_unmet() is None
+    b.process, b.usbip_port = types.SimpleNamespace(), 3240
+    assert b.dut_usb_unmet() == ("$dut_usbip_port, which scripts/multi-node/metalclaw_fixture.resc in this "
+                                 "Renode package does not take")
+    with pytest.raises(bench.BenchError, match=r"needs \$dut_usbip_port"):
+        b.import_dut_usb(0x2E8A, 0x0009)
+
+
+def test_the_fixture_skips_a_package_without_the_duts_server_at_once(monkeypatch):
+    imported = []
+    bench_ = types.SimpleNamespace(import_dut_usb=lambda vid, pid: imported.append(True),
+                                   dut_usb_unmet=lambda: "$dut_usbip_port, which x.resc does not take")
+    example = types.SimpleNamespace(target="hello_usb", metadata={"chip": "rp2040"})
+    monkeypatch.setattr(platform, "wait_presenting", lambda harness, example: pytest.fail("waited"))
+    fixture = platform.dut_usb
+    function = getattr(fixture, "_get_wrapped_function", lambda: fixture.__wrapped__)()
+    with pytest.raises(pytest.skip.Exception, match=r"hello_usb's own USB needs \$dut_usbip_port"):
+        next(function(bench_, None, example))
+    assert imported == []
+
+
+def test_the_duts_usbip_port_is_set_only_where_the_script_takes_it():
+    def run(port):
+        return bench.monitor_commands(bench.Path("/r/bench.resc"), bench.Path("/w/rom"), bench.Path("/w/flash"),
+                                      bench.Path("/r/dut"), bench.Path("/w/dut"), "pico", None, 3246, None, port)
+    with_port = run(3256)
+    assert with_port.index("$dut_usbip_port=3256") < with_port.index("include @/r/bench.resc")
+    assert not any(c.startswith("$dut_usbip_port") for c in run(None))
+
+
+def bench_package(root, with_dut_port):
+    layout = bench.LAYOUTS["metalclaw_pico_rp2"]
+    for name in ("renode", "roms/b2.elf", "roms/bootrom-combined.bin", "h.uf2", "d.elf"):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text("")
+    script = root / layout.script
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text("$usbip_port?=3240\n" + ("$dut_usbip_port?=3250\n" if with_dut_port else ""))
+    return bench.Bench(root, layout, root / "h.uf2", root / "roms", root / "d.elf", root / "work",
+                       "00000000C0FFEE07", 6)
+
+
+@pytest.mark.parametrize("with_dut_port", [True, False])
+def test_each_instance_gives_the_dut_its_own_usbip_port(tmp_path, monkeypatch, with_dut_port):
+    class Launched(Exception):
+        pass
+
+    def popen(argv, **kwargs):
+        raise Launched([argv[i + 1] for i, arg in enumerate(argv) if arg == "-e"])
+
+    checked = []
+    monkeypatch.setattr(bench, "_listening", lambda port: checked.append(port) or False)
+    monkeypatch.setattr(bench.dut_flash, "flash_contents", lambda elf, **kw: b"dut")
+    monkeypatch.setattr(bench.uf2, "flash_contents", lambda data, chip: b"harness")
+    monkeypatch.setattr(bench.storage, "with_storage", lambda image: image)
+    monkeypatch.setattr(bench.subprocess, "Popen", popen)
+    b = bench_package(tmp_path, with_dut_port)
+    monkeypatch.setattr(b, "_rom", lambda chip, name: tmp_path / name)
+    with pytest.raises(Launched) as launched:
+        b.start()
+    commands = launched.value.args[0]
+    assert "$usbip_port=3246" in commands
+    assert ("$dut_usbip_port=3256" in commands) == with_dut_port
+    assert checked == ([1240, 3246, 3256] if with_dut_port else [1240, 3246])

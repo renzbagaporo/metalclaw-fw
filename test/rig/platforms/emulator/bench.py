@@ -62,7 +62,10 @@ ROMS = {"rp2040": "b2.elf", "rp2350": "bootrom-combined.bin"}
 MONITOR_PORT = 1234
 USBIP_PORT = 3240
 USBIP_BUSID = "1-0"
-# The DUT's own USB device, on the same server.
+# The DUT's own USB device, on a USB/IP server of its own at DUT_USBIP_PORT
+# plus the instance: Renode's server takes one connection at a time, and
+# the harness's import holds its own server's for the whole session.
+DUT_USBIP_PORT = 3250
 DUT_USBIP_BUSID = "1-1"
 INSTANCE_ENV = "METALCLAW_RENODE_INSTANCE"
 MAX_INSTANCES = 8
@@ -473,7 +476,7 @@ def bench_settings(emulation: Emulation, script: Path, script_text: str, dut_mac
 # through the emulated probe takes 20-30 minutes of host time.
 def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_rom: Path, dut_flash_bin: Path,
                      dut_machine: str, settings: Settings | None = None, usbip_port: int | None = None,
-                     chip_id: tuple[str, str] | None = None) -> list[str]:
+                     chip_id: tuple[str, str] | None = None, dut_usbip_port: int | None = None) -> list[str]:
     settings = settings or Settings()
     commands = [
         f"$harness_rom=@{harness_rom}",
@@ -481,6 +484,8 @@ def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_r
         f"$dut_rom=@{dut_rom}",
         f"$usbip_port={USBIP_PORT if usbip_port is None else usbip_port}",
     ]
+    if dut_usbip_port is not None:
+        commands.append(f"$dut_usbip_port={dut_usbip_port}")
     commands += [f"${name}={value}" for name, value in settings.variables]
     if chip_id is not None:
         variable, serial = chip_id
@@ -583,6 +588,8 @@ class Bench:
         self.dut_image = dut_image
         self.work = work
         self.usbip_port = None
+        # The DUT's USB/IP server, where this package's bench script has one.
+        self.dut_usbip_port = None
         self.process = None
         self.cable = None
         self.dut_cable = None
@@ -617,10 +624,15 @@ class Bench:
                      self.roms / ROMS[layout.harness_chip], self.roms / ROMS[layout.dut_chip], self.dut_image):
             if not path.is_file():
                 raise BenchError(f"missing {path}")
+        script = self.renode_dir / layout.script
+        script_text = script.read_text()
         # A Renode left from an earlier run would answer on these ports, and
         # the run would drive its bench instead of this one.
         monitor_port, usbip_port = MONITOR_PORT + self.instance, USBIP_PORT + self.instance
-        for port in (monitor_port, usbip_port):
+        dut_usbip_port = DUT_USBIP_PORT + self.instance if "dut_usbip_port" in script_variables(script_text) else None
+        for port in (monitor_port, usbip_port, dut_usbip_port):
+            if port is None:
+                continue
             if _listening(port):
                 raise BenchError(f"port {port} is already in use; another Renode is running "
                                  f"(another {INSTANCE_ENV} runs on its own ports)")
@@ -644,15 +656,14 @@ class Bench:
         payload.write_bytes(harness_flash)
         harness_rom = self._rom(layout.harness_chip, "harness_rom.bin")
         dut_rom = self._rom(layout.dut_chip, "dut_rom.bin")
-        script = self.renode_dir / layout.script
-        self.settings = bench_settings(self.emulation, script, script.read_text(), layout.dut_machine,
+        self.settings = bench_settings(self.emulation, script, script_text, layout.dut_machine,
                                        os.environ.get("METALCLAW_RENODE_QUANTUM"),
                                        lambda name: package_has_type(self.renode_dir, name))
         self.log = (self.work / "renode.log").open("w")
         self._note_settings()
         chip_id = None if layout.chip_id_variable is None else (layout.chip_id_variable, self.serial)
         commands = monitor_commands(script, harness_rom, payload, dut_rom, flash_bin, layout.dut_machine,
-                                    self.settings, usbip_port, chip_id)
+                                    self.settings, usbip_port, chip_id, dut_usbip_port)
         argv = renode_argv(self.renode_dir / "renode", monitor_port, commands)
         self._hold_exits()
         self.process = subprocess.Popen(argv, cwd=self.renode_dir, stdout=self.log, stderr=subprocess.STDOUT,
@@ -660,6 +671,7 @@ class Bench:
         self._ended = False
         self.monitor_port = monitor_port
         self.usbip_port = usbip_port
+        self.dut_usbip_port = dut_usbip_port
         _wait_port(usbip_port, STARTUP_TIMEOUT_S)
         self.cable = Cable(USBIP_BUSID, usbip_port, self.serial, self.log)
         self.cable.start()
@@ -692,14 +704,23 @@ class Bench:
             counts[wire] = None if reply is None else monitor_value(reply, command)
         return counts
 
+    # What the bench lacks for the DUT's own USB, or None: a bench script
+    # without $dut_usbip_port exports no USB/IP server for it.
+    def dut_usb_unmet(self) -> str | None:
+        if self.process is not None and self.dut_usbip_port is None:
+            return f"$dut_usbip_port, which {self.layout.script} in this Renode package does not take"
+        return None
+
     # The DUT's own USB, imported into this host: only while the emulation
     # runs, and once the program has its device up.
     def import_dut_usb(self, vid: int, pid: int) -> DutCable:
         if self.process is None or self.usbip_port is None:
             raise BenchError("the bench is not running")
+        if self.dut_usbip_port is None:
+            raise BenchError(f"the DUT's USB needs {self.dut_usb_unmet()}")
         if self.dut_cable is not None:
             raise BenchError("the DUT's USB is already imported")
-        self.dut_cable = DutCable(DUT_USBIP_BUSID, self.usbip_port, vid, pid, self.log)
+        self.dut_cable = DutCable(DUT_USBIP_BUSID, self.dut_usbip_port, vid, pid, self.log)
         self.dut_cable.start()
         return self.dut_cable
 

@@ -374,11 +374,7 @@ def stand_in_clashes(target: str, board: str | None, emulation: Emulation) -> li
 # Bench seconds a program gets, from when its cases want its USB, to turn
 # its USB controller on with its pull-up.
 DUT_USB_PRESENT_S = 10.0
-# Host seconds the bench's USB/IP server gets to answer the import. Each
-# import is a TCP connection of its own; a server that takes the next
-# connection only once the current one closes (Renode's SocketServerProvider
-# as of the fork's 2026-11-16 build) leaves it in the backlog for as long
-# as the harness's import is open, and never answers it.
+# Host seconds the DUT's USB/IP server gets to answer the import.
 DUT_USB_IMPORT_S = 120.0
 # Host seconds the import gets to enumerate (room for the cable to replug
 # a few times), then for this host's drivers to bind to its interfaces.
@@ -433,6 +429,9 @@ def dut_usb(bench: Bench, harness: Harness, example: Example) -> UsbFunctions:
     device = usb_device(example.target, example.metadata["chip"])
     if device is None:
         pytest.skip(f"{example.target} presents no USB device the rig knows")
+    unmet = bench.dut_usb_unmet()
+    if unmet is not None:
+        pytest.skip(f"{example.target}'s own USB needs {unmet}")
     if not wait_presenting(harness, example):
         pytest.fail(f"{example.target} never turned its USB on within {DUT_USB_PRESENT_S:.0f} s")
     try:
