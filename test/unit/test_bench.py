@@ -164,7 +164,8 @@ def launch(tmp_path, monkeypatch, board, prepare=None):
     b.harness_uf2.write_bytes(uf2_block(0x10000000, {"rp2040": 0xE48BFF56, "rp2350": 0xE48BFF59}[chip]))
     with pytest.raises(Launched) as launched:
         b.start()
-    b.log.close()
+    # A start that fails stops the bench, which closes its log.
+    assert b.log is None
     assert (b.work / "harness_flash.bin").read_bytes() == bytes(256) + b"fat"
     assert (b.work / "dut_flash.bin").read_bytes() == b"dut"
     return launched.value.args[0], extracted
@@ -204,7 +205,8 @@ def test_stopping_records_that_renode_outlived_the_session(tmp_path, monkeypatch
     b.log = (tmp_path / "renode.log").open("w")
     b.process = subprocess.Popen(["sleep", "30"])
     b.stop()
-    assert (tmp_path / "renode.log").read_text() == "rig: Renode still running at the end of the session\n"
+    assert (tmp_path / "renode.log").read_text() == ("rig: Renode still running at the end of the session\n"
+                                                     "rig: Renode's monitor did not take quit; sending SIGTERM\n")
     assert b.process.returncode is not None
 
 

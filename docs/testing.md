@@ -258,6 +258,16 @@ does not ship, or a stand-in type its `Infrastructure.dll` lacks, is left
 out and named in `renode.log`, and the program's cases skip.
 `METALCLAW_RENODE_QUANTUM` takes the place of the program's quantum.
 
+
+A session that ends early still stops its Renode: an interrupt or
+`pytest.exit` while the bench starts or stops, SIGINT, SIGTERM and SIGHUP
+(the last two as a KeyboardInterrupt, so pytest tears down), and an
+interpreter exit (atexit). Signals that arrive while the bench stops wait
+until Renode is down. Renode is asked to `quit`, sent SIGTERM after 30 s,
+and SIGKILL 10 s later, as it can ignore SIGTERM. Started through
+util-linux's `setpriv --pdeathsig KILL` where that exists, Renode also dies
+with a rig killed outright.
+
 `METALCLAW_RENODE_INSTANCE` (0 to 7, default 0) lets several benches run on
 one host. Instance N's Renode takes monitor port 1234 + N and USB/IP port
 3240 + N, and its cable attaches, replugs and detaches only its own vhci

@@ -3,11 +3,14 @@
 # with the harness's USB exported over USB/IP and imported into this host's
 # kernel, so the host sees the same USB device the bench does.
 
+import atexit
 import contextlib
 import fcntl
 import json
 import os
 import re
+import shutil
+import signal
 import socket
 import subprocess
 import tempfile
@@ -485,6 +488,9 @@ class Bench:
         self.process = None
         self.cable = None
         self.log = None
+        self._handlers = {}
+        # Set once stop() has dealt with the Renode in `process`.
+        self._ended = False
 
     # The extractor is the bench script's own and refuses to overwrite.
     def _rom(self, chip: str, name: str) -> Path:
@@ -497,7 +503,16 @@ class Bench:
                        check=True, capture_output=True, text=True)
         return out
 
+    # Whatever ends the start, an interrupt included, leaves no Renode
+    # behind.
     def start(self) -> None:
+        try:
+            self._start()
+        except BaseException:
+            self.stop()
+            raise
+
+    def _start(self) -> None:
         layout = self.layout
         for path in (self.renode_dir / "renode", self.renode_dir / layout.script, self.harness_uf2,
                      self.roms / ROMS[layout.harness_chip], self.roms / ROMS[layout.dut_chip], self.dut_image):
@@ -539,11 +554,11 @@ class Bench:
         chip_id = None if layout.chip_id_variable is None else (layout.chip_id_variable, self.serial)
         commands = monitor_commands(script, harness_rom, payload, dut_rom, flash_bin, layout.dut_machine,
                                     self.settings, usbip_port, chip_id)
-        argv = [str(self.renode_dir / "renode"), "--disable-gui", "--plain", "--port", str(monitor_port)]
-        for command in commands:
-            argv += ["-e", command]
+        argv = renode_argv(self.renode_dir / "renode", monitor_port, commands)
+        self._hold_exits()
         self.process = subprocess.Popen(argv, cwd=self.renode_dir, stdout=self.log, stderr=subprocess.STDOUT,
                                         start_new_session=True)
+        self._ended = False
         self.monitor_port = monitor_port
         _wait_port(usbip_port, STARTUP_TIMEOUT_S)
         self.cable = Cable(USBIP_BUSID, usbip_port, self.serial, self.log)
@@ -577,24 +592,146 @@ class Bench:
             counts[wire] = None if reply is None else monitor_value(reply, command)
         return counts
 
+    # Until stop(), every way out of the session stops the bench: an
+    # interpreter exit through atexit, SIGTERM and SIGHUP as a KeyboardInterrupt
+    # (which pytest answers with its teardown, as it does SIGINT), and a
+    # SIGKILL of the rig through Renode's parent-death signal (renode_argv).
+    def _hold_exits(self) -> None:
+        atexit.register(self.stop)
+        if threading.current_thread() is not threading.main_thread():
+            return
+        for number in EXIT_SIGNALS:
+            if signal.getsignal(number) is signal.SIG_DFL:
+                self._handlers[number] = signal.signal(number, _interrupt)
+
+    def _release_exits(self) -> None:
+        atexit.unregister(self.stop)
+        handlers, self._handlers = self._handlers, {}
+        for number, handler in handlers.items():
+            signal.signal(number, handler)
+
     def stop(self) -> None:
-        if self.cable is not None:
-            self.cable.stop()
-        # Whether Renode outlived the session, in its own log: a harness that
-        # left USB mid-session is either Renode gone or the import dropped.
-        if self.process is not None and self.log is not None:
-            code = self.process.poll()
-            self.log.write("rig: Renode still running at the end of the session\n" if code is None else
-                           f"rig: Renode exited with {code} before the end of the session\n")
-            self.log.flush()
-        if self.process is not None and self.process.poll() is None:
+        try:
+            with _signals_deferred():
+                try:
+                    self._stop_cables()
+                finally:
+                    try:
+                        self._stop_renode()
+                    finally:
+                        if self.log is not None:
+                            self.log.close()
+                            self.log = None
+        finally:
+            self._release_exits()
+
+    def _stop_cables(self) -> None:
+        cables = [c for c in (self.cable,) if c is not None]
+        self.cable = None
+        failed = None
+        for cable in cables:
             try:
-                with socket.create_connection(("127.0.0.1", self.monitor_port), timeout=5) as monitor:
-                    monitor.sendall(b"quit\n")
-                self.process.wait(timeout=30)
-            except (OSError, subprocess.TimeoutExpired):
-                self.process.kill()
-                self.process.wait()
+                cable.stop()
+            except Exception as error:
+                self._note(f"rig: could not release {cable.target}: {error}")
+                failed = failed or error
+        if failed is not None:
+            raise failed
+
+    def _note(self, line: str) -> None:
         if self.log is not None:
-            self.log.close()
-            self.log = None
+            self.log.write(line + "\n")
+            self.log.flush()
+
+    # Whether Renode outlived the session, in its own log: a harness that
+    # left USB mid-session is either Renode gone or the import dropped. A
+    # Renode still running is asked to quit, then sent SIGTERM, then, as it
+    # can ignore that, SIGKILL, each after its grace period.
+    def _stop_renode(self) -> None:
+        process = self.process
+        if process is None or self._ended:
+            return
+        self._ended = True
+        code = process.poll()
+        self._note("rig: Renode still running at the end of the session" if code is None else
+                   f"rig: Renode exited with {code} before the end of the session")
+        if code is not None:
+            return
+        try:
+            if self.monitor_port is None:
+                raise OSError("no monitor port")
+            with socket.create_connection(("127.0.0.1", self.monitor_port), timeout=5) as monitor:
+                monitor.sendall(b"quit\n")
+        except OSError:
+            self._note("rig: Renode's monitor did not take quit; sending SIGTERM")
+        else:
+            if _waited(process, QUIT_GRACE_S):
+                return
+            self._note(f"rig: Renode did not quit within {QUIT_GRACE_S:.0f} s; sending SIGTERM")
+        _signal_group(process, signal.SIGTERM)
+        if _waited(process, TERM_GRACE_S):
+            return
+        self._note(f"rig: Renode outlived SIGTERM by {TERM_GRACE_S:.0f} s; sending SIGKILL")
+        _signal_group(process, signal.SIGKILL)
+        process.wait()
+
+
+# Host seconds Renode gets to end after `quit`, then after SIGTERM.
+QUIT_GRACE_S = 30.0
+TERM_GRACE_S = 10.0
+EXIT_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+# util-linux's setpriv sets the parent-death signal and execs Renode, so a
+# rig killed outright takes its Renode with it.
+SETPRIV = shutil.which("setpriv")
+
+
+def renode_argv(renode: Path, monitor_port: int, commands: list[str]) -> list[str]:
+    argv = [str(renode), "--disable-gui", "--plain", "--port", str(monitor_port)]
+    for command in commands:
+        argv += ["-e", command]
+    return ([SETPRIV, "--pdeathsig", "KILL"] if SETPRIV else []) + argv
+
+
+def _interrupt(number, frame):
+    raise KeyboardInterrupt(f"signal {signal.Signals(number).name}")
+
+
+# Signals that arrive while the bench stops are held until it has: an
+# interrupt part way through would leave Renode running. The first is then
+# raised as the KeyboardInterrupt the session would have had, so it still
+# ends as it was asked to. Handlers, not the signal mask: the usbip
+# detaches the cables run would inherit a mask.
+@contextlib.contextmanager
+def _signals_deferred():
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    held = []
+    numbers = (signal.SIGINT, *EXIT_SIGNALS)
+    previous = {n: signal.signal(n, lambda number, frame: held.append(number)) for n in numbers}
+    try:
+        yield
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+        if held:
+            raise KeyboardInterrupt(f"signal {signal.Signals(held[0]).name} while the bench stopped")
+
+
+def _waited(process, seconds: float) -> bool:
+    try:
+        process.wait(timeout=seconds)
+        return True
+    except subprocess.TimeoutExpired:
+        return False
+
+
+# Renode runs in its own session, so its process group is its own.
+def _signal_group(process, number: int) -> None:
+    try:
+        os.killpg(process.pid, number)
+    except (ProcessLookupError, PermissionError):
+        try:
+            process.send_signal(number)
+        except ProcessLookupError:
+            pass

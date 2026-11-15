@@ -292,12 +292,13 @@ def bench(emulation: Emulation, pytestconfig, record_testsuite_property):
         instance=_instance(),
         emulation=emulation,
     )
+    # Bench.start and Bench.stop between them stop Renode on every way out,
+    # an interrupt or pytest.exit in the middle of either included.
     try:
-        b.start()
-    except BenchError as error:
-        b.stop()
-        pytest.exit(str(error), returncode=2)
-    try:
+        try:
+            b.start()
+        except BenchError as error:
+            pytest.exit(str(error), returncode=2)
         yield b
         record_late_deliveries(pytestconfig, b.late_deliveries())
     finally:
