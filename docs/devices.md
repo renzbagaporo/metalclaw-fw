@@ -5,7 +5,7 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct mclw_model` and nothing else the
-runtime needs to know about. Thirteen exist:
+runtime needs to know about. Sixteen exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
 [`console_bridge`](../devices/console_bridge/README.md), a USB serial port on
 the board's console UART;
@@ -23,6 +23,13 @@ shared by four models: [`sim7080g`](../devices/cellular/sim7080g.md) and
 [`a7672x`](../devices/cellular/a7672x.md), a SIMCom LTE Cat-1 modem; and
 [`sequans_monarch`](../devices/cellular/sequans_monarch.md), the Sequans
 Monarch LTE-M/NB-IoT modems;
+[`bmx280`](../devices/bmx280/README.md), Bosch BMP280 and BME280
+environmental sensors on I2C or SPI, two models sharing the compensation
+maths;
+[`mcp9808`](../devices/mcp9808/README.md), a Microchip temperature sensor on
+I2C with 16-bit registers;
+[`pcf8523`](../devices/pcf8523/README.md), an NXP real-time clock on I2C
+that counts on the simulation clock;
 [`ina2xx`](../devices/ina2xx/README.md), Texas Instruments current and power
 monitors on I2C, one engine shared by four models: `ina219`, `ina228`,
 `ina237` and `ina260`;
