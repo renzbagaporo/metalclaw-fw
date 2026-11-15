@@ -39,7 +39,9 @@ def main() -> int:
     import pytest
 
     os.environ["METALCLAW_PLATFORM"] = args.platform
-    argv = ["-p", PLATFORMS[args.platform], "-p", "test.rig.host_load",
+    # probe_telemetry first: the platform imports it, and pytest warns about
+    # a plugin module it finds already imported.
+    argv = ["-p", "test.rig.probe_telemetry", "-p", PLATFORMS[args.platform], "-p", "test.rig.host_load",
             "--rootdir", str(ROOT), "--import-mode=importlib",
             "-o", "python_files=cases.py test_*.py"]
     argv += pytest_args

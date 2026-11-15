@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from test.pico_examples.emulation import DEFAULT, Emulation, emulation_for
+from test.rig import probe_telemetry
 from test.rig.platforms.emulator.bench import LAYOUTS, Bench, BenchError, Layout, harness_serial, instance
 from test.rig.platforms.hardware.platform import (
     _DEFAULT_MAILBOX_TIMEOUT,
@@ -95,8 +96,8 @@ def _time_scale() -> float:
 
 
 class EmulatedDut(Dut):
-    def __init__(self, harness: Harness, image: Path, toolchain_dir: str, scale: float):
-        super().__init__(harness, image, toolchain_dir)
+    def __init__(self, harness: Harness, image: Path, toolchain_dir: str, scale: float, recorder=None):
+        super().__init__(harness, image, toolchain_dir, recorder)
         self.scale = scale
 
     def ping(self, timeout=_DEFAULT_MAILBOX_TIMEOUT) -> dict:
@@ -303,23 +304,27 @@ def bench(emulation: Emulation, pytestconfig, record_testsuite_property):
 
 
 @pytest.fixture(scope="session")
-def harness(bench) -> Harness:
+def harness(bench, pytestconfig) -> Harness:
+    recorder = probe_telemetry.recorder(pytestconfig)
+    if recorder is not None:
+        recorder.describe(bench={"serial": _serial(), "board": harness_board(), "instance": _instance()})
     h = EmulatedHarness(_serial())
     h.wait_enumerated()
-    detach_all_but_probe(h)
+    detach_all_but_probe(h, recorder)
     _session["harness"] = h
     return h
 
 
 @pytest.fixture(scope="session")
-def probe(harness: Harness, fixture: dict):
+def probe(harness: Harness, fixture: dict, pytestconfig):
     if "CMSIS-DAP v2" not in harness.usb_interfaces():
         harness.run(f"import metalclaw\nmetalclaw.attach('swd_probe', 'dut', swd={fixture['swd']})")
         try:
             harness.wait_interface("CMSIS-DAP v2")
         except TimeoutError as error:
             pytest.exit(f"{error} after attaching swd_probe", returncode=2)
-    return harness.probe_id
+    yield harness.probe_id
+    probe_telemetry.read_end(pytestconfig, harness)
 
 
 # The bench started with the image already in the DUT's flash; swd_probe's
@@ -328,9 +333,10 @@ def probe(harness: Harness, fixture: dict):
 # program that needs what this Renode package's bench script does not take
 # is not judged on it; a part a stand-in replaces is not attached.
 @pytest.fixture(scope="session")
-def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emulation) -> Example:
+def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emulation, pytestconfig) -> Example:
     require_example_image(bench.dut_image)
-    e = Example(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
+    e = Example(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"),
+                probe_telemetry.recorder(pytestconfig))
     if bench.settings.unmet:
         pytest.skip(f"{e.target} needs {', '.join(bench.settings.unmet)}, which {bench.layout.script} in this "
                     f"Renode package does not take")
@@ -341,9 +347,10 @@ def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emu
 
 
 @pytest.fixture(scope="session")
-def dut(bench: Bench, harness: Harness, probe, fixture: dict) -> Dut:
+def dut(bench: Bench, harness: Harness, probe, fixture: dict, pytestconfig) -> Dut:
     require_rig_image(bench.dut_image)
-    d = EmulatedDut(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"), _time_scale())
+    d = EmulatedDut(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"), _time_scale(),
+                    probe_telemetry.recorder(pytestconfig))
     hold_idle(harness, fixture)
     d.reset()
     d.ping()

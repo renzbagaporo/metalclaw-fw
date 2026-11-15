@@ -59,6 +59,8 @@ count, and every failure carries a `host load` section with the same and,
 where the host has `/proc/stat`, how busy its CPUs were during that test and
 how much time the hypervisor stole from them. A failure on a loaded host,
 above all in the emulator, is weaker evidence than one on an idle host.
+Every session also records how the SWD probe behaved (see
+[Probe telemetry](#probe-telemetry)).
 
 `harness.run(code)` executes Python on the harness's raw REPL and returns
 what it printed. `harness.serial_port(interface)` waits for the serial port
@@ -389,3 +391,42 @@ METALCLAW_PROBE_DOWNLOAD_TIMEOUT_S=900 \
 METALCLAW_DUT_MAILBOX_TIMEOUT_S=120 \
 just test hardware
 ```
+
+## Probe telemetry
+
+Every rig session, on both platforms, records each probe-rs run the rig
+makes (`download`, `reset`, `read`, `write`) and each access of its DAP
+client (`connect`, `read`, `write`): the outcome, the duration, the words
+moved, and the retries the mailbox and `Dut.flash` make, with whether a
+retry recovered. A failure is counted by kind. The DAP client knows its own:
+`wait`, `fault`, `no_ack` and `protocol_error` from a transfer's ACK,
+`usb_timeout` and `usb_error` from pyusb, `short_reply`, `bad_reply`,
+`no_harness`, `no_interface` and the like from the connect. A probe-rs
+failure is a `timeout` or `not_found`, or is classed by its output
+(`probe_open`, `usb`, `dap_command`, `verify`, `fault`, `wait`, `no_ack`,
+`probe_timeout`, otherwise `exit`); the first 20 failure messages are kept
+as they were. A call whose data a caller rejects (a probe-rs read with
+output it cannot decode) moves from ok to that kind, so calls are always ok
+plus errors.
+
+All of it is counted in memory: two clock reads and a few dict updates per
+access, with durations kept as a histogram of eight buckets per octave, so
+a percentile is within 9 % and sessions merge. The harness probe's own
+counters (`transfers`, `errors`, `short_replies`, from
+[swd_probe](../devices/swd_probe/README.md)) are read as the session starts,
+in the REPL call that detaches leftover devices, and once more after the
+last case, in one REPL call of its own; that call is the only traffic the
+telemetry adds. A harness that is gone, or a probe that is not attached,
+leaves the counters out with a note saying why.
+
+When the session ends it appends one JSON line: the platform, the bench
+(harness serial and board), the DUT chip and image, start and end, the
+counts and timings per operation, the probe's counters at both ends and
+their difference, and pytest's exit status. The line goes to the file
+`METALCLAW_PROBE_LOG` names, else to `probe_telemetry.jsonl` beside the
+`--junitxml` report, else nowhere; the terminal summary says which:
+
+```text
+probe: 3 probe-rs runs, 0 failed; 1514 DAP accesses, 1 failed (usb_timeout 1), 1 retried; probe counted transfers +41230, errors +0, short_replies +0; logged to build/emulator/probe_telemetry.jsonl
+```
+

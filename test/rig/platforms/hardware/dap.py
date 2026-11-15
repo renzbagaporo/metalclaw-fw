@@ -16,6 +16,8 @@ from pathlib import Path
 import usb.core
 import usb.util
 
+from test.rig import probe_telemetry
+
 VENDOR_ID = 0x2FE3
 PRODUCT_ID = 0x0204
 INTERFACE_NAME = "CMSIS-DAP v2"
@@ -151,7 +153,29 @@ def run_resets(serial, count, low_us, gap_us):
 
 
 class DapError(RuntimeError):
-    pass
+    # What went wrong, as probe_telemetry counts it.
+    def __init__(self, message, kind="dap"):
+        super().__init__(message)
+        self.kind = kind
+
+
+# A CMSIS-DAP transfer response's ACK field (bits 0-2) and its SWD protocol
+# error flag (bit 3).
+ACK_KINDS = {2: "wait", 4: "fault", 7: "no_ack"}
+PROTOCOL_ERROR = 0x08
+
+
+def ack_kind(ack):
+    if ack & PROTOCOL_ERROR:
+        return "protocol_error"
+    return ACK_KINDS.get(ack & 0x7, "transfer")
+
+
+# A reply shorter than its command's answer fails as it is unpacked.
+def error_kind(error):
+    if isinstance(error, (IndexError, struct.error)):
+        return "short_reply"
+    return probe_telemetry.error_kind(error)
 
 
 SYSFS_USB = Path("/sys/bus/usb/devices")
@@ -225,16 +249,18 @@ def usb_timeout_ms():
 
 
 class DapMemory:
-    def __init__(self, serial, debug_port=RP2350, clock_hz=4_000_000):
+    LAYER = "dap"
+
+    def __init__(self, serial, debug_port=RP2350, clock_hz=4_000_000, recorder=None):
         self.serial = serial
         self.debug_port = debug_port
         self.clock_hz = int(clock_hz)
+        self.recorder = probe_telemetry.DISCARD if recorder is None else recorder
 
     def read_words(self, address, count, timeout=None):
         if address <= 0 or address % 4 or count <= 0:
-            raise DapError(f"invalid read of {count} words at {address:#x}")
-        with _Link(self.serial, self.clock_hz, self.debug_port) as link:
-            return link.read_words(address, count)
+            raise DapError(f"invalid read of {count} words at {address:#x}", "invalid")
+        return self._access("read", count, lambda link: link.read_words(address, count))
 
     # Connects and writes `words` at `address` again and again on one claim of
     # the interface until one lands or `seconds` pass: for a DUT that is
@@ -242,7 +268,7 @@ class DapMemory:
     # low-power state and goes straight back), each try costs a handful of
     # USB round trips instead of a claim and a connect.
     def write_when_reachable(self, address, words, seconds):
-        with _Link(self.serial, self.clock_hz, self.debug_port, connect=False) as link:
+        with _Link(self.serial, self.clock_hz, self.debug_port, self.recorder, connect=False) as link:
             deadline = time.monotonic() + seconds
             while True:
                 try:
@@ -257,22 +283,35 @@ class DapMemory:
     # One link held across many accesses, for a caller that polls: each
     # read_words/write_words above claims the interface and connects anew.
     def link(self):
-        return _Link(self.serial, self.clock_hz, self.debug_port)
+        return _Link(self.serial, self.clock_hz, self.debug_port, self.recorder)
 
     def write_words(self, address, words, timeout=None):
         values = [value & 0xFFFFFFFF for value in words]
         if address <= 0 or address % 4 or not values:
-            raise DapError(f"invalid write of {len(values)} words at {address:#x}")
-        with _Link(self.serial, self.clock_hz, self.debug_port) as link:
-            link.write_words(address, values)
+            raise DapError(f"invalid write of {len(values)} words at {address:#x}", "invalid")
+        self._access("write", len(values), lambda link: link.write_words(address, values))
+
+    def _access(self, operation, words, act):
+        recorder = self.recorder
+        started = recorder.clock()
+        try:
+            with _Link(self.serial, self.clock_hz, self.debug_port, recorder) as link:
+                result = act(link)
+        except Exception as error:
+            recorder.record(self.LAYER, operation, recorder.clock() - started, error_kind(error), error)
+            raise
+        recorder.record(self.LAYER, operation, recorder.clock() - started, words=words)
+        return result
 
 
 class _Link:
-    def __init__(self, serial, clock_hz, debug_port, connect=True):
+    def __init__(self, serial, clock_hz, debug_port, recorder=probe_telemetry.DISCARD, connect=True):
         self.connect = connect
         self.serial = serial
         self.clock_hz = clock_hz
         self.port = debug_port
+        self.recorder = recorder
+        self.commands = 0
         self.device = None
         self.interface = None
         self.out_ep = None
@@ -281,15 +320,27 @@ class _Link:
         self.timeout_ms = usb_timeout_ms()
 
     def __enter__(self):
+        recorder = self.recorder
+        started = recorder.clock()
+        try:
+            self._open()
+        except Exception as error:
+            recorder.record(DapMemory.LAYER, "connect", recorder.clock() - started, error_kind(error), error)
+            recorder.count("dap_commands", self.commands)
+            raise
+        recorder.record(DapMemory.LAYER, "connect", recorder.clock() - started)
+        return self
+
+    def _open(self):
         device = find_harness(self.serial)
         if device is None:
-            raise DapError(f"no harness {self.serial} on USB")
+            raise DapError(f"no harness {self.serial} on USB", "no_harness")
         for interface, name in interface_strings(device):
             if name == INTERFACE_NAME:
                 self.interface = interface
                 break
         if self.interface is None:
-            raise DapError(f"harness {self.serial} has no {INTERFACE_NAME} interface")
+            raise DapError(f"harness {self.serial} has no {INTERFACE_NAME} interface", "no_interface")
         self.device = device
         usb.util.claim_interface(device, self.interface.bInterfaceNumber)
         for endpoint in self.interface:
@@ -302,11 +353,15 @@ class _Link:
             if self.connect:
                 self._connect()
         except Exception:
-            self.__exit__(None, None, None)
+            self._close()
             raise
-        return self
 
     def __exit__(self, *exc):
+        self._close()
+        self.recorder.count("dap_commands", self.commands)
+        return False
+
+    def _close(self):
         if self.device is not None:
             try:
                 self._command(bytes([DAP_DISCONNECT]))
@@ -315,7 +370,6 @@ class _Link:
             usb.util.release_interface(self.device, self.interface.bInterfaceNumber)
             usb.util.dispose_resources(self.device)
             self.device = None
-        return False
 
     # A reply left behind by an interrupted client would answer our first
     # command; read until the endpoint is quiet.
@@ -327,6 +381,7 @@ class _Link:
                 return
 
     def _command(self, packet):
+        self.commands += 1
         self.out_ep.write(packet, self.timeout_ms)
         reply = b""
         # The harness may end a previous transfer with a zero-length packet.
@@ -335,17 +390,17 @@ class _Link:
             if reply:
                 break
         if not reply or reply[0] != packet[0]:
-            raise DapError(f"DAP command {packet[0]:#04x} answered {reply[:1].hex()}")
+            raise DapError(f"DAP command {packet[0]:#04x} answered {reply[:1].hex()}", "bad_reply")
         return reply
 
     def _sequence(self, bits, data):
         reply = self._command(bytes([DAP_SWJ_SEQUENCE, bits & 0xFF]) + data)
         if reply[1] != DAP_OK:
-            raise DapError("SWJ sequence failed")
+            raise DapError("SWJ sequence failed", "sequence")
 
     def _connect(self):
         if self._command(bytes([DAP_CONNECT, PORT_SWD]))[1] != PORT_SWD:
-            raise DapError("the probe refused SWD")
+            raise DapError("the probe refused SWD", "swd_refused")
         self._command(bytes([DAP_SWJ_CLOCK]) + struct.pack("<I", self.clock_hz))
         self._command(bytes([DAP_TRANSFER_CONFIGURE, 0, 64, 0, 0, 0]))
         self._command(bytes([DAP_SWD_CONFIGURE, 0]))
@@ -377,7 +432,7 @@ class _Link:
             deadline = time.monotonic() + 0.1
             while self._dp_read(DP_CTRL_STAT) & POWER_UP_ACK != POWER_UP_ACK:
                 if time.monotonic() > deadline:
-                    raise DapError("the debug port did not power up")
+                    raise DapError("the debug port did not power up", "power_up")
         csw = self._ap_read(AP_CSW)
         csw = (csw & ~(CSW_SIZE_MASK | CSW_ADDRINC_MASK | CSW_HNONSEC)) | CSW_SIZE_32 | CSW_ADDRINC_SINGLE
         self._ap_write(AP_CSW, csw)
@@ -400,7 +455,7 @@ class _Link:
         packet = bytes([DAP_SWD_SEQUENCE, 3, 8, TARGETSEL_REQUEST, TARGETSEL_ACK_CYCLES, 33])
         reply = self._command(packet + struct.pack("<I", value) + bytes([parity]))
         if reply[1] != DAP_OK:
-            raise DapError("TARGETSEL sequence failed")
+            raise DapError("TARGETSEL sequence failed", "sequence")
 
     def _transfer(self, requests):
         packet = bytearray([DAP_TRANSFER, 0, len(requests)])
@@ -413,7 +468,8 @@ class _Link:
                 packet += struct.pack("<I", value)
         reply = self._command(bytes(packet))
         if reply[1] != len(requests) or reply[2] != ACK_OK:
-            raise DapError(f"DAP transfer stopped after {reply[1]} of {len(requests)}, ack {reply[2]}")
+            raise DapError(f"DAP transfer stopped after {reply[1]} of {len(requests)}, ack {reply[2]}",
+                           ack_kind(reply[2]))
         return list(struct.unpack_from(f"<{reads}I", reply, 3))
 
     def _dp_read(self, register):
@@ -444,7 +500,7 @@ class _Link:
         reply = self._command(bytes(packet))
         done = struct.unpack_from("<H", reply, 1)[0]
         if done != count or reply[3] != ACK_OK:
-            raise DapError(f"DAP block stopped after {done} of {count}, ack {reply[3]}")
+            raise DapError(f"DAP block stopped after {done} of {count}, ack {reply[3]}", ack_kind(reply[3]))
         return [] if data else list(struct.unpack_from(f"<{count}I", reply, 4))
 
     def _chunks(self, address, count, per_packet):

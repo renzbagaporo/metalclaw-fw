@@ -10,6 +10,7 @@ from pathlib import Path
 
 import usb.core
 
+from test.rig import probe_telemetry
 from test.rig.platforms.hardware.dap import DapError
 from test.rig.platforms.hardware.probe import ProbeError
 
@@ -143,8 +144,9 @@ def parse_result_line(line):
 class Mailbox:
     # `memory` reads and writes DUT RAM: DapMemory, which never halts the
     # core, or anything with the same read_words/write_words.
-    def __init__(self, memory, elf, toolchain_dir=None):
+    def __init__(self, memory, elf, toolchain_dir=None, recorder=None):
         self.memory = memory
+        self.recorder = probe_telemetry.DISCARD if recorder is None else recorder
         self.elf = Path(elf)
         addresses = symbol_addresses(
             self.elf, (COMMAND_SYMBOL, RESULT_SYMBOL), toolchain_dir
@@ -154,11 +156,14 @@ class Mailbox:
         self.last_result = 0
         self.next_command = 1
 
-    def _access(self, call):
+    def _access(self, operation, call):
+        layer = getattr(self.memory, "LAYER", "memory")
         for attempt in range(2):
             try:
-                return call()
+                value = call()
             except (ProbeError, DapError, usb.core.USBError) as error:
+                if attempt:
+                    self.recorder.retry(layer, operation, False)
                 text = str(error)
                 if attempt == 0 and (not isinstance(error, ProbeError) or any(
                     marker in text for marker in TRANSIENT_PROBE_ERRORS
@@ -166,11 +171,14 @@ class Mailbox:
                     time.sleep(POLL_S)
                     continue
                 raise MailboxError(text) from error
+            if attempt:
+                self.recorder.retry(layer, operation, True)
+            return value
         raise MailboxError("a bounded probe retry must return or raise")
 
     def _snapshot(self):
         words = self._access(
-            lambda: self.memory.read_words(self.result_address, RESULT_WORDS)
+            "read", lambda: self.memory.read_words(self.result_address, RESULT_WORDS)
         )
         try:
             return True, decode_result(words)
@@ -204,7 +212,7 @@ class Mailbox:
         self.next_command += 1
         words = pack_command(sequence, line)
         self._access(
-            lambda: self.memory.write_words(self.command_address, words)
+            "write", lambda: self.memory.write_words(self.command_address, words)
         )
         return sequence
 

@@ -6,6 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from test.rig import probe_telemetry
+
 DEFAULT_CHIP = "RP2350_Core0"
 DEFAULT_SPEED_KHZ = 1000
 PROBE_RS_ENV = "METALCLAW_PROBE_RS"
@@ -22,8 +24,10 @@ WORD = re.compile(r"[0-9a-fA-F]{8}")
 
 
 class ProbeError(RuntimeError):
-    def __init__(self, message, argv=(), returncode=None, stdout="", stderr=""):
+    # `kind` is what probe_telemetry counts the failure under.
+    def __init__(self, message, argv=(), returncode=None, stdout="", stderr="", kind="invalid"):
         super().__init__(message)
+        self.kind = kind
         self.argv = tuple(argv)
         self.returncode = returncode
         self.stdout = stdout
@@ -73,6 +77,8 @@ def decode_words(output, count, address):
 
 
 class ProbeRs:
+    LAYER = "probe_rs"
+
     def __init__(
         self,
         probe_id,
@@ -81,6 +87,7 @@ class ProbeRs:
         chip=DEFAULT_CHIP,
         executable=None,
         on_failure=None,
+        recorder=None,
     ):
         self.probe_id = probe_id
         # None uses probe-rs's built-in description of the chip.
@@ -89,6 +96,7 @@ class ProbeRs:
         self.chip = chip
         self.executable = str(executable or os.environ.get(PROBE_RS_ENV) or "probe-rs")
         self.on_failure = on_failure
+        self.recorder = probe_telemetry.DISCARD if recorder is None else recorder
         if not self.probe_id:
             raise ProbeError("a probe id is required; the rig never scans for a probe")
         if self.chip_description is not None and not self.chip_description.is_file():
@@ -117,16 +125,21 @@ class ProbeRs:
                 raise ProbeError(f"{flag} is never used against this DUT")
         return argv
 
-    def _run(self, argv, timeout):
+    def _run(self, argv, timeout, words=0):
+        recorder = self.recorder
+        started = recorder.clock()
         try:
-            return self._session(argv, timeout)
+            output = self._session(argv, timeout)
         except ProbeError as error:
+            recorder.record(self.LAYER, argv[1], recorder.clock() - started, error.kind, error)
             if self.on_failure is not None:
                 try:
                     self.on_failure()
                 except Exception as cleanup:
                     error.add_note(f"recovering after the failed probe-rs run failed too: {cleanup!r}")
             raise
+        recorder.record(self.LAYER, argv[1], recorder.clock() - started, words=words)
+        return output
 
     def _session(self, argv, timeout):
         environment = {
@@ -144,7 +157,7 @@ class ProbeRs:
                 env=environment,
             )
         except FileNotFoundError as error:
-            raise ProbeError(f"cannot run {self.executable}: {error}", argv) from error
+            raise ProbeError(f"cannot run {self.executable}: {error}", argv, kind="not_found") from error
         except subprocess.TimeoutExpired as error:
             stdout, stderr = _text(error.stdout), _text(error.stderr)
             raise ProbeError(
@@ -153,6 +166,7 @@ class ProbeRs:
                 None,
                 stdout,
                 stderr,
+                kind="timeout",
             ) from error
         if completed.returncode != 0:
             raise ProbeError(
@@ -162,6 +176,7 @@ class ProbeRs:
                 completed.returncode,
                 completed.stdout,
                 completed.stderr,
+                kind=probe_telemetry.probe_rs_kind(completed.stderr or completed.stdout),
             )
         return completed.stdout
 
@@ -191,9 +206,14 @@ class ProbeRs:
             raise ProbeError("a RAM read needs a positive word count")
         timeout = _deadline("access", timeout, ACCESS_TIMEOUT_ENV, ACCESS_TIMEOUT_S)
         output = self._run(
-            self._argv("read", "b32", hex(address), str(count)), timeout
+            self._argv("read", "b32", hex(address), str(count)), timeout, count
         )
-        return decode_words(output, count, address)
+        try:
+            return decode_words(output, count, address)
+        except ProbeError as error:
+            error.kind = "bad_output"
+            self.recorder.reject(self.LAYER, "read", error.kind, error)
+            raise
 
     def write_words(self, address, words, timeout=_FROM_ENVIRONMENT):
         values = list(words)
@@ -203,4 +223,4 @@ class ProbeRs:
             raise ProbeError("a RAM write needs at least one word")
         timeout = _deadline("access", timeout, ACCESS_TIMEOUT_ENV, ACCESS_TIMEOUT_S)
         literals = [f"0x{value & 0xFFFFFFFF:08x}" for value in values]
-        self._run(self._argv("write", "b32", hex(address), *literals), timeout)
+        self._run(self._argv("write", "b32", hex(address), *literals), timeout, len(values))

@@ -16,6 +16,7 @@ import pytest
 import usb.core
 import usb.util
 
+from test.rig import probe_telemetry
 from test.rig.platforms.hardware import dap
 from test.rig.platforms.hardware.dap import DapMemory
 from test.rig.platforms.emulator import dut_flash
@@ -155,7 +156,7 @@ for i in metalclaw.instances():
         i.detach()
         if 'usb_interface' in kinds:
             print('usb')
-"""
+""" + probe_telemetry.PROBE_SNAPSHOT
 
 
 def _required(name: str) -> str:
@@ -340,15 +341,22 @@ class Harness:
 
 # The DUT behind the harness's probe: flashed and reset by probe-rs, its
 # memory read through DapMemory, because every probe-rs session halts the
-# DUT (see dap.py).
+# DUT (see dap.py). The recorder counts how each probe access went.
 class Target:
-    def __init__(self, harness: Harness, image: Path):
+    recorder = probe_telemetry.DISCARD
+
+    def __init__(self, harness: Harness, image: Path, recorder=None, device=None):
         self.harness = harness
         self.image = image
+        if recorder is not None:
+            self.recorder = recorder
         chip = dut_chip(image)
+        self.recorder.describe(dut={"chip": chip.probe_chip, "series": soc_series(image),
+                                    "device": device or os.environ.get("METALCLAW_DUT_DEVICE", "smoke"),
+                                    "image": _shown(image)})
         self.probe = ProbeRs(harness.probe_id, chip.chip_description, chip=chip.probe_chip,
-                             on_failure=self.resume)
-        self.memory = DapMemory(harness.serial, chip.debug_port)
+                             on_failure=self.resume, recorder=recorder)
+        self.memory = DapMemory(harness.serial, chip.debug_port, recorder=recorder)
 
     # probe-rs 0.30 has no `download --reset`; flashing and resetting are two
     # sessions.
@@ -398,8 +406,10 @@ class Target:
             try:
                 self.probe.download(self.image, reset=False)
             except ProbeError as restore_error:
+                self.recorder.retry(ProbeRs.LAYER, "download", False)
                 pytest.exit(f"the DUT's flash may hold no image: downloading {self.image} failed ({error}), "
                             f"and so did downloading it again to restore it ({restore_error})", returncode=2)
+            self.recorder.retry(ProbeRs.LAYER, "download", True)
             error.add_note(f"{self.image} was downloaded again after this failure, to restore the DUT's flash")
             self.reset()
             raise
@@ -422,9 +432,9 @@ class Target:
 
 # A Zephyr DUT image built for the rig, which answers on its RAM mailbox.
 class Dut(Target):
-    def __init__(self, harness: Harness, image: Path, toolchain_dir: str):
-        super().__init__(harness, image)
-        self.mailbox = Mailbox(self.memory, image, toolchain_dir)
+    def __init__(self, harness: Harness, image: Path, toolchain_dir: str, recorder=None):
+        super().__init__(harness, image, recorder)
+        self.mailbox = Mailbox(self.memory, image, toolchain_dir, recorder)
 
     # A reset restarts the DUT's result sequence, so the mailbox baseline
     # forgets the old one.
@@ -495,34 +505,51 @@ def fixture(harness: Harness) -> dict:
 
 
 @pytest.fixture(scope="session")
-def harness() -> Harness:
+def harness(pytestconfig) -> Harness:
     serial = _required("METALCLAW_HARNESS_SERIAL")
+    recorder = probe_telemetry.recorder(pytestconfig)
+    if recorder is not None:
+        recorder.describe(bench={"serial": serial})
     h = Harness(serial)
     h.wait_enumerated()
     # Instances outlive a rig run; a leftover device would hold pins a case
     # needs. The probe stays, detaching it would re-enumerate the harness;
     # detaching another USB-facing device does, and is waited out.
-    detach_all_but_probe(h)
+    detach_all_but_probe(h, recorder)
     return h
 
 
 # The harness cannot name a detached device's interface strings, but its
-# re-enumeration drops them, so the strings it reports change.
-def detach_all_but_probe(harness: Harness) -> None:
+# re-enumeration drops them, so the strings it reports change. The same call
+# reads the probe's counters as the session starts.
+def detach_all_but_probe(harness: Harness, recorder=None) -> None:
     before = harness.usb_interfaces()
-    if "usb" in harness.run(DETACH_ALL_BUT_PROBE).split():
+    snapshot, output = probe_telemetry.parse_snapshot(harness.run(DETACH_ALL_BUT_PROBE))
+    if recorder is not None:
+        recorder.probe_start = snapshot
+    if "usb" in output.split():
         harness.wait_interfaces(lambda found: bool(found) and found != before,
                                 "re-enumerate without the detached devices")
 
 
+def _shown(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+
+
 @pytest.fixture(scope="session")
-def probe(harness: Harness, fixture: dict):
+def probe(harness: Harness, fixture: dict, pytestconfig):
     # The probe device is attached from the harness's REPL; adding its USB
     # interface re-enumerates the harness once.
     if "CMSIS-DAP v2" not in harness.usb_interfaces():
         harness.run(f"import metalclaw\nmetalclaw.attach('swd_probe', 'dut', swd={fixture['swd']})")
         harness.wait_interface("CMSIS-DAP v2")
-    return harness.probe_id
+    yield harness.probe_id
+    probe_telemetry.read_end(pytestconfig, harness)
 
 
 # Armv6-M / Armv8-M debug registers (ARMv6-M and ARMv8-M ARM, C1.6).
@@ -576,9 +603,10 @@ class Example(Target):
     # unattached: the emulator's stand-ins.
     replaced_parts: frozenset[str] = frozenset()
 
-    def __init__(self, harness: Harness, image: Path, toolchain_dir: str):
-        super().__init__(harness, image)
-        self.metadata = example_metadata(image)
+    def __init__(self, harness: Harness, image: Path, toolchain_dir: str, recorder=None):
+        metadata = example_metadata(image)
+        super().__init__(harness, image, recorder, f"pico-examples/{metadata['target']}")
+        self.metadata = metadata
         self.target = self.metadata["target"]
         self.elf = image.read_bytes()
         self.ram_only = not any(dut_flash.in_flash(p) for p, _, _ in dut_flash.segments(self.elf))
@@ -619,7 +647,7 @@ def require_example_image(image: Path) -> None:
 
 
 @pytest.fixture(scope="session")
-def example(harness: Harness, probe, fixture: dict) -> Example:
+def example(harness: Harness, probe, fixture: dict, pytestconfig) -> Example:
     image = dut_image()
     require_example_image(image)
     # Checked before anything is flashed: a reset alone would run it.
@@ -627,16 +655,16 @@ def example(harness: Harness, probe, fixture: dict) -> Example:
     target = example_metadata(image)["target"]
     if target in HARDWARE_HAZARDS:
         pytest.skip(f"{target} {HARDWARE_HAZARDS[target]}; it runs only in the emulator")
-    e = Example(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
+    e = Example(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"), probe_telemetry.recorder(pytestconfig))
     hold_idle(harness, fixture, e.parts_dut_pins())
     e.flash(fixture["dut_pins"][Target.WAKE_PIN][0])
     return e
 
 
 @pytest.fixture(scope="session")
-def dut(harness: Harness, probe, fixture: dict) -> Dut:
+def dut(harness: Harness, probe, fixture: dict, pytestconfig) -> Dut:
     require_rig_image(dut_image())
-    d = Dut(harness, dut_image(), _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
+    d = Dut(harness, dut_image(), _required("METALCLAW_ARM_TOOLCHAIN_DIR"), probe_telemetry.recorder(pytestconfig))
     hold_idle(harness, fixture)
     d.flash(fixture["dut_pins"][Target.WAKE_PIN][0])
     d.ping()
