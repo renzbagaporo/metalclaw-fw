@@ -2,19 +2,29 @@
 // The receive-only SPI target. Two state machines on one PIO block, two DMA
 // channels, and the worker's poll; no interrupt and no CPU per byte.
 //
-//   data   shifts each byte in while chip select is low, then one bit that
-//          is 0 when a chip-select rise came since the previous byte, then
-//          the side line's level, and autopushes the 10 bits
-//   edge   pushes a token at every chip-select rise; a DMA channel moves it
-//          into data's TX FIFO, where data's PULL NOBLOCK finds it after
-//          the next byte, or finds the FIFO empty and copies X (all ones)
+//   data   shifts each byte in, then one bit that is 0 for the first byte
+//          of a window, then the side line's level, and autopushes the 10
+//          bits
+//   edge   pushes a JMP to data's restart at every chip-select rise; a DMA
+//          channel writes it into data's instruction register, so data
+//          drops any partial byte, marks the next byte first and waits for
+//          chip select to fall again
 //   ring   the other channel streams data's words into a ring the poll
 //          reads; the poll also reports a window ended once chip select is
 //          high with nothing left in flight
 //
-// The token makes the window flag exact without a race: a rise always
-// lands between the last byte of one window and the first of the next,
-// and that first byte is at least eight clocks long.
+// The restart keeps data in step with the host whatever SCK does while
+// chip select is high. Data finishes a window's last byte and goes on to
+// wait for the next byte's first edge before the host raises chip select,
+// so without the restart an SCK edge between windows would count as a bit
+// and every byte after it would be off by one. On a bench whose lines have
+// pull-ups the DUT's SCK makes such an edge whenever it resets: its pins
+// float and the pull-up raises SCK, until the program drives it low again.
+// The restart lands about ten cycles after the rise (the edge program's
+// synchroniser and two instructions, then one DMA transfer); a host's
+// first sampling edge comes at least half a clock after chip select falls,
+// and chip select stays high for at least one clock between PL022 frames,
+// so at 10 MHz on a 125 MHz harness about 60 ns are left over.
 //
 // Clock ceiling, from the programs rather than a bench measurement: after a
 // sampling edge the bit loop needs IN, JMP and the next WAIT, and a byte's
@@ -60,12 +70,13 @@
 #define SINK_DMA_COUNT (dma_encode_transfer_count_with_self_trigger(SINK_COUNT_RELOAD))
 #endif
 
-#define DATA_LENGTH 13u
-#define DATA_WRAP_TARGET 1u
-#define DATA_WRAP_TOP 12u
-#define DATA_BIT 3u
-#define DATA_LINE_HIGH 12u
-#define EDGE_LENGTH 4u
+#define DATA_LENGTH 15u
+#define DATA_RESTART 1u
+#define DATA_WRAP_TARGET 4u
+#define DATA_WRAP_TOP 14u
+#define DATA_BIT 5u
+#define DATA_LINE_HIGH 14u
+#define EDGE_LENGTH 5u
 #define EDGE_WRAP_TARGET 1u
 #define WORD_BITS 10u
 
@@ -123,29 +134,31 @@ static void encode_programs(uint8_t sck, uint8_t cs, uint8_t mode) {
 
     sck = (uint8_t)(sck % 32u);
     cs = (uint8_t)(cs % 32u);
-    p[0] = (uint16_t)pio_encode_wait_gpio(true, cs);
-    p[1] = (uint16_t)pio_encode_wait_gpio(false, cs);
-    p[2] = (uint16_t)pio_encode_set(pio_x, 7u);
-    p[3] = (uint16_t)pio_encode_wait_gpio(!edge, sck);
-    p[4] = (uint16_t)pio_encode_wait_gpio(edge, sck);
-    p[5] = (uint16_t)pio_encode_in(pio_pins, 1u);
-    p[6] = (uint16_t)pio_encode_jmp_x_dec(DATA_BIT);
-    p[7] = (uint16_t)pio_encode_pull(false, false);
-    p[8] = (uint16_t)pio_encode_in(pio_osr, 1u);
-    p[9] = (uint16_t)pio_encode_jmp_pin(DATA_LINE_HIGH);
-    p[10] = (uint16_t)pio_encode_in(pio_null, 1u);
-    p[11] = (uint16_t)pio_encode_jmp(DATA_WRAP_TARGET);
-    // X is all ones once the bit loop has run out.
-    p[12] = (uint16_t)pio_encode_in(pio_x, 1u);
-
     // Both programs start once chip select is high, so a window open at the
-    // arm is skipped by both and the token for the first one is the one the
-    // arm puts in.
+    // arm is skipped by both.
+    p[0] = (uint16_t)pio_encode_wait_gpio(true, cs);
+    p[DATA_RESTART] = (uint16_t)pio_encode_mov(pio_isr, pio_null);
+    p[2] = (uint16_t)pio_encode_set(pio_y, 0u);
+    p[3] = (uint16_t)pio_encode_wait_gpio(false, cs);
+    p[4] = (uint16_t)pio_encode_set(pio_x, 7u);
+    p[5] = (uint16_t)pio_encode_wait_gpio(!edge, sck);
+    p[6] = (uint16_t)pio_encode_wait_gpio(edge, sck);
+    p[7] = (uint16_t)pio_encode_in(pio_pins, 1u);
+    p[8] = (uint16_t)pio_encode_jmp_x_dec(DATA_BIT);
+    p[9] = (uint16_t)pio_encode_in(pio_y, 1u);
+    p[10] = (uint16_t)pio_encode_set(pio_y, 1u);
+    p[11] = (uint16_t)pio_encode_jmp_pin(DATA_LINE_HIGH);
+    p[12] = (uint16_t)pio_encode_in(pio_null, 1u);
+    p[13] = (uint16_t)pio_encode_jmp(DATA_WRAP_TARGET);
+    // X is all ones once the bit loop has run out.
+    p[14] = (uint16_t)pio_encode_in(pio_x, 1u);
+
+    // X holds data's restart JMP, set at the arm.
     edge_words[0] = (uint16_t)pio_encode_wait_gpio(true, cs);
     edge_words[1] = (uint16_t)pio_encode_wait_gpio(false, cs);
     edge_words[2] = (uint16_t)pio_encode_wait_gpio(true, cs);
-    // The ISR is never shifted, so the token is 0.
-    edge_words[3] = (uint16_t)pio_encode_push(false, false);
+    edge_words[3] = (uint16_t)pio_encode_mov(pio_isr, pio_x);
+    edge_words[4] = (uint16_t)pio_encode_push(false, false);
 }
 
 static uint8_t reverse_byte(uint8_t value) {
@@ -253,7 +266,7 @@ static void start_dma(struct mclw_spi_sink *s) {
     channel_config_set_write_increment(&c, false);
     channel_config_set_dreq(&c, pio_get_dreq(s->pio, s->edge_sm, false));
     channel_config_set_high_priority(&c, true);
-    dma_channel_configure((uint)s->token_dma, &c, &s->pio->txf[s->data_sm], &s->pio->rxf[s->edge_sm],
+    dma_channel_configure((uint)s->token_dma, &c, &s->pio->sm[s->data_sm].instr, &s->pio->rxf[s->edge_sm],
         SINK_DMA_COUNT, true);
     s->last_count = channel_count(s->ring_dma);
 }
@@ -473,8 +486,8 @@ int mclw_hal_spi_sink_arm(struct mclw_spi_sink *s, struct mclw_sink *sink) {
     stop(s);
     configure_sms(s);
     start_dma(s);
-    // The first window has no rise before it; its token is here already.
-    pio_sm_put(s->pio, s->data_sm, 0u);
+    // A JMP to an address encodes as that address, which fits SET's 5 bits.
+    pio_sm_exec(s->pio, s->edge_sm, pio_encode_set(pio_x, pio_encode_jmp(s->data_offset + DATA_RESTART)));
     s->produced = 0;
     s->taken = 0;
     s->open = false;
