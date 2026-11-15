@@ -25,6 +25,7 @@ boards/rpi_pico.conf  what the Pico 1 needs that the Pico 2 board brings
 src/mailbox.[ch]    the RAM mailbox
 src/main.c          the banner and the commands below
 src/uart_echo.c     the UART echo, for an image whose devicetree asks for it
+src/scratch.[c,ld]  RAM the image leaves to the host, for probe soaks
 ```
 
 The smoke image binds nothing and needs no overlay. A device that needs
@@ -55,6 +56,15 @@ image runs. No command starts or stops it, and the
 mailbox is unaffected. The `console_bridge` image puts it on the crossed
 UART0 pair, so whatever the host writes to the harness's bridged serial port
 comes back unchanged at line rate in both directions.
+
+## The scratch area
+
+`mclw_dut_scratch` is 1 KiB of RAM the image never reads or writes, for
+`test/rig/probe_soak.py` to write and read back while the image runs. It
+sits in `noinit`, so boot leaves it alone, and `src/scratch.ld` keeps it
+through the linker's garbage collection, since nothing references it. No
+other RAM is free: everything past the image is picolibc's malloc arena
+(`CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE=-1`).
 
 ## The mailbox
 
