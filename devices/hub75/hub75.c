@@ -23,11 +23,11 @@ enum {
 };
 
 enum {
-    BINDING_CLOCK,
     BINDING_UPPER,
     BINDING_LOWER,
     BINDING_ROWS,
     BINDING_E,
+    BINDING_CLOCK,
 };
 
 enum {
@@ -91,7 +91,13 @@ static const struct mclw_region_desc hub75_regions[] = {
         .wire = { .engine = MCLW_WIRE_PINS, .pins = (count) }, \
     }
 
+// The clock comes last: its engine takes a PIO block whose window reaches
+// the pins the bindings before it opened.
 static const struct mclw_binding_desc hub75_bindings[] = {
+    PINS_BINDING("upper", 3),
+    PINS_BINDING("lower", 3),
+    PINS_BINDING("rows", 4),
+    PINS_BINDING("e", 1),
     {
         .name = "clock",
         .kind = MCLW_BINDING_WIRE,
@@ -101,10 +107,6 @@ static const struct mclw_binding_desc hub75_bindings[] = {
         .uart = { 0 },
         .wire = { .engine = MCLW_WIRE_LATCHED_IN, .pins = 3 },
     },
-    PINS_BINDING("upper", 3),
-    PINS_BINDING("lower", 3),
-    PINS_BINDING("rows", 4),
-    PINS_BINDING("e", 1),
 };
 
 static bool level(uint32_t sample, int8_t bit) {

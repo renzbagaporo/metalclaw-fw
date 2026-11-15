@@ -23,7 +23,8 @@
 //                  in a clock sample, and cleared in the latch's), and a
 //                  last word, the enabled time in ns.
 //   PINS           (pin, ...): pins another binding's engine samples; no
-//                  engine of its own.
+//                  engine of its own. A LATCHED_IN wire opened after them
+//                  by the same owner takes a block that reaches them.
 //   ONEWIRE        (dq): a 1-Wire slave. Reset and presence, and every
 //                  slot, in hardware; the network layer and the image's
 //                  function commands in core (onewire.h), per slot.

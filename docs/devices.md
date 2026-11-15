@@ -393,8 +393,9 @@ port exists.
   a long low), `clocked_in` (data sampled at each rising clock edge),
   `latched_in` (a shift-register panel, looked at one latch at a time:
   every pin in reach sampled at each clock edge and at the latch, and the
-  enable line's time timed), `pins` (pins another binding's engine
-  samples), `onewire` (a 1-Wire slave's reset, presence and slots, with the
+  enable line's time timed, from a PIO block that reaches the `pins`
+  bindings its model declares before it), `pins` (pins another binding's
+  engine samples), `onewire` (a 1-Wire slave's reset, presence and slots, with the
   network layer above), `responder` (an open-drain line that answers a
   host's start pulse with a waveform), `steps_out` (consecutive pins stepped
   through queued states, one each period) and `envelope` (an IR receiver's

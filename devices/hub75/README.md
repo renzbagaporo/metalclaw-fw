@@ -21,13 +21,14 @@ outputs on.
 
 | index | name | kind | required | resolved into |
 | --- | --- | --- | --- | --- |
-| 0 | `clock` | `wire` (`latched_in`) | yes | `(clk, lat, oe)` |
-| 1 | `upper` | `wire` (`pins`) | yes | `(r0, g0, b0)`: rows 0-31 |
-| 2 | `lower` | `wire` (`pins`) | yes | `(r1, g1, b1)`: rows 32-63 |
-| 3 | `rows` | `wire` (`pins`) | yes | `(a, b, c, d)` |
-| 4 | `e` | `wire` (`pins`) | yes | `(e,)` |
+| 0 | `upper` | `wire` (`pins`) | yes | `(r0, g0, b0)`: rows 0-31 |
+| 1 | `lower` | `wire` (`pins`) | yes | `(r1, g1, b1)`: rows 32-63 |
+| 2 | `rows` | `wire` (`pins`) | yes | `(a, b, c, d)` |
+| 3 | `e` | `wire` (`pins`) | yes | `(e,)` |
+| 4 | `clock` | `wire` (`latched_in`) | yes | `(clk, lat, oe)` |
 
-Every pin must be within the 32 GPIOs one PIO block reaches.
+Every pin must be within the 32 GPIOs one PIO block reaches; the clock's
+engine takes a block whose window holds all of them.
 
 ```python
 import metalclaw

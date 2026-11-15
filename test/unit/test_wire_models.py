@@ -393,6 +393,9 @@ def test_tsop38238_counts_a_broken_frame_and_recovers(check):
 
 # --- HUB75
 
+HUB75_PINS = ("clock=0,1,2", "upper=4,5,6", "lower=8,9,10", "rows=12,13,14,15", "e=16")
+
+
 def hub75_captures(rows, planes, enabled_ns=800, garbage=0):
     # pio/hub75/hub75.c:52-75 with hub75.pio: per row and bit plane, 128
     # pixel pairs and a dummy shifted (the first edge clocks garbage), a
@@ -426,19 +429,19 @@ def test_hub75_shows_the_mountains_from_the_programs_latches(check):
     captures = hub75_captures(range(32), range(8))
     random.Random(7).shuffle(captures)
     script = [queue("clock", c) for c in captures] + ["p"] * len(captures)
-    part = run(check, "hub75", script)
+    part = run(check, "hub75", script, *HUB75_PINS)
     assert judge("pio_hub75", "panel", part) == []
     assert (part.latches, part.rows_seen, part.unmatched, part.short) == (256, 0xFFFFFFFF, 0, 0)
 
 
 def test_hub75_check_sees_a_missing_plane(check):
     captures = hub75_captures(range(32), range(7))
-    part = run(check, "hub75", [queue("clock", c) for c in captures] + ["p"] * len(captures))
+    part = run(check, "hub75", [queue("clock", c) for c in captures] + ["p"] * len(captures), *HUB75_PINS)
     assert judge("pio_hub75", "panel", part) != []
 
 
 def test_hub75_drops_a_capture_cut_short(check):
     (capture,) = hub75_captures([3], [2])
-    part = run(check, "hub75", [queue("clock", capture[:40] + capture[-2:]), "p"])
+    part = run(check, "hub75", [queue("clock", capture[:40] + capture[-2:]), "p"], *HUB75_PINS)
     assert (part.latches, part.short) == (0, 1)
     assert part.captures == 1

@@ -109,6 +109,23 @@ static uint64_t pin_mask(const struct mclw_wire *w) {
     return mask;
 }
 
+// The pins a block must reach for this wire: its own and, for LATCHED_IN,
+// which samples its whole window, the PINS wires its owner opened before
+// it. Pins 16-27 alone fit either window of an RP2350B block, and a block
+// left at base 16 would leave a panel's data on GPIO0-15 unsampled.
+static uint64_t window_mask(const struct mclw_wire *w) {
+    uint64_t mask = pin_mask(w);
+
+    if (w->facts.engine == MCLW_WIRE_LATCHED_IN) {
+        for (size_t i = 0; i < WIRE_SLOTS; i++) {
+            if (&slots[i] != w && slots[i].owner == w->owner && slots[i].facts.engine == MCLW_WIRE_PINS) {
+                mask |= pin_mask(&slots[i]);
+            }
+        }
+    }
+    return mask;
+}
+
 static int load_program(PIO pio, const struct wire_program *p) {
     int free_entry = -1;
 
@@ -168,7 +185,7 @@ static int acquire_pio(struct mclw_wire *w, const struct wire_program *programs,
 
     for (size_t n = 0; n < MCLW_PIO_TRIES; n++) {
         PIO pio = mclw_pio_try(n);
-        if (pio == NULL || !mclw_pio_window(pio, pin_mask(w))) {
+        if (pio == NULL || !mclw_pio_window(pio, window_mask(w))) {
             continue;
         }
         w->pio = pio;
