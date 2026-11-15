@@ -543,6 +543,12 @@ static void __not_in_flash_func(quiesce)(const struct mclw_spi_target *t) {
         // busy_wait_us_32() would run from flash; the timer read is inline.
         for (uint32_t start = time_us_32(); time_us_32() - start < 1u;) {
         }
+        // A command image's machine runs on into a window that began before
+        // this release was handled: what still moves is that window's, and
+        // waiting for it to stop would last as long as the host clocks.
+        if (t->image == SPI_IMAGE_COMMAND && !pin_high(t->cs)) {
+            return;
+        }
         remaining = dma_channel_hw_addr((uint)t->rx_dma)->transfer_count;
         pc = pio_sm_get_pc(SPI_PIO, t->sm);
         rest = pc == (uint8_t)(t->bus->program_offset + SPI_REST_LEAD) ||
