@@ -14,7 +14,7 @@ import serial
 
 from test.pico_examples import pins
 from test.pico_examples.part_targets import PART_SPECS
-from test.pico_examples.parts import PARTS, PinError
+from test.pico_examples.parts import PinError, parts_for
 from test.pico_examples.pin_specs import BOOTSEL_SPECS, PIN_SPECS
 from test.pico_examples.targets import SPECS
 
@@ -36,8 +36,7 @@ for instance in metalclaw.instances():
 # its outside world, so none of its cases can judge it there.
 @pytest.fixture(scope="module")
 def parts(harness, example, fixture):
-    board = example.metadata.get("board")
-    attached = tuple(p for p in PARTS.get(example.target, ()) if not p.boards or board in p.boards)
+    attached = parts_for(example.target, example.metadata.get("board"))
     for part in attached:
         if part.needs_line_pullups and not fixture["line_pullups"]:
             pytest.skip(f"{example.target}'s {part.model} needs a pull-up on its line, and this bench has none")

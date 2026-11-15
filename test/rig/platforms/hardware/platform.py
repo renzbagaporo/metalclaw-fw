@@ -472,9 +472,19 @@ def board_fixture(harness: Harness) -> dict:
     return fixture_for(FIXTURES[board], harness.board_info())
 
 
+# The idle levels to hold while a program whose parts take `dut_pins` boots.
+# A level yields to every net those parts take: the program may drive such
+# a net from its first instruction, as pio_hub75 drives GP10 as its E line,
+# and a held level would fight it until the part is attached.
+def idle_levels(fixture: dict, dut_pins=()) -> dict:
+    net = {h: d for d, branches in fixture.get("dut_pins", {}).items() for h in branches}
+    taken = set(dut_pins)
+    return {p: v for p, v in fixture["idle"].items() if net.get(p) not in taken}
+
+
 # Before the DUT boots, so its drivers never see an absent part as active.
-def hold_idle(harness: Harness, fixture: dict) -> None:
-    idle = fixture["idle"]
+def hold_idle(harness: Harness, fixture: dict, dut_pins=()) -> None:
+    idle = idle_levels(fixture, dut_pins)
     if idle:
         harness.run("from machine import Pin\n" + "".join(f"Pin({p}, Pin.OUT, value={v})\n" for p, v in idle.items()))
 
@@ -570,6 +580,11 @@ class Example(Target):
         self.ram_only = not any(dut_flash.in_flash(p) for p, _, _ in dut_flash.segments(self.elf))
         self.vectors = symbol_addresses(image, ("__vectors",), toolchain_dir)["__vectors"] if self.ram_only else None
 
+    # The DUT pins the program's parts take, which no idle level may hold.
+    def parts_dut_pins(self) -> set[int]:
+        from test.pico_examples.parts import parts_dut_pins
+        return parts_dut_pins(self.target, self.metadata.get("board"))
+
     def flash(self, wake_harness_pin=None) -> None:
         if not self.ram_only:
             super().flash(wake_harness_pin)
@@ -609,7 +624,7 @@ def example(harness: Harness, probe, fixture: dict) -> Example:
     if target in HARDWARE_HAZARDS:
         pytest.skip(f"{target} {HARDWARE_HAZARDS[target]}; it runs only in the emulator")
     e = Example(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
-    hold_idle(harness, fixture)
+    hold_idle(harness, fixture, e.parts_dut_pins())
     e.flash(fixture["dut_pins"][Target.WAKE_PIN][0])
     return e
 

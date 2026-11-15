@@ -131,7 +131,10 @@ pulls every Pico GPIO net up with 5.1 kOhm) a line nothing drives reads
 high, even through the DUT's reset. There the harness holds the `idle`
 levels before it flashes the DUT, so that a part not yet attached does not
 look active (an unattached sx126x would read busy and hold the DUT's driver
-in its boot); elsewhere `idle` is empty. A case reads `fixture["line_pullups"]`
+in its boot); elsewhere `idle` is empty. For a pico-examples program a
+level yields to every net the program's parts take, which the program may
+drive itself from its first instruction (`pio_hub75` drives GP10, GPIO22's
+net, as its E line). A case reads `fixture["line_pullups"]`
 where a line's undriven level matters.
 
 `METALCLAW_DUT_DEVICE` picks which device's DUT image to flash, default
