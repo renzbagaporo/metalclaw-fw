@@ -45,6 +45,11 @@ FIXTURE = {
     # GP6 is also the modem's control line: PWRKEY or RESET_N, as the
     # cellular model names it.
     "gpio": {"sx126x": {"busy": 10, "dio1": 20, "nreset": 6}, "pwrkey": 6, "reset": 6},
+    # Each DUT pin a harness pin reaches, and which: the Pico 2 is stacked on
+    # the Pico 1 pin for pin, except the crossed UART0 pair. Harness GP2, GP3
+    # and GP28 are the DUT's SWCLK, SWDIO and RUN, so the DUT's own GP2, GP3
+    # and GP28 reach nothing. Checked both ways by a pin probe, 2026-11-15.
+    "dut_pins": {0: (1,), 1: (0,), **{p: (p,) for p in (*range(4, 23), 26, 27)}},
 }
 
 # The MetalClaw Pico RP2 carrier (v1.r1 schematic) with a Pico on it: the
@@ -65,6 +70,15 @@ METALCLAW_PICO_RP2_FIXTURE = {
         "cs": {"ads7883": 41, "icm4268x": 37, "bmp388": 33, "sx126x": 41},
     },
     "gpio": {"sx126x": {"busy": 22, "dio1": 40, "nreset": 14}, "pwrkey": 14, "reset": 14},
+    # Each Pico pin's carrier GPIO branches, from the v1.r1 netlist (checked
+    # on the bench pin by pin, 2026-11-07). Two branches are one net; GP26-28
+    # pass a 330 R + 2.2 k RC filter, fit for slow or analog signals only.
+    "dut_pins": {
+        0: (3, 4), 1: (2, 5), 2: (6,), 3: (0, 7), 4: (11, 12), 5: (10, 13), 6: (14,), 7: (8, 15),
+        8: (19, 20), 9: (18, 21), 10: (22,), 11: (16, 23), 12: (27, 28), 13: (26, 29), 14: (30,),
+        15: (24, 31), 16: (35, 36), 17: (34, 37), 18: (38,), 19: (32, 39), 20: (40, 45), 21: (41, 46),
+        22: (33,), 26: (42,), 27: (43,), 28: (44,),
+    },
     # Levels the harness holds while the part on a line is absent, on a
     # board built with line pull-ups, where the pull-up would make the part
     # look active: an unattached sx126x is not busy, or the DUT's driver
