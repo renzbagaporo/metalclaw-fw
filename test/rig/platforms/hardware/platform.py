@@ -30,6 +30,7 @@ DUT_MAILBOX_TIMEOUT_ENV = "METALCLAW_DUT_MAILBOX_TIMEOUT_S"
 # runs the core and turns halting debug off.
 DHCSR = 0xE000EDF0
 DHCSR_RESUME = 0xA05F0000
+DHCSR_HALT = 0xA05F0003
 _DEFAULT_MAILBOX_TIMEOUT = object()
 
 FIXTURE = {
@@ -337,7 +338,33 @@ class Target:
     # that never answers. The image is downloaded again before the failure
     # is raised; if that fails too, no later case can pass, so the session
     # stops.
-    def flash(self) -> None:
+    # A program can leave the DUT dormant with its clocks stopped, where every
+    # debug access answers WAIT and no reset the probe can send reaches it
+    # (pico-examples' low_power_* wait on GP15 or a timer). A square wave on
+    # the DUT's GP15 wakes it again and again, and the core is halted in one
+    # of those windows; a halted core then takes the download. On a DUT that
+    # is awake the first halt lands at once. WAKE_PIN is that DUT pin.
+    WAKE_PIN = 15
+    WAKE_TIMEOUT_S = 10.0
+
+    def halt_awake(self, wake_harness_pin) -> None:
+        if wake_harness_pin is not None:
+            self.harness.run(f"from machine import Pin, PWM\n_wake = PWM(Pin({wake_harness_pin}), freq=1000, duty_u16=32768)\n")
+        try:
+            deadline = time.monotonic() + self.WAKE_TIMEOUT_S
+            while True:
+                try:
+                    self.memory.write_words(DHCSR, [DHCSR_HALT])
+                    return
+                except dap.DapError:
+                    if time.monotonic() >= deadline:
+                        raise
+        finally:
+            if wake_harness_pin is not None:
+                self.harness.run(f"_wake.deinit()\nPin({wake_harness_pin}, Pin.IN, None)\n")
+
+    def flash(self, wake_harness_pin=None) -> None:
+        self.halt_awake(wake_harness_pin)
         try:
             self.probe.download(self.image, reset=False)
         except ProbeError as error:
@@ -459,7 +486,6 @@ def probe(harness: Harness, fixture: dict):
 # Armv6-M / Armv8-M debug registers (ARMv6-M and ARMv8-M ARM, C1.6).
 DEMCR, AIRCR, VTOR = 0xE000EDFC, 0xE000ED0C, 0xE000ED08
 DCRSR, DCRDR = 0xE000EDF4, 0xE000EDF8
-DHCSR_HALT = 0xA05F0003
 DHCSR_S_HALT, DHCSR_S_REGRDY = 1 << 17, 1 << 16
 DEMCR_VC_CORERESET = 1
 AIRCR_SYSRESETREQ = 0x05FA0004
@@ -512,9 +538,9 @@ class Example(Target):
         self.ram_only = not any(dut_flash.in_flash(p) for p, _, _ in dut_flash.segments(self.elf))
         self.vectors = symbol_addresses(image, ("__vectors",), toolchain_dir)["__vectors"] if self.ram_only else None
 
-    def flash(self) -> None:
+    def flash(self, wake_harness_pin=None) -> None:
         if not self.ram_only:
-            super().flash()
+            super().flash(wake_harness_pin)
 
     def restart(self) -> None:
         if self.ram_only:
@@ -545,7 +571,7 @@ def example(harness: Harness, probe, fixture: dict) -> Example:
         pytest.skip(f"{target} {HARDWARE_HAZARDS[target]}; it runs only in the emulator")
     e = Example(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
     hold_idle(harness, fixture)
-    e.flash()
+    e.flash(fixture["dut_pins"][Target.WAKE_PIN][0])
     return e
 
 
@@ -554,6 +580,6 @@ def dut(harness: Harness, probe, fixture: dict) -> Dut:
     require_rig_image(dut_image())
     d = Dut(harness, dut_image(), _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
     hold_idle(harness, fixture)
-    d.flash()
+    d.flash(fixture["dut_pins"][Target.WAKE_PIN][0])
     d.ping()
     return d
