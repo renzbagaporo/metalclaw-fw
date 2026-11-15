@@ -109,7 +109,7 @@ def test_the_example_drives_its_pins(example, parts):
     assert not problems, f"{example.target}: {problems} ({len(samples)} samples over {spec.seconds} s)"
 
 
-def test_the_parts_saw_the_program(harness, example, parts):
+def test_the_example_parts_saw_the_program(harness, example, parts):
     checks = [(part, check) for part in parts for check in part.checks]
     if not checks:
         pytest.skip(f"no part checks for {example.target}")
