@@ -61,7 +61,10 @@ SLOW_HOST_DEFAULTS = {
     # loaded host. A timed-out routine is abandoned while it runs, and the
     # DUT locks up when it returns to a breakpoint with debug off.
     "FLASH_ALGORITHM_TIMEOUT_MULTIPLIER": "150",
-    "ARM_DEBUG_TIMEOUT_MULTIPLIER": "30",
+    # probe-rs's reset waits on the ARM debug timeouts: at 30 times their
+    # length dht's reset on the emulated carrier ran out ("A timeout
+    # occurred"), and at 100 the same session passed.
+    "ARM_DEBUG_TIMEOUT_MULTIPLIER": "100",
 }
 # Room for the cable to replug a few times (bench.REPLUG_AFTER_S).
 ENUMERATION_TIMEOUT_S = 600.0
