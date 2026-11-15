@@ -484,9 +484,13 @@ SPECS: dict[str, Spec] = {
     ),
     # rtc/hello_rtc/hello_rtc.c:13-46: the RTC set to Friday 5 June 2020
     # 15:45:00, printed after '\r' every 100 ms (pico-sdk
-    # src/common/pico_util/datetime.c:47-56 for the format).
+    # src/common/pico_util/datetime.c:47-56 for the format). The carrier's
+    # RP2040 counts its first second as the RTC is enabled: loaded with
+    # 15:45:00 as rtc_set_datetime() does, from the debugger with the core
+    # halted, it reads 15:45:01 at once and 15:45:02 a second later, so the
+    # program never prints 15:45:00.
     "hello_rtc": Spec(
-        console=(r"Hello RTC!\r?\n", *(rf"\rFriday 5 June 15:45:0{s} 2020" for s in range(3))),
+        console=(r"Hello RTC!\r?\n", *(rf"\rFriday 5 June 15:45:0{s} 2020" for s in range(1, 4))),
         seconds=6.0,
         source="rtc/hello_rtc/hello_rtc.c",
     ),
