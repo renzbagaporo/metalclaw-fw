@@ -48,11 +48,37 @@ def test_a_pair_without_i2c_functions_is_refused():
         harness_pins(FIXTURE, (5, 6), i2c_pins)
 
 
-def test_every_part_attaches_on_both_fixtures():
+# Every part attaches on the carrier; on fixture 1 too, unless it is bound
+# to GP2, GP3 or GP28, which reach no harness pin there.
+def test_every_part_attaches_on_the_carrier_and_on_fixture_1_unless_on_its_probe_pins():
     for target, parts in PARTS.items():
         for part in parts:
-            for fixture in (FIXTURE, METALCLAW_PICO_RP2_FIXTURE):
-                assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(fixture), target
+            assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(METALCLAW_PICO_RP2_FIXTURE), target
+            pins = {p for binding, values in part.bindings.items()
+                    for p in values[:part.pin_counts.get(binding, len(values))]}
+            if pins & {2, 3, 28}:
+                with pytest.raises(PinError):
+                    part.code(FIXTURE)
+            else:
+                assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(FIXTURE), target
+
+
+def test_the_wire_parts_bind_what_the_programs_drive():
+    on_fixture_1 = {t for t, parts in PARTS.items() if all(
+        not {2, 3, 28} & {p for v in part.bindings.values() for p in v} for part in parts)}
+    batch = {"pio_ws2812", "pio_ws2812_parallel", "pio_apa102", "pio_onewire", "dht", "pio_quadrature_encoder",
+             "pio_quadrature_encoder_substep", "pio_ir_loopback", "pio_hub75"}
+    assert batch <= set(PARTS)
+    assert batch & on_fixture_1 == {"pio_onewire", "dht", "pio_quadrature_encoder", "pio_quadrature_encoder_substep",
+                                    "pio_ir_loopback"}
+    assert {t for t in batch if any(p.needs_line_pullups for p in PARTS[t])} == {"pio_onewire", "dht"}
+
+
+def test_the_hub75_panel_takes_one_pio_window_on_the_carrier():
+    (panel,) = PARTS["pio_hub75"]
+    code = panel.code(METALCLAW_PICO_RP2_FIXTURE)
+    pins = [int(p) for p in re.findall(r"\b(\d+)\b", code.split("attach(", 1)[1])]
+    assert pins and all(p < 32 for p in pins), code
 
 
 def test_the_spi_part_takes_the_carrier_window_branches():
@@ -61,6 +87,7 @@ def test_the_spi_part_takes_the_carrier_window_branches():
     assert "spi=(18, 19, 16, 17)" in env.code(FIXTURE)
 
 
+# A program that prints nothing is judged by its parts' checks alone.
 def test_every_attached_model_is_a_device_and_every_target_has_criteria():
     root = Path(__file__).resolve().parents[2]
     models = set()
@@ -68,7 +95,7 @@ def test_every_attached_model_is_a_device_and_every_target_has_criteria():
         models |= set(re.findall(r"metalclaw_device\((\w+)", cmake.read_text()))
     for target, parts in PARTS.items():
         assert {p.model for p in parts} <= models, target
-        assert PART_SPECS[target].source, target
+        assert (target in PART_SPECS and PART_SPECS[target].source) or any(p.checks for p in parts), target
 
 
 def test_a_part_carries_its_checks():
