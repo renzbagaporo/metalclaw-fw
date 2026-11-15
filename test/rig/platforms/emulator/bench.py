@@ -385,6 +385,77 @@ def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_r
     ]
 
 
+# The bench script's delayed UART0 wires, whose LateDeliveries count the
+# edges each delivered later than its latency once the receiving board had
+# run past them. Read before the bench quits; a Renode package whose script
+# or wires lack them reports None for the wire.
+LATE_DELIVERY_WIRES = ("uart0_dut_tx", "uart0_harness_tx")
+MONITOR_TIMEOUT_S = 30.0
+# The monitor's prompt, "(monitor) " or "(<machine>) ", ends every reply.
+_PROMPT = re.compile(r"\([^()\r\n]*\) ?$")
+_LEADING_PROMPT = re.compile(r"^\([^()\r\n]*\) ?")
+# Telnet option negotiation, then terminal escapes.
+_TELNET = re.compile(r"\xff[\xfb-\xfe].|\xff[^\xfb-\xfe]")
+_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+_NUMBER = re.compile(r"(?:0x[0-9a-fA-F]+|[0-9]+)")
+
+
+def _monitor_text(data: bytes) -> str:
+    return _ESCAPE.sub("", _TELNET.sub("", data.decode("latin-1"))).replace("\r", "")
+
+
+# The value a monitor command printed: its reply's one line that is a number
+# (Renode 1.17 prints a counter as 0x0000000000000003), or None when it
+# printed an error instead: "No such command or device" for an object the
+# bench script never made, "does not provide a field, method or property"
+# for a counter this package's wires do not have.
+def monitor_value(reply: str, command: str) -> int | None:
+    lines = [_LEADING_PROMPT.sub("", line).strip() for line in reply.split("\n")]
+    lines = [line for line in lines if line and line != command]
+    numbers = [line for line in lines if _NUMBER.fullmatch(line)]
+    if len(numbers) != 1 or len(lines) != 1:
+        return None
+    return int(numbers[0], 0)
+
+
+# Each command's reply, up to the prompt after it, from the monitor on
+# `port`. A reply that never ends in a prompt is None, as is every later one.
+# The greeting is read until it goes quiet: it can hold several prompts.
+def monitor_replies(port: int, commands: list[str], timeout: float = MONITOR_TIMEOUT_S,
+                    quiet: float = 0.5) -> list[str | None]:
+    replies: list[str | None] = []
+    with socket.create_connection(("127.0.0.1", port), timeout=timeout) as monitor:
+        def until_prompt(settle: float = 0.0) -> str | None:
+            text, deadline = "", time.monotonic() + timeout
+            while True:
+                prompted = _PROMPT.search(text) is not None
+                if prompted and not settle:
+                    return text
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return text if prompted else None
+                monitor.settimeout(min(left, settle) if prompted else left)
+                try:
+                    data = monitor.recv(4096)
+                except socket.timeout:
+                    if prompted:
+                        return text
+                    return None
+                if not data:
+                    return text if prompted else None
+                text += _monitor_text(data)
+
+        if until_prompt(quiet) is None:
+            return [None] * len(commands)
+        for command in commands:
+            monitor.sendall(command.encode() + b"\n")
+            reply = until_prompt()
+            replies.append(reply)
+            if reply is None:
+                break
+    return replies + [None] * (len(commands) - len(replies))
+
+
 class Bench:
     def __init__(self, renode_dir: Path, layout: Layout, harness_uf2: Path, roms: Path, dut_image: Path,
                  work: Path, serial: str, instance: int = 0, emulation: Emulation = DEFAULT):
@@ -477,6 +548,21 @@ class Bench:
         if s.unmet:
             self.log.write(f"rig: {self.layout.script} does not take " + ", ".join(s.unmet) + "\n")
         self.log.flush()
+
+    # Each delayed UART0 wire's LateDeliveries, None where this package's
+    # bench has no such count or the monitor did not answer.
+    def late_deliveries(self) -> dict[str, int | None]:
+        counts: dict[str, int | None] = {wire: None for wire in LATE_DELIVERY_WIRES}
+        if self.process is None or self.process.poll() is not None or self.monitor_port is None:
+            return counts
+        commands = [f"{wire} LateDeliveries" for wire in LATE_DELIVERY_WIRES]
+        try:
+            replies = monitor_replies(self.monitor_port, commands)
+        except OSError:
+            return counts
+        for wire, command, reply in zip(LATE_DELIVERY_WIRES, commands, replies):
+            counts[wire] = None if reply is None else monitor_value(reply, command)
+        return counts
 
     def stop(self) -> None:
         if self.cable is not None:

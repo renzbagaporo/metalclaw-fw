@@ -184,8 +184,83 @@ def emulation(request) -> Emulation:
     return session_emulation(getattr(request, "param", None))
 
 
+# What the session saw of the emulation itself, read at its end: in the
+# junit file's properties and the terminal summary.
+DIAGNOSTICS = pytest.StashKey[list[tuple[str, str]]]()
+# The session's harness, the `console` fixtures set up and not yet read,
+# and the junit recorder of the testsuite's properties.
+_session: dict = {"harness": None, "consoles": [], "record": None}
+
+
+def record_diagnostic(config: pytest.Config, name: str, value) -> None:
+    config.stash.setdefault(DIAGNOSTICS, []).append((name, str(value)))
+    if _session["record"] is not None:
+        _session["record"](name, str(value))
+
+
+def record_late_deliveries(config: pytest.Config, counts: dict[str, int | None]) -> None:
+    for wire, count in counts.items():
+        record_diagnostic(config, f"renode_{wire}_late_deliveries",
+                          "absent from this Renode package" if count is None else count)
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    found = config.stash.get(DIAGNOSTICS, [])
+    if found:
+        terminalreporter.write_sep("-", "emulator diagnostics")
+        for name, value in found:
+            terminalreporter.write_line(f"{name}: {value}")
+
+
+# Every console bridge on the harness and its UART's counters, one line each.
+CONSOLE_STATS = """import metalclaw
+for i in metalclaw.instances():
+    if i.model == 'console_bridge':
+        s = i.stats('uart')
+        print(i.name, s['frame_errors'], s['overruns'])
+"""
+# Bench seconds: an emulated REPL round trip, with room for a loaded host.
+CONSOLE_STATS_TIMEOUT_S = 2.0
+
+
+def record_console_stats(config: pytest.Config, harness: Harness) -> None:
+    try:
+        text = harness.run(CONSOLE_STATS, CONSOLE_STATS_TIMEOUT_S)
+    except Exception as error:
+        record_diagnostic(config, "console_bridge_stats", f"unavailable: {error}")
+        return
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) == 3 and fields[1].isdigit() and fields[2].isdigit():
+            name, frame_errors, overruns = fields
+            record_diagnostic(config, f"console_bridge_{name}_frame_errors", frame_errors)
+            record_diagnostic(config, f"console_bridge_{name}_overruns", overruns)
+
+
+# A program's console bridge lives as long as the module's `console`
+# fixture, so its counters are read at that module's last teardown, before
+# the fixture detaches it.
+@pytest.hookimpl(wrapper=True)
+def pytest_fixture_setup(fixturedef, request):
+    result = yield
+    if fixturedef.argname == "console":
+        _session["consoles"].append(fixturedef)
+    return result
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_teardown(item, nextitem):
+    if nextitem is not None and nextitem.path == item.path:
+        return
+    consoles = [f for f in _session["consoles"] if f.cached_result is not None]
+    if consoles and _session["harness"] is not None:
+        _session["consoles"] = [f for f in _session["consoles"] if f not in consoles]
+        record_console_stats(item.config, _session["harness"])
+
+
 @pytest.fixture(scope="session")
-def bench(emulation: Emulation):
+def bench(emulation: Emulation, pytestconfig, record_testsuite_property):
+    _session["record"] = record_testsuite_property
     for name, value in SLOW_HOST_DEFAULTS.items():
         os.environ.setdefault(name, value)
     bench_layout = layout()
@@ -211,8 +286,11 @@ def bench(emulation: Emulation):
     except BenchError as error:
         b.stop()
         pytest.exit(str(error), returncode=2)
-    yield b
-    b.stop()
+    try:
+        yield b
+        record_late_deliveries(pytestconfig, b.late_deliveries())
+    finally:
+        b.stop()
 
 
 @pytest.fixture(scope="session")
@@ -220,6 +298,7 @@ def harness(bench) -> Harness:
     h = EmulatedHarness(_serial())
     h.wait_enumerated()
     detach_all_but_probe(h)
+    _session["harness"] = h
     return h
 
 
