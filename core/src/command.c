@@ -14,6 +14,27 @@ void mclw_command_init(struct mclw_command_image *image, uint8_t read_register_o
         MCLW_COMMAND_DIRTY_PAGES | MCLW_COMMAND_DIRTY_BUFFER;
 }
 
+void mclw_command_set_memory_read(struct mclw_command_image *image, uint8_t opcode) {
+    image->has_memory_read = true;
+    image->read_memory_opcode = opcode;
+}
+
+void mclw_command_set_filler(struct mclw_command_image *image, uint8_t filler) {
+    image->filler = filler;
+}
+
+void mclw_command_set_busy_status(struct mclw_command_image *image, uint8_t bits) {
+    image->busy_status = bits;
+}
+
+void mclw_command_add_busy_opcode(struct mclw_command_image *image, uint8_t opcode) {
+    image->busy_opcodes[opcode / 8u] |= (uint8_t)(1u << (opcode % 8u));
+}
+
+bool mclw_command_busy_opcode(const struct mclw_command_image *image, uint8_t opcode) {
+    return (image->busy_opcodes[opcode / 8u] & (1u << (opcode % 8u))) != 0u;
+}
+
 void mclw_command_set_on_window(struct mclw_command_image *image, mclw_command_on_window_t fn,
     void *ctx) {
     image->on_window = fn;
@@ -100,7 +121,7 @@ uint8_t *mclw_command_register(struct mclw_command_image *image, uint16_t addres
 uint8_t mclw_command_get_register(const struct mclw_command_image *image, uint16_t address) {
     const uint8_t *page = page_of(image, (uint8_t)(address >> 8));
 
-    return page == NULL ? 0u : page[address & 0xffu];
+    return page == NULL ? image->filler : page[address & 0xffu];
 }
 
 size_t mclw_command_set_registers(struct mclw_command_image *image, uint16_t address,

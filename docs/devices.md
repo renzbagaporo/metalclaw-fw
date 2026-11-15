@@ -210,6 +210,21 @@ makes all of that free of timing: the engine raises BUSY in hardware at
 every chip-select release and the model lowers it with
 `mclw_hal_spi_target_set_busy()` once its edits are published.
 
+The same image serves a serial NOR flash. Its Read Data is a memory read:
+the opcode, three address bytes and the array from that address, with no
+NOP, served from the image's pages by address bits 15..8 and 7..0; bits
+23..16 reach the model and select nothing. A page the image does not hold
+reads as the image's filler (`mclw_command_set_filler`, 0xFF for a flash).
+Such a part has no BUSY line: it reports its own busy state in the status
+byte and the host polls that, back to back. The image names the opcodes
+that start an internal operation and the status bits that say so; the
+engine sets those bits at the release of such a window and holds them until
+the model has taken it, so a poll right after a program or erase never sees
+the part idle too early. Without a BUSY line the engine keeps two windows
+for the worker rather than one, so a write enable and the erase right
+behind it both reach the model, and a publish lands at once even while a
+window that reads only the status byte is open. `w25q` is built this way.
+
 ## The HAL
 
 `core/include/metalclaw/hal/`. Ports implement it; nothing above it knows a
@@ -238,7 +253,10 @@ port exists.
 - `spi_target.h`: an SPI target that serves a `regmap` (with its framing),
   a `stream` or a `command` image from hardware, in the mode the model
   asked for, with `set_mode` to change it. It publishes a clock ceiling per
-  image (10.7 MHz, 15 MHz and 8 MHz) and counters (`transactions`, `bytes`,
+  image (10.7 MHz, 15 MHz and 8 MHz; 2 MHz for a command image with a
+  memory read, an estimate not yet measured on the bench: the first data
+  byte must reach the state machine within one SCK period of the last
+  address bit, and the chain spends about 200 ns there) and counters (`transactions`, `bytes`,
   short and long windows, DMA faults, stale windows; for a command image a
   stale window is one that began while BUSY was high). On rp2 it is one PIO
   program and DMA; every window is served with no CPU in the byte path, and
