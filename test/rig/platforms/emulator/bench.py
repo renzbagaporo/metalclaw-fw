@@ -344,8 +344,12 @@ class Bench:
                 raise BenchError(f"port {port} is already in use; another Renode is running "
                                  f"(another {INSTANCE_ENV} runs on its own ports)")
         try:
-            example = (self.dut_image.parent / "example.json").is_file()
-            contents = dut_flash.flash_contents(self.dut_image.read_bytes(), allow_empty=example)
+            elf = self.dut_image.read_bytes()
+            # A pico-examples program may run from SRAM, leaving flash erased.
+            if (self.dut_image.parent / "example.json").is_file():
+                contents = dut_flash.flash_contents(elf, allow_empty=True)
+            else:
+                contents = dut_flash.flash_contents(elf)
         except dut_flash.DutFlashError as error:
             raise BenchError(f"{self.dut_image}: {error}") from error
         try:
