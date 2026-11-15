@@ -74,6 +74,13 @@ def test_the_wire_parts_bind_what_the_programs_drive():
     assert {t for t in batch if any(p.needs_line_pullups for p in PARTS[t])} == {"pio_onewire", "dht"}
 
 
+def test_the_encoder_takes_consecutive_pins_on_both_benches():
+    # DUT GP11 has carrier branches 16 and 23; only 23 follows GP10's 22.
+    (encoder,) = PARTS["pio_quadrature_encoder"]
+    assert "ab=(22, 23)" in encoder.code(METALCLAW_PICO_RP2_FIXTURE)
+    assert "ab=(10, 11)" in encoder.code(FIXTURE)
+
+
 def test_the_hub75_panel_takes_one_pio_window_on_the_carrier():
     (panel,) = PARTS["pio_hub75"]
     code = panel.code(METALCLAW_PICO_RP2_FIXTURE)

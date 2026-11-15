@@ -22,8 +22,13 @@ def i2c_pins(pins) -> bool:
     return (sda % 4, scl % 4) in ((0, 1), (2, 3))
 
 
+# A steps_out wire drives its pins as one PIO OUT group: consecutive GPIOs.
+def consecutive_pins(pins) -> bool:
+    return all(p == pins[0] + i for i, p in enumerate(pins))
+
+
 # Per binding name, what its pins must satisfy beyond one PIO window.
-RULES = {"i2c": i2c_pins}
+RULES = {"i2c": i2c_pins, "ab": consecutive_pins}
 
 
 class PinError(ValueError):
