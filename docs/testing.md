@@ -248,7 +248,10 @@ place and the part is not attached: zero-latency wires for the open-drain
 I2C pair of `slave_mem_i2c` and for `pio_clocked_input`'s 21 MHz SPI
 jumpers, and Renode's `RP2_PinSPIFlash` on the DUT's own GP16-19 for
 `pio_spi_flash`, whose PIO controller samples MISO on its own clock edges.
-No harness part a session still attaches may take a stand-in's pins.
+A program judged inside the DUT whose pins would flood the wires between
+the boards has them unwired: the bench script's wires on those DUT pins
+are disposed of before the emulation starts (`hello_pwm`'s 31 MHz PWM on
+GP0 and GP1, `[stand-in-unwired_gp0_gp1]`). No harness part a session still attaches may take a stand-in's pins.
 Every result of such a session carries the stand-ins in its test name
 (`[stand-in-jumper_gp4_gp6+jumper_gp5_gp7]`, `[stand-in-pin_spi_flash_gp17]`)
 and in an `emulator_stand_ins` property, so it is never taken for a pass

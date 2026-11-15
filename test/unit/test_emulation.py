@@ -45,8 +45,10 @@ def test_the_1_wire_and_dht_parts_answer_over_relay_wires():
 
 def test_a_stand_in_replaces_a_part_of_its_program_on_the_same_pins():
     for target, e in EMULATION.items():
-        parts = {p.name: p for p in PARTS[target]}
+        parts = {p.name: p for p in PARTS.get(target, ())}
         for s in e.stand_ins:
+            if s.replaces is None:
+                continue
             assert s.replaces in parts, target
             assert set(parts[s.replaces].dut_pins()) == set(s.pins), target
 
@@ -80,7 +82,7 @@ def test_pio_spi_flash_runs_against_a_flash_inside_the_dut():
     (flash,) = e.stand_ins
     assert flash.replaces == "flash" and flash.renode_type == "RP2_PinSPIFlash"
     assert e.stand_in_label == "stand-in-pin_spi_flash_gp17"
-    assert flash.monitor_commands("pico") == (
+    assert flash.monitor_commands("pico", {}) == (
         'mach set "pico"',
         'machine LoadPlatformDescriptionFromString "spiFlash: SPI.RP2_PinSPIFlash @ none { gpio: gpio; '
         'csPin: 17; sckPin: 18; mosiPin: 19; misoPin: 16 }"')
@@ -184,3 +186,16 @@ def test_gps_uart_takes_the_pin_level_wires_on_gp4_and_gp5():
     assert EMULATION["gps_uart"] == Emulation(i2c0_wiring="wires")
     (gps,) = PARTS["gps_uart"]
     assert gps.bindings["uart"] == (5, 4)
+
+
+def test_hello_pwm_runs_with_gp0_and_gp1_unwired_and_says_so():
+    e = EMULATION["hello_pwm"]
+    (unwired,) = e.stand_ins
+    assert unwired.pins == (0, 1) and unwired.replaces is None
+    assert e.stand_in_label == "stand-in-unwired_gp0_gp1"
+    # Fixture 1's crossed UART0 pair reaches both pins on both wires.
+    wires = {0: ("uart0_dut_tx", "uart0_harness_tx"), 1: ("uart0_harness_tx", "uart0_dut_tx"), 2: ("gp2",)}
+    assert unwired.monitor_commands("pico2", wires) == ("uart0_dut_tx Dispose", "uart0_harness_tx Dispose")
+    assert unwired.monitor_commands("pico", {0: ("gp0",), 1: ("gp1",)}) == ("gp0 Dispose", "gp1 Dispose")
+    from test.pico_examples.hazards import HARDWARE_HAZARDS
+    assert "hello_pwm" in HARDWARE_HAZARDS

@@ -34,8 +34,9 @@ class StandIn:
     def pins(self) -> tuple[int, ...]:
         return (self.a, self.b)
 
-    # Monitor commands after the bench script, for the DUT's `dut_machine`.
-    def monitor_commands(self, dut_machine: str) -> tuple[str, ...]:
+    # Monitor commands after the bench script, for the DUT's `dut_machine`,
+    # whose pins the script's wires `dut_wires` reach, by pin.
+    def monitor_commands(self, dut_machine: str, dut_wires: dict) -> tuple[str, ...]:
         return (f'emulation CreateDigitalWire "{self.wire}" false', f'mach set "{dut_machine}"',
                 f"{self.wire} Connect gpio {self.a}", f"{self.wire} Connect gpio {self.b}")
 
@@ -66,11 +67,30 @@ class FlashStandIn:
     def pins(self) -> tuple[int, ...]:
         return (self.cs, self.sck, self.mosi, self.miso)
 
-    def monitor_commands(self, dut_machine: str) -> tuple[str, ...]:
+    def monitor_commands(self, dut_machine: str, dut_wires: dict) -> tuple[str, ...]:
         return (f'mach set "{dut_machine}"',
                 f'machine LoadPlatformDescriptionFromString "{self.name}: SPI.{self.renode_type} @ none '
                 f'{{ gpio: gpio; csPin: {self.cs}; sckPin: {self.sck}; mosiPin: {self.mosi}; '
                 f'misoPin: {self.miso} }}"')
+
+
+@dataclass(frozen=True)
+class Unwired:
+    # DUT pins left with no wire to the harness: the bench script's wires on
+    # them are disposed of before the emulation starts, so what the DUT
+    # drives there reaches nothing. For a program judged inside the DUT
+    # whose pins would otherwise flood the wires between the boards.
+    pins: tuple[int, ...]
+    replaces = None
+    renode_type = None
+
+    @property
+    def label(self) -> str:
+        return "unwired_" + "_".join(f"gp{p}" for p in self.pins)
+
+    def monitor_commands(self, dut_machine: str, dut_wires: dict) -> tuple[str, ...]:
+        wires = dict.fromkeys(w for p in self.pins for w in dut_wires.get(p, ()))
+        return tuple(f"{w} Dispose" for w in wires)
 
 
 @dataclass(frozen=True)
@@ -83,7 +103,7 @@ class Emulation:
     # I2C0 between the boards: "bus", byte level (the scripts' default), or
     # "wires", pin-level delayed wires (with the carrier's 5.1 k pull-ups).
     i2c0_wiring: str | None = None
-    stand_ins: tuple[StandIn | FlashStandIn, ...] = ()
+    stand_ins: tuple[StandIn | FlashStandIn | Unwired, ...] = ()
 
     # What a result says when it was reached with stand-ins, never by the
     # harness alone: the suffix of its test name.
@@ -130,6 +150,13 @@ PIO_SPI_FLASH_STAND_IN = Emulation(stand_ins=(FlashStandIn(cs=17, sck=18, mosi=1
 # baud takes the default 300 us wires as they are.
 GP4_GP5_WIRES = Emulation(i2c0_wiring="wires")
 
+# pwm/hello_pwm/hello_pwm.c:16-29: slice 0 on GP0 and GP1 at clk_sys / 4,
+# about 31 MHz, which the wires between the boards cannot carry: the
+# harness never re-enumerates with its probe once they flood (3 of 3
+# sessions, both benches). The program is judged by its registers over
+# SWD, inside the DUT, so its pins reach nothing in the emulator.
+HELLO_PWM_UNWIRED = Emulation(stand_ins=(Unwired((0, 1)),))
+
 EMULATION: dict[str, Emulation] = {
     "pio_uart_rx": RELAYED_ON_GP4_GP5,
     "pio_uart_rx_intr": RELAYED_ON_GP4_GP5,
@@ -142,6 +169,7 @@ EMULATION: dict[str, Emulation] = {
     "pio_clocked_input": CLOCKED_INPUT_STAND_INS,
     "pio_spi_flash": PIO_SPI_FLASH_STAND_IN,
     "gps_uart": GP4_GP5_WIRES,
+    "hello_pwm": HELLO_PWM_UNWIRED,
     "slave_mem_i2c": I2C_STAND_INS,
     "slave_mem_i2c_burst": I2C_STAND_INS,
 }

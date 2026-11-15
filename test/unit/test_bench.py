@@ -424,3 +424,29 @@ def test_a_starting_bench_labels_a_flash_stand_in_in_its_log(tmp_path, monkeypat
     run, _ = launch(tmp_path, monkeypatch, "metalclaw_pico_rp2", emulated)
     assert any("SPI.RP2_PinSPIFlash" in command for command in run)
     assert "rig: emulator-only stand-ins pin_spi_flash_gp17\n" in (tmp_path / "work" / "renode.log").read_text()
+
+
+FIXTURE_SCRIPT = """mach create "pico1"
+mach create "pico2"
+emulation CreateDelayedDigitalWire "uart0_dut_tx" false $wire_latency_us
+mach set "pico2"
+uart0_dut_tx Connect gpio 0
+uart0_harness_tx Connect gpio 1
+gp18 Connect gpio 18
+mach set "pico1"
+uart0_dut_tx Connect gpio 1
+uart0_harness_tx Connect gpio 0
+"""
+
+
+def test_the_wires_on_each_dut_pin_come_from_the_bench_script():
+    assert bench.dut_pin_wires(FIXTURE_SCRIPT, "pico2") == {0: ("uart0_dut_tx",), 1: ("uart0_harness_tx",),
+                                                            18: ("gp18",)}
+    assert bench.dut_pin_wires(FIXTURE_SCRIPT, "pico1") == {1: ("uart0_dut_tx",), 0: ("uart0_harness_tx",)}
+
+
+def test_an_unwired_stand_in_disposes_of_the_duts_wires_on_its_pins(tmp_path):
+    script = tmp_path / "metalclaw_fixture.resc"
+    script.write_text(FIXTURE_SCRIPT)
+    s = bench.bench_settings(EMULATION["hello_pwm"], script, FIXTURE_SCRIPT, "pico2")
+    assert s.commands == ("uart0_dut_tx Dispose", "uart0_harness_tx Dispose") and s.unmet == ()

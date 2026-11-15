@@ -408,6 +408,20 @@ def _seconds(value: str, what: str) -> Decimal:
     return seconds
 
 
+# The bench script's wires on each pin of the DUT's machine: every
+# `<wire> Connect gpio <pin>` while `mach set "<dut_machine>"` is in force.
+def dut_pin_wires(script_text: str, dut_machine: str) -> dict[int, tuple[str, ...]]:
+    wires: dict[int, tuple[str, ...]] = {}
+    machine = None
+    for line in script_text.splitlines():
+        line = line.strip()
+        if m := re.fullmatch(r'mach set "([^"]+)"', line):
+            machine = m.group(1)
+        elif machine == dut_machine and (m := re.fullmatch(r"(\w+) Connect gpio (\d+)", line)):
+            wires[int(m.group(2))] = wires.get(int(m.group(2)), ()) + (m.group(1),)
+    return wires
+
+
 # Whether the Renode package in `renode_dir` has a peripheral type: its name
 # is in the metadata of the assembly the RP2 models live in.
 def package_has_type(renode_dir: Path, name: str) -> bool:
@@ -463,11 +477,12 @@ def bench_settings(emulation: Emulation, script: Path, script_text: str, dut_mac
             # The scripts' own I2C0 is the byte-level bus.
             unmet.append(f"$i2c0_wiring {wiring} ({wiring_script.name})")
     commands = []
+    dut_wires = dut_pin_wires(script_text, dut_machine)
     for s in emulation.stand_ins:
         if s.renode_type is not None and not has_type(s.renode_type):
             unmet.append(f"{s.renode_type} ({s.label})")
             continue
-        commands += s.monitor_commands(dut_machine)
+        commands += s.monitor_commands(dut_machine, dut_wires)
     return Settings(tuple(variables), tuple(commands), tuple(unmet))
 
 
