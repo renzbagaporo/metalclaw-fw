@@ -9,6 +9,8 @@
 import itertools
 from dataclasses import dataclass, field
 
+from test.pico_examples import displays
+
 WINDOWS = (range(0, 32), range(16, 48))
 
 
@@ -135,4 +137,87 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     # mpl3115a2_i2c.c:28-29: 0x60, INT1 on GP16.
     "mpl3115a2_i2c": _i2c_part("mpl3115a2", 0x60, {"pressure": 95000, "altitude": 321500, "temperature": 21625},
                            int1=16),
+    # Displays: what a check reads is the controller's memory and the
+    # settings the program sent, judged by test/pico_examples/displays.py.
+    # i2c/ssd1306_i2c/ssd1306_i2c.c:41-44, 330-376: 0x3C, a 128 x 32 panel. The
+    # raspberries are drawn about 3.1 s in (three 1 s flashes first) and
+    # scroll for 5 s; the text comes after.
+    "ssd1306_i2c": (
+        Attach("ssd1306", "oled", {"i2c": (4, 5, 0x3C)}, {"i2c": 2}, checks=(
+            Check("part.read_region('gddram', 0, 1024)", lambda v: v == displays.ssd1306_raspberries(),
+                  "the three raspberries at columns 0, 31 and 62 of pages 0-3, nothing else", 5.5),
+            Check("(part.display_on, part.addressing_mode, part.multiplex, part.contrast, part.segment_remap, "
+                  "part.com_remap, part.com_pins, part.charge_pump, part.entire_on, part.inverse, part.scroll, "
+                  "part.column_range, part.page_range)",
+                  lambda v: v == (True, 0, 32, 0xFF, True, True, 0x02, True, False, False, True, (62, 87), (0, 3)),
+                  "SSD1306_init()'s settings, scrolling, and the last raspberry's render area", 5.5),
+        )),
+    ),
+    # spi/ssd1309_spi/ssd1309_spi.c:24-28: SPI0 with its own chip select,
+    # D/C on GP20, RES# on GP21; spi=(SCK, MOSI, CS, D/C). The PL022 raises
+    # chip select between bytes (Motorola mode, CPHA 0).
+    "ssd1309_spi": (
+        Attach("ssd1309", "oled", {"spi": (18, 19, 17, 20), "reset": (21,)}, checks=(
+            Check("part.read_region('gddram', 0, 1024)", lambda v: displays.ssd1309_spi_frame(v, least=2),
+                  "the alphabet on rows 0 and 1 and a counter of at least 2 on row 3", 2.5),
+            Check("(part.display_on, part.addressing_mode)", lambda v: v == (True, 2),
+                  "display on, page addressing as after RES#", 2.5),
+        )),
+    ),
+    # spi/ssd1309_stdout_spi/ssd1309_stdout_spi.c:39-43: the same pins; a
+    # DMA refresh of the whole frame every 20 ms while it changes.
+    "ssd1309_stdout_spi": (
+        Attach("ssd1309", "oled", {"spi": (18, 19, 17, 20), "reset": (21,)}, checks=(
+            Check("part.read_region('gddram', 0, 1024)", displays.ssd1309_stdout_frame,
+                  "Hello, World on row 0 from byte 16, and the snake below it", 2.0),
+            Check("(part.display_on, part.addressing_mode, part.column_range, part.page_range)",
+                  lambda v: v == (True, 0, (0, 127), (0, 7)),
+                  "display on, horizontal addressing over the whole frame", 2.0),
+        )),
+    ),
+    # i2c/ht16k33_i2c/ht16k33_i2c.c:37, 90-94: 0x70. The scroll runs from
+    # the start for 29 steps of 150 ms.
+    "ht16k33_i2c": (
+        Attach("ht16k33", "leds", {"i2c": (4, 5, 0x70)}, {"i2c": 2}, checks=(
+            Check("part.read_region('display', 0, 16)", displays.ht16k33_scrolling,
+                  "four consecutive characters of the scrolled string on digits 0-3", 2.0),
+            Check("(part.oscillator, part.display_on, part.blink, part.row_int)",
+                  lambda v: v == (True, True, 0, 0), "ht16k33_init()'s settings", 2.0),
+        )),
+    ),
+    # i2c/lcd_1602_i2c/lcd_1602_i2c.c:62: 0x27. The first pair of lines is
+    # written by about 0.2 s and stays until 2.2 s.
+    "lcd_1602_i2c": (
+        Attach("hd44780_pcf8574", "lcd", {"i2c": (4, 5, 0x27)}, {"i2c": 2}, checks=(
+            Check("part.read_region('ddram', 0, 128)", displays.lcd_showing_a_screen,
+                  "a pair of the program's messages, centred, the rest of the DDRAM spaces", 1.0),
+            Check("(part.display_on, part.cursor, part.blink, part.two_lines, part.font_5x10, part.eight_bit, "
+                  "part.increment, part.backlight)",
+                  lambda v: v == (True, False, False, True, False, False, True, True),
+                  "lcd_init()'s settings in 4-bit mode, backlight on", 1.0),
+        )),
+    ),
+    # spi/max7219_32x8_spi/max7219_32x8_spi.c:33, 92-114: SPI0, chip select
+    # on GP17 by hand, four modules; spi=(SCK, MOSI, CS). The ramp of digit
+    # values takes about 5.2 s.
+    "max7219_32x8_spi": (
+        Attach("max7219", "matrix", {"spi": (18, 19, 17)}, properties={"chain": 4}, checks=(
+            Check("part.read_region('digits', 0, 32)", lambda v: displays.max7219_ramp(v, least=20),
+                  "all four modules alike on one step of the 0..255 ramp, at least 20", 2.0),
+            Check("(part.decode_mode[:4], part.scan_limit[:4], part.shutdown[:4], part.intensity[:4], "
+                  "part.display_test[:4])",
+                  lambda v: v == ((0,) * 4, (7,) * 4, (1,) * 4, (8,) * 4, (0,) * 4),
+                  "the init sequence's registers on all four modules", 2.0),
+        )),
+    ),
+    # spi/max7219_8x7seg_spi/max7219_8x7seg_spi.c:33, 110-132: one module.
+    "max7219_8x7seg_spi": (
+        Attach("max7219", "digits", {"spi": (18, 19, 17)}, checks=(
+            Check("part.read_region('digits', 0, 8)", lambda v: displays.max7219_counting(v, least=200),
+                  "a decimal count of at least 200, digit 0 the least significant", 2.0),
+            Check("(part.decode_mode[0], part.scan_limit[0], part.shutdown[0], part.intensity[0], "
+                  "part.display_test[0])",
+                  lambda v: v == (0xFF, 7, 1, 8, 0), "the init sequence's registers", 2.0),
+        )),
+    ),
 }

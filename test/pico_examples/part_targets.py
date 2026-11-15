@@ -148,4 +148,38 @@ PART_SPECS: dict[str, Spec] = {
         seconds=45.0,
         source="i2c/mpl3115a2_i2c/mpl3115a2_i2c.c",
     ),
+    # The display programs print a banner, if anything; what they draw is
+    # judged by parts.py's checks. ssd1309_spi and lcd_1602_i2c print
+    # nothing (lcd_1602_i2c.c never calls stdio_init_all).
+    # ssd1306_i2c.c:319.
+    "ssd1306_i2c": Spec(
+        console=(r"Hello, SSD1306 OLED display! Look at my raspberries\.\." + NL,),
+        seconds=2.0,
+        source="i2c/ssd1306_i2c/ssd1306_i2c.c",
+    ),
+    # ssd1309_stdout_spi.c:209: the printf reaches the UART driver
+    # stdio_init_all() enabled as well as the frame buffer's.
+    "ssd1309_stdout_spi": Spec(
+        console=(r"Hello, World" + NL,),
+        seconds=2.0,
+        source="spi/ssd1309_stdout_spi/ssd1309_stdout_spi.c",
+    ),
+    # ht16k33_i2c.c:164, its spelling.
+    "ht16k33_i2c": Spec(
+        console=(r"Welcome to HT33k16!" + NL,),
+        seconds=2.0,
+        source="i2c/ht16k33_i2c/ht16k33_i2c.c",
+    ),
+    # max7219_32x8_spi.c:89.
+    "max7219_32x8_spi": Spec(
+        console=(r"Hello, max7219! Drawing things on a LED matrix since 2022\.\.\." + NL,),
+        seconds=2.0,
+        source="spi/max7219_32x8_spi/max7219_32x8_spi.c",
+    ),
+    # max7219_8x7seg_spi.c:107.
+    "max7219_8x7seg_spi": Spec(
+        console=(r"Hello, max7219! Drawing things on a 8 x 7 segment display since 2022\.\.\." + NL,),
+        seconds=2.0,
+        source="spi/max7219_8x7seg_spi/max7219_8x7seg_spi.c",
+    ),
 }

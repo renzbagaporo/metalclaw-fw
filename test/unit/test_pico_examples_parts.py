@@ -61,6 +61,7 @@ def test_the_spi_part_takes_the_carrier_window_branches():
     assert "spi=(18, 19, 16, 17)" in env.code(FIXTURE)
 
 
+# A program that prints nothing is judged by its parts' checks alone.
 def test_every_attached_model_is_a_device_and_every_target_has_criteria():
     root = Path(__file__).resolve().parents[2]
     models = set()
@@ -68,7 +69,7 @@ def test_every_attached_model_is_a_device_and_every_target_has_criteria():
         models |= set(re.findall(r"metalclaw_device\((\w+)", cmake.read_text()))
     for target, parts in PARTS.items():
         assert {p.model for p in parts} <= models, target
-        assert PART_SPECS[target].source, target
+        assert (target in PART_SPECS and PART_SPECS[target].source) or any(p.checks for p in parts), target
 
 
 def test_a_part_carries_its_checks():
