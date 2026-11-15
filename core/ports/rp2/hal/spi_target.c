@@ -469,27 +469,72 @@ static void __not_in_flash_func(miso_release)(const struct mclw_spi_target *t) {
     pio_sm_exec(SPI_PIO, t->sm, pio_encode_set(pio_pindirs, 0u));
 }
 
-static void __not_in_flash_func(stop_channel)(int8_t channel) {
-    dma_channel_hw_t *hw;
-
-    if (channel < 0) {
-        return;
+// Clears a channel's enable and points its chain at itself, so that
+// neither a pending chain trigger nor its own completion starts anything.
+static void __not_in_flash_func(disable_channel)(int8_t channel) {
+    if (channel >= 0) {
+        hw_write_masked(&dma_channel_hw_addr((uint)channel)->al1_ctrl,
+            ((uint32_t)channel << DMA_CH0_CTRL_TRIG_CHAIN_TO_LSB),
+            DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS | DMA_CH0_CTRL_TRIG_EN_BITS);
     }
-    hw = dma_channel_hw_addr((uint)channel);
-    hw_write_masked(&hw->al1_ctrl, ((uint32_t)channel << DMA_CH0_CTRL_TRIG_CHAIN_TO_LSB),
-        DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS | DMA_CH0_CTRL_TRIG_EN_BITS);
-    dma_channel_abort((uint)channel);
-    hw_set_bits(&hw->al1_ctrl, DMA_CH0_CTRL_TRIG_READ_ERROR_BITS | DMA_CH0_CTRL_TRIG_WRITE_ERROR_BITS);
-    dma_hw->intr = 1u << channel;
+}
+
+static __force_inline uint32_t channel_bit(int8_t channel) {
+    return channel >= 0 ? 1u << channel : 0u;
+}
+
+static bool __not_in_flash_func(channel_has)(int8_t channel, uint32_t bits) {
+    return channel >= 0 && (dma_channel_hw_addr((uint)channel)->ctrl_trig & bits) != 0u;
+}
+
+static void __not_in_flash_func(clear_errors)(int8_t channel) {
+    if (channel >= 0) {
+        hw_set_bits(&dma_channel_hw_addr((uint)channel)->al1_ctrl,
+            DMA_CH0_CTRL_TRIG_READ_ERROR_BITS | DMA_CH0_CTRL_TRIG_WRITE_ERROR_BITS);
+    }
+}
+
+// The engine's three channels trigger one another: W chains to L, and L
+// loads W's control registers, enable bit included. Aborting them one at a
+// time let one restart another; RP2350-E5 has an aborted channel trigger
+// the channel it chains to unless that one's enable is already clear
+// (pico-sdk dma_channel_abort). So all three are disabled, then aborted
+// together, and the pair is repeated in case a load L had in flight
+// re-enabled W before the abort retired it.
+static void __not_in_flash_func(stop_channels)(const struct mclw_spi_target *t) {
+    uint32_t mask = channel_bit(t->rx_dma) | channel_bit(t->tx_dma) | channel_bit(t->loader_dma);
+
+    for (uint32_t i = 0; i < 4u; i++) {
+        disable_channel(t->loader_dma);
+        disable_channel(t->rx_dma);
+        disable_channel(t->tx_dma);
+        dma_hw->abort = mask;
+        // RP2040-E13: ABORT can clear while a transfer is still in flight;
+        // BUSY stays set until it has retired.
+        for (uint32_t spin = 0; spin < 256u; spin++) {
+            if (!channel_has(t->loader_dma, DMA_CH0_CTRL_TRIG_BUSY_BITS) &&
+                !channel_has(t->rx_dma, DMA_CH0_CTRL_TRIG_BUSY_BITS) &&
+                !channel_has(t->tx_dma, DMA_CH0_CTRL_TRIG_BUSY_BITS)) {
+                break;
+            }
+        }
+        if (!channel_has(t->loader_dma, DMA_CH0_CTRL_TRIG_EN_BITS | DMA_CH0_CTRL_TRIG_BUSY_BITS) &&
+            !channel_has(t->rx_dma, DMA_CH0_CTRL_TRIG_EN_BITS | DMA_CH0_CTRL_TRIG_BUSY_BITS) &&
+            !channel_has(t->tx_dma, DMA_CH0_CTRL_TRIG_EN_BITS | DMA_CH0_CTRL_TRIG_BUSY_BITS)) {
+            break;
+        }
+    }
+    clear_errors(t->loader_dma);
+    clear_errors(t->rx_dma);
+    clear_errors(t->tx_dma);
+    dma_hw->intr = mask;
 }
 
 static void __not_in_flash_func(stop_dma)(struct mclw_spi_target *t) {
     if (t->rx_dma >= 0) {
         dma_channel_set_irq1_enabled((uint)t->rx_dma, false);
     }
-    stop_channel(t->rx_dma);
-    stop_channel(t->tx_dma);
-    stop_channel(t->loader_dma);
+    stop_channels(t);
     for (uint32_t i = 0; i < 16u; i++) {
         pio_sm_clear_fifos(SPI_PIO, t->sm);
         busy_wait_at_least_cycles(64);
