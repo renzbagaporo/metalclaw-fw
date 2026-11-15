@@ -39,6 +39,9 @@ static void binding_facts(mp_obj_t d, const struct mclw_binding_desc *b) {
         dict_store(d, "data_bits", MP_OBJ_NEW_SMALL_INT(b->uart.format.data_bits));
         dict_store(d, "stop_bits", MP_OBJ_NEW_SMALL_INT(b->uart.format.stop_bits));
         dict_store(d, "parity", mp_obj_new_str_from_cstr(mclw_uart_parity_name(b->uart.format.parity)));
+    } else if (b->kind == MCLW_BINDING_WIRE) {
+        dict_store(d, "engine", mp_obj_new_str_from_cstr(mclw_wire_engine_name(b->wire.engine)));
+        dict_store(d, "pins", MP_OBJ_NEW_SMALL_INT(b->wire.pins));
     }
 }
 
@@ -172,6 +175,7 @@ static mp_obj_t mclw_attach_fn(size_t n_args, const mp_obj_t *pos_args, mp_map_t
             case MCLW_BINDING_I2C_TARGET:
             case MCLW_BINDING_SPI_TARGET:
             case MCLW_BINDING_UART:
+            case MCLW_BINDING_WIRE:
                 pins_from_obj(kw_args->table[i].value, req);
                 break;
             case MCLW_BINDING_USB_INTERFACE:

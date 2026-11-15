@@ -38,8 +38,8 @@ struct mclw_region_desc {
 // What a device needs from the platform. The name is the attach() keyword
 // the user passes; the kind says what the runtime resolves it into.
 // usb_interface entries have no keyword: the runtime allocates them.
-// spi_target and uart carry the part's datasheet facts; the runtime opens
-// the engine with them and the schema shows them to the fixture side.
+// spi_target, uart and wire carry the part's datasheet facts; the runtime
+// opens the engine with them and the schema shows them to the fixture side.
 enum mclw_binding_kind {
     MCLW_BINDING_GPIO_IN,
     MCLW_BINDING_GPIO_OUT,
@@ -48,9 +48,12 @@ enum mclw_binding_kind {
     MCLW_BINDING_UART,
     MCLW_BINDING_SWD_WIRE,
     MCLW_BINDING_USB_INTERFACE,
+    // A tuple of pins run by the wire engine the facts name.
+    MCLW_BINDING_WIRE,
 };
 
 struct mclw_usb_interface_desc;
+struct mclw_wire;
 
 struct mclw_binding_desc {
     const char *name;
@@ -60,6 +63,7 @@ struct mclw_binding_desc {
     const struct mclw_usb_interface_desc *usb;
     struct mclw_spi_facts spi;
     struct mclw_uart_facts uart;
+    struct mclw_wire_facts wire;
 };
 
 // Resolved binding handed to the model at init. Handles are opaque HAL
@@ -74,6 +78,7 @@ struct mclw_binding {
         struct mclw_spi_target *spi;
         struct mclw_uart *uart;
         struct mclw_usb_interface *usb;
+        struct mclw_wire *wire;
         void *handle;
     };
 };

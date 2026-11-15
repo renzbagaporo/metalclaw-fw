@@ -21,6 +21,8 @@ set(METALCLAW_PORT_RP2_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/hal/spi_target.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/uart.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/uart_pio.c
+    ${CMAKE_CURRENT_LIST_DIR}/hal/wire.c
+    ${CMAKE_CURRENT_LIST_DIR}/hal/wire_programs.c
 )
 metalclaw_strict_sources(${METALCLAW_PORT_RP2_SOURCES})
 
