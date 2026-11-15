@@ -298,7 +298,9 @@ port exists.
   byte must reach the state machine within one SCK period of the last
   address bit, and the chain spends about 200 ns there) and counters (`transactions`, `bytes`,
   short and long windows, DMA faults, stale windows; for a command image a
-  stale window is one that began while BUSY was high). On rp2 it is one PIO
+  stale window is one that began while BUSY was high, and a missed window,
+  counted for an image without BUSY, one that began before the engine had
+  re-armed after the window before and that it sat out). On rp2 it is one PIO
   program and DMA; every window is served with no CPU in the byte path, and
   the model is called back only through `on_write` or `on_frame` at
   chip-select release, or through `on_window` on the worker. A command
@@ -310,13 +312,16 @@ port exists.
   BUSY line rely on a chip-select setup delay in their overlay.
 - `spi_sink.h`: a receive-only SPI target for a sink, on `(sck, mosi,
   cs[, line])`. Chip select may rise after every byte, as a PL022 does in
-  Motorola mode with CPHA 0, or stay low for a whole frame: nothing is
-  re-armed between windows. On rp2 it is two state machines on PIO0, PIO2
-  where there is one, or PIO1 last (17 instruction words), and two DMA
-  channels: one state machine shifts each byte in with a window flag and
-  the line's level, the other marks every chip-select rise with a token
-  that the first picks up after the next byte, and a DMA channel streams
-  the words into a 2048-entry ring that the worker's poll reads. Its clock
+  Motorola mode with CPHA 0, or stay low for a whole frame: the CPU
+  re-arms nothing between windows. On rp2 it is two state machines on
+  PIO0, PIO2 where there is one, or PIO1 last (20 instruction words), and
+  two DMA channels: one state machine shifts each byte in with a window
+  flag and the line's level; at every chip-select rise the other has a DMA
+  channel write a jump into the first's instruction register, which drops
+  a partial byte and waits for the next fall, so SCK edges while chip
+  select is high (a DUT resetting on a bench with line pull-ups) never
+  count as bits; and a DMA channel streams the words into a 2048-entry
+  ring that the worker's poll reads. Its clock
   ceiling, 10 MHz, is worked out from the programs' instruction counts, not
   measured. Counters: `bytes`, `windows`, `overruns`, `max_clock_hz`. One
   sink at a time.
