@@ -5,7 +5,9 @@
 # program that uses it (part_models_check.c); what comes out, given the
 # properties parts.py sets, must satisfy part_targets.py. The arithmetic of
 # the bmx280, mcp9808 and pcf8523 models, built with a signed-overflow trap
-# as well, is checked against the drivers' side of the bus.
+# as well, is checked against the drivers' side of the bus, and those parts'
+# console criteria against what that arithmetic makes the programs print
+# for the properties the rig sets.
 
 import re
 import subprocess
@@ -119,3 +121,49 @@ def test_mcp9808_temperature_words(build):
 
 def test_pcf8523_counters_and_alarm(build):
     assert run(pcf8523(build)).strip() == "ok"
+
+
+def properties(target, model):
+    (part,) = [p for p in PARTS[target] if p.model == model]
+    return part.properties
+
+
+def reading_patterns(target, words):
+    return [p for p in PART_SPECS[target].console if any(w in p for w in words)]
+
+
+def test_bmp280_i2c_criteria_match_its_reading(build):
+    props = properties("bmp280_i2c", "bmp280")
+    out = run(bmx280(build), "bmp280", props["pressure"], props["temperature"])
+    patterns = reading_patterns("bmp280_i2c", ("Pressure", "Temp"))
+    assert patterns
+    for pattern in patterns:
+        assert re.search(pattern, out.replace("\n", "\r\n")), (pattern, out)
+
+
+def test_bme280_spi_criteria_match_its_reading(build):
+    props = properties("bme280_spi", "bme280")
+    out = run(bmx280(build), "bme280", props["pressure"], props["temperature"], props["humidity"])
+    patterns = reading_patterns("bme280_spi", ("Humidity", "Pressure", "Temp"))
+    assert patterns
+    for pattern in patterns:
+        assert re.search(pattern, out.replace("\n", "\r\n")), (pattern, out)
+
+
+def test_mcp9808_i2c_criteria_match_its_reading(build):
+    out = run(mcp9808(build), properties("mcp9808_i2c", "mcp9808")["temperature"])
+    patterns = reading_patterns("mcp9808_i2c", ("Ambient", "limit"))
+    assert patterns
+    for pattern in patterns:
+        assert re.search(pattern, out.replace("\n", "\r\n")), (pattern, out)
+    for pattern in PART_SPECS["mcp9808_i2c"].forbidden:
+        assert not re.search(pattern, out), (pattern, out)
+
+
+# Which of the spec's patterns is the reading the program prints that many
+# seconds after it set the clock.
+@pytest.mark.parametrize("seconds, index", [(0, 2), (1, 2), (5, 3), (59, 4), (60, 5)])
+def test_pcf8523_i2c_criteria_follow_its_clock(build, seconds, index):
+    out = run(pcf8523(build), seconds).replace("\n", "\r\n")
+    pattern = PART_SPECS["pcf8523_i2c"].console[index]
+    assert re.search(pattern, out), (pattern, out)

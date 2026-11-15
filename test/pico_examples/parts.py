@@ -66,38 +66,58 @@ class Attach:
 
 
 # The parts each needs_part target uses, filled in as their models land.
-PARTS: dict[str, tuple[Attach, ...]] = {}
-
-
-# ---- Batch B: TI INA2xx, InvenSense MPU-6050, ST LIS3DH, NXP MMA8451Q and
-# MPL3115A2. Every program uses i2c_default on the Pico's default pins (SDA
-# GP4, SCL GP5) at the address its source names; property values are picked
-# away from the defaults and from %f rounding ties.
-def _batch_b(model: str, address: int, properties: dict, **gpio) -> tuple[Attach, ...]:
+# Bindings are the programs' default pins (PICO_DEFAULT_I2C_SDA_PIN 4,
+# PICO_DEFAULT_I2C_SCL_PIN 5; PICO_DEFAULT_SPI_RX_PIN 16, _CSN_PIN 17,
+# _SCK_PIN 18, _TX_PIN 19) and addresses; the property values are chosen to
+# be unlike the models' defaults and away from %f rounding ties, so a
+# reading shows it came from the rig.
+def _i2c_part(model: str, address: int, properties: dict, **gpio) -> tuple[Attach, ...]:
     bindings = {"i2c": (4, 5, address), **{name: (pin,) for name, pin in gpio.items()}}
     return (Attach(model, model, bindings, {"i2c": 2}, properties),)
 
 
-PARTS.update({
+PARTS: dict[str, tuple[Attach, ...]] = {
+    # i2c/bmp280_i2c/bmp280_i2c.c: ADDR 0x76.
+    "bmp280_i2c": (
+        Attach("bmp280", "baro", {"i2c": (4, 5, 0x76)}, {"i2c": 2},
+               {"pressure": 98765, "temperature": 23450}),
+    ),
+    # i2c/mcp9808_i2c/mcp9808_i2c.c: ADDRESS 0x18. 34.562 degC is above the
+    # 30 degC upper limit the program writes and under its other two.
+    "mcp9808_i2c": (
+        Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 34562}),
+    ),
+    # i2c/pcf8523_i2c/pcf8523_i2c.c: addr 0x68. The program writes its own
+    # time over this one, which shows its writes land.
+    "pcf8523_i2c": (
+        Attach("pcf8523", "rtc", {"i2c": (4, 5, 0x68)}, {"i2c": 2},
+               {"time": (26, 11, 15, 0, 12, 34, 56)}),
+    ),
+    # spi/bme280_spi/bme280_spi.c: spi=(SCK, MOSI = TX, MISO = RX, CSn).
+    "bme280_spi": (
+        Attach("bme280", "env", {"spi": (18, 19, 16, 17)}, {},
+               {"pressure": 99887, "temperature": 21370, "humidity": 45670}),
+    ),
+    # TI INA2xx, InvenSense MPU-6050, ST LIS3DH, NXP MMA8451Q and MPL3115A2:
+    # i2c_default at the address each source names.
     # ina219_i2c.c:7, 21-23: 0x40, calibrated for a 0.1 ohm shunt.
-    "ina219_i2c": _batch_b("ina219", 0x40, {"bus_voltage": 5124, "current": 123400, "shunt_resistance": 100000}),
+    "ina219_i2c": _i2c_part("ina219", 0x40, {"bus_voltage": 5124, "current": 123400, "shunt_resistance": 100000}),
     # ina228_i2c.c:23, 27: 0x40, the stock 15 mohm shunt.
-    "ina228_i2c": _batch_b("ina228", 0x40, {"bus_voltage": 4850, "current": 92500, "shunt_resistance": 15000,
-                                        "temperature": 41000}),
+    "ina228_i2c": _i2c_part("ina228", 0x40, {"bus_voltage": 4850, "current": 92500, "shunt_resistance": 15000,
+                                         "temperature": 41000}),
     # ina237_i2c.c:12, 26: 0x40, a 15 mohm shunt.
-    "ina237_i2c": _batch_b("ina237", 0x40, {"bus_voltage": 3300, "current": 200000, "shunt_resistance": 15000,
-                                        "temperature": 31250}),
+    "ina237_i2c": _i2c_part("ina237", 0x40, {"bus_voltage": 3300, "current": 200000, "shunt_resistance": 15000,
+                                         "temperature": 31250}),
     # ina260_i2c.c:11: 0x40; the shunt is inside the part.
-    "ina260_i2c": _batch_b("ina260", 0x40, {"bus_voltage": 5000, "current": 742500}),
+    "ina260_i2c": _i2c_part("ina260", 0x40, {"bus_voltage": 5000, "current": 742500}),
     # mpu6050_i2c.c:34: 0x68.
-    "mpu6050_i2c": _batch_b("mpu6050", 0x68, {"acceleration": (250, -500, 1125),
-                                          "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
+    "mpu6050_i2c": _i2c_part("mpu6050", 0x68, {"acceleration": (250, -500, 1125),
+                                           "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
     # lis3dh_i2c.c:27: 0x18.
-    "lis3dh_i2c": _batch_b("lis3dh", 0x18, {"acceleration": (252, -500, 1020), "temperature": 28750}),
+    "lis3dh_i2c": _i2c_part("lis3dh", 0x18, {"acceleration": (252, -500, 1020), "temperature": 28750}),
     # mma8451_i2c.c:26: 0x1D.
-    "mma8451_i2c": _batch_b("mma8451q", 0x1D, {"acceleration": (500, -250, 2000)}),
+    "mma8451_i2c": _i2c_part("mma8451q", 0x1D, {"acceleration": (500, -250, 2000)}),
     # mpl3115a2_i2c.c:28-29: 0x60, INT1 on GP16.
-    "mpl3115a2_i2c": _batch_b("mpl3115a2", 0x60, {"pressure": 95000, "altitude": 321500, "temperature": 21625},
-                          int1=16),
-})
-# ---- end of batch B
+    "mpl3115a2_i2c": _i2c_part("mpl3115a2", 0x60, {"pressure": 95000, "altitude": 321500, "temperature": 21625},
+                           int1=16),
+}

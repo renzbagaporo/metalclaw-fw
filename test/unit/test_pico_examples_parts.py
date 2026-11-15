@@ -1,8 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
+import re
+from pathlib import Path
+
 import pytest
 
-from test.pico_examples.parts import Attach, PinError, harness_pins, i2c_pins
+from test.pico_examples.part_targets import PART_SPECS
+from test.pico_examples.parts import PARTS, Attach, PinError, harness_pins, i2c_pins
 from test.rig.platforms.hardware.platform import FIXTURE, METALCLAW_PICO_RP2_FIXTURE
 
 
@@ -42,3 +46,26 @@ def test_a_carrier_i2c_attach_takes_the_branches_with_i2c_functions():
 def test_a_pair_without_i2c_functions_is_refused():
     with pytest.raises(PinError):
         harness_pins(FIXTURE, (5, 6), i2c_pins)
+
+
+def test_every_part_attaches_on_both_fixtures():
+    for target, parts in PARTS.items():
+        for part in parts:
+            for fixture in (FIXTURE, METALCLAW_PICO_RP2_FIXTURE):
+                assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(fixture), target
+
+
+def test_the_spi_part_takes_the_carrier_window_branches():
+    (env,) = PARTS["bme280_spi"]
+    assert "spi=(38, 32, 35, 34)" in env.code(METALCLAW_PICO_RP2_FIXTURE)
+    assert "spi=(18, 19, 16, 17)" in env.code(FIXTURE)
+
+
+def test_every_attached_model_is_a_device_and_every_target_has_criteria():
+    root = Path(__file__).resolve().parents[2]
+    models = set()
+    for cmake in (root / "devices").glob("*/device.cmake"):
+        models |= set(re.findall(r"metalclaw_device\((\w+)", cmake.read_text()))
+    for target, parts in PARTS.items():
+        assert {p.model for p in parts} <= models, target
+        assert PART_SPECS[target].source, target

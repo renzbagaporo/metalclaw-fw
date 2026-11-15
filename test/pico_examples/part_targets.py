@@ -1,26 +1,70 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # Console criteria for the pico-examples programs that need an external
 # part, kept beside the parts they attach (parts.py) as each model lands.
-# Same rules as targets.py: every pattern comes from the program's source.
+# Same rules as targets.py: every pattern comes from the program's source,
+# and the numbers from its own formatting of the properties parts.py sets
+# (test/unit/test_part_models.py runs the models' arithmetic and the
+# programs' conversions to check them).
 
-from test.pico_examples.targets import Spec
-
-PART_SPECS: dict[str, Spec] = {}
-
-
-# ---- Batch B: the INA2xx, MPU-6050, LIS3DH, MMA8451Q and MPL3115A2
-# programs, with the properties parts.py sets. Each number is the program's
-# arithmetic applied to the register words the model derives from those
-# properties; test/unit/test_part_models.py runs both on the host and
-# matches these patterns against what comes out.
-from test.pico_examples.targets import NL, forbid  # noqa: E402
+from test.pico_examples.targets import FORBIDDEN, NL, Spec, forbid
 
 
 def _twice(*lines: str) -> tuple[str, ...]:
     return lines + lines
 
 
-PART_SPECS.update({
+PART_SPECS: dict[str, Spec] = {
+    # bmp280_i2c.c:223 prints the greeting (its spelling), then from 243 on
+    # every 500 ms printf("Pressure = %.3f kPa\n", pressure / 1000.f) and
+    # printf("Temp. = %.2f C\n", temperature / 100.f): 98765 Pa, 23.45 degC.
+    "bmp280_i2c": Spec(
+        console=(r"Hello, BMP280! Reading temperaure and pressure values from sensor\.\.\.\r?\n",)
+        + (r"Pressure = 98\.765 kPa\r?\n", r"Temp\. = 23\.45 C\r?\n") * 3,
+        seconds=5.0,
+        source="i2c/bmp280_i2c/bmp280_i2c.c",
+    ),
+    # mcp9808_i2c.c:110 greets, 121 writes the limits (30, 20, 40 degC), then
+    # every second mcp9808_check_limits() prints a line per set flag and 142
+    # printf("Ambient temperature: %.4f°C\n"): 34.562 degC is 553/16 =
+    # 34.5625, above TUPPER only.
+    "mcp9808_i2c": Spec(
+        console=(r"Hello, MCP9808! Reading raw data from registers\.\.\.\r?\n",)
+        + (r"Temperature is above the upper temperature limit\.\r?\n",
+           r"Ambient temperature: 34\.5625\u00b0C\r?\n") * 3,
+        seconds=5.0,
+        forbidden=FORBIDDEN + (r"below the lower temperature limit", r"above the critical temperature limit"),
+        source="i2c/mcp9808_i2c/mcp9808_i2c.c",
+    ),
+    # pcf8523_i2c.c:126 greets; 137..141 reset the part, write 0 to every
+    # time register, set the minute alarm to 01 and check it once. From 147
+    # every 500 ms it prints the time (line 152), the date (153, weekday 0
+    # is Sunday) and whether AF is set (154, no newline). The first reading
+    # is in the first second; the minute alarm rings at 00:01:00.
+    "pcf8523_i2c": Spec(
+        console=(
+            r"Hello, PCF8520! Reading raw data from registers\.\.\.\r?\n",
+            r"Alarm not triggered yet",
+            r"Time: 00 : 00 : 0[01]\r?\nDate: Sunday 00 / 00 / 00\r?\nAlarm not triggered yet",
+            r"Time: 00 : 00 : 05\r?\n",
+            r"Time: 00 : 00 : 59\r?\nDate: Sunday 00 / 00 / 00\r?\nAlarm not triggered yet",
+            r"Time: 00 : 01 : 00\r?\nDate: Sunday 00 / 00 / 00\r?\nALARM RINGING",
+        ),
+        seconds=70.0,
+        source="i2c/pcf8523_i2c/pcf8523_i2c.c",
+    ),
+    # bme280_spi.c:194 greets, 214 printf("Chip ID is 0x%x\n", id), then
+    # every second (232..234) humidity / 1024.0 as %.2f%%, the pressure as
+    # %dPa and temperature / 100.0 as %.2fC: 45.67 %RH, 99887 Pa, 21.37 degC.
+    "bme280_spi": Spec(
+        console=(r"Hello, bme280! Reading raw data from registers via SPI\.\.\.\r?\n",
+                 r"Chip ID is 0x60\r?\n")
+        + (r"Humidity = 45\.67%\r?\n", r"Pressure = 99887Pa\r?\n", r"Temp\. = 21\.37C\r?\n") * 3,
+        seconds=6.0,
+        source="spi/bme280_spi/bme280_spi.c",
+    ),
+    # The INA2xx, MPU-6050, LIS3DH, MMA8451Q and MPL3115A2 programs: each
+    # number is the program's arithmetic applied to the register words the
+    # model derives from the properties parts.py sets.
     # i2c/ina219_i2c/ina219_i2c.c:59, 76-102: the banner, then one line a
     # second. 123.4 mA through 0.1 ohm is 12.34 mV, 1234 at 10 uV; 5124 mV is
     # 1281 at 4 mV; CURRENT 1234 x 4096 / 4096 = 1234 at 0.1 mA; POWER
@@ -104,5 +148,4 @@ PART_SPECS.update({
         seconds=45.0,
         source="i2c/mpl3115a2_i2c/mpl3115a2_i2c.c",
     ),
-})
-# ---- end of batch B
+}
