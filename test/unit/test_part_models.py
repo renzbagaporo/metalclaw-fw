@@ -3,7 +3,8 @@
 # mpu6050, lis3dh, mma8451q and mpl3115a2 models run behind a stand-in for
 # the I2C target engine, each driven by a transcription of the pico-examples
 # program that uses it (part_models_check.c); what comes out, given the
-# properties parts.py sets, must satisfy part_targets.py. The arithmetic of
+# properties parts.py sets, must satisfy part_targets.py; the mcp9808 model
+# runs there too, for the registers no program shows. The arithmetic of
 # the bmx280, mcp9808 and pcf8523 models, built with a signed-overflow trap
 # as well, is checked against the drivers' side of the bus, and those parts'
 # console criteria against what that arithmetic makes the programs print
@@ -34,8 +35,10 @@ def strict_options():
 @pytest.fixture(scope="module")
 def check(tmp_path_factory):
     exe = tmp_path_factory.mktemp("part_models") / "part_models_check"
-    sources = [CHECK, ROOT / "core" / "src" / "regmap.c", *(ROOT / "devices" / d / f"{d}.c" for d in DEVICES)]
-    includes = [arg for d in ("core/include", *(f"devices/{d}" for d in DEVICES)) for arg in ("-I", ROOT / d)]
+    devices = (*DEVICES, "mcp9808")
+    sources = [CHECK, ROOT / "core" / "src" / "regmap.c", *(ROOT / "devices" / d / f"{d}.c" for d in devices),
+               ROOT / "devices" / "mcp9808" / "mcp9808_temp.c"]
+    includes = [arg for d in ("core/include", *(f"devices/{d}" for d in devices)) for arg in ("-I", ROOT / d)]
     build = subprocess.run(["cc", "-O1", "-ffp-contract=off", *strict_options(), *includes, *sources, "-lm",
                             "-o", exe], capture_output=True, text=True)
     assert build.returncode == 0, build.stderr

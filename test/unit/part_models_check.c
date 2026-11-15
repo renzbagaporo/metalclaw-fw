@@ -12,8 +12,8 @@
 //   part_models_check <target> <model> <address> [property=v[,v...]]...
 //   part_models_check behaviours
 //
-// The second form checks what no program's output shows: reset values,
-// identity registers, the reset bits, bursts through the pointer maps, the
+// The second form checks what no program's output shows, for those parts
+// and the MCP9808: reset values, identity registers, the reset bits, bursts through the pointer maps, the
 // INA228's accumulators, the conversion-ready flag a read clears, and where
 // a transaction starts with and without a pointer map.
 
@@ -33,6 +33,7 @@
 
 #include "ina2xx.h"
 #include "lis3dh.h"
+#include "mcp9808.h"
 #include "mma8451q.h"
 #include "mpl3115a2.h"
 #include "mpu6050.h"
@@ -713,6 +714,24 @@ static void behaviours(void) {
     CHECK(burst[0] == 0x0F && burst[1] == 0x40 && burst[2] == 0xC0 && burst[3] == 0x20);
     write8(0x2B, 0x40);
     CHECK(read8(0x2A) == 0x00);
+    detach();
+
+    // MCP9808: arming selects pointer 0 (RFU); a read with no pointer write
+    // returns the register last selected from its MSB (DS25095A 4.1.1);
+    // pointers past Resolution read zero.
+    fresh(&mclw_model_mcp9808, 0x18);
+    CHECK(i2c_read_blocking(part_address, burst, 2, false) == 2 && burst[0] == 0x00 && burst[1] == 0x1F);
+    CHECK(read_reg16(0x06) == 0x0054 && read_reg16(0x07) == 0x0400 && read8(0x08) == 0x03);
+    set_property("temperature=25250");
+    uint16_t ta = read_reg16(0x05);
+    CHECK((ta & 0x1FFF) == 0x0194);
+    for (int n = 0; n < 2; n++) {
+        CHECK(i2c_read_blocking(part_address, burst, 2, false) == 2);
+        CHECK(burst[0] == (uint8_t)(ta >> 8) && burst[1] == (uint8_t)ta);
+    }
+    write_reg16(0x02, 0x01E0);
+    CHECK(i2c_read_blocking(part_address, burst, 2, false) == 2 && burst[0] == 0x01 && burst[1] == 0xE0);
+    CHECK(read_reg16(0x09) == 0 && read_reg16(0x80) == 0 && read_reg16(0xFF) == 0);
     detach();
 
     // MPL3115A2: WHO_AM_I, BAR_IN's reset, INT1 idle high, one-shot data.
