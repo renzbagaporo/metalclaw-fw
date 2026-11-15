@@ -5,7 +5,7 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct mclw_model` and nothing else the
-runtime needs to know about. Eight exist:
+runtime needs to know about. Thirteen exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
 [`console_bridge`](../devices/console_bridge/README.md), a USB serial port on
 the board's console UART;
@@ -15,14 +15,22 @@ the board's console UART;
 [`neo_m8n`](../devices/neo_m8n/README.md), a u-blox GNSS receiver on UART that
 streams NMEA and speaks UBX;
 [`sx126x`](../devices/sx126x/README.md), Semtech LoRa transceivers on
-SPI with their BUSY, DIO1 and NRESET lines and a simulated air side; and
+SPI with their BUSY, DIO1 and NRESET lines and a simulated air side;
 [`cellular`](../devices/cellular/README.md), cellular modems on UART with
 their PWRKEY or RESET_N and a small fake network behind them, one engine
 shared by four models: [`sim7080g`](../devices/cellular/sim7080g.md) and
 [`sim7000`](../devices/cellular/sim7000.md), SIMCom LTE-M/NB-IoT modems;
 [`a7672x`](../devices/cellular/a7672x.md), a SIMCom LTE Cat-1 modem; and
 [`sequans_monarch`](../devices/cellular/sequans_monarch.md), the Sequans
-Monarch LTE-M/NB-IoT modems.
+Monarch LTE-M/NB-IoT modems;
+[`ina2xx`](../devices/ina2xx/README.md), Texas Instruments current and power
+monitors on I2C, one engine shared by four models: `ina219`, `ina228`,
+`ina237` and `ina260`;
+[`mpu6050`](../devices/mpu6050/README.md), an InvenSense six-axis IMU on I2C;
+[`lis3dh`](../devices/lis3dh/README.md), an ST accelerometer on I2C;
+[`mma8451q`](../devices/mma8451q/README.md), an NXP accelerometer on I2C; and
+[`mpl3115a2`](../devices/mpl3115a2/README.md), an NXP pressure and altitude
+sensor on I2C with its interrupt lines.
 
 A device is written from its datasheet and contains no bus code. It declares
 which buses the part speaks, fills an image the datasheet describes (a
