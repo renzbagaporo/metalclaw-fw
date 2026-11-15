@@ -51,6 +51,17 @@ def test_a_board_override_replaces_only_its_fields():
     assert spec.for_board("pico2").console == ("both",)
 
 
+def test_freertos_panics_only_count_before_main_task_exits():
+    spec = SPECS["hello_freertos_one_core"]
+    lines = "Starting FreeRTOS on core 0:\n" + "".join(
+        f"Hello from main task count={n}\n" + ("Hello from worker count=1\n" if n == 3 else "")
+        + ("Hello from worker count=2\n" if n == 6 else "") for n in range(10))
+    exited = lines + "main_task is exiting now\n"
+    assert spec.match(exited) == ([], [])
+    assert spec.match(exited + "\n*** PANIC ***\n\nnot supported\n")[1] == []
+    assert spec.match(lines + "\n*** PANIC ***\n")[1] != []
+
+
 def test_an_example_image_is_known_by_its_metadata(tmp_path):
     elf = tmp_path / "hello_serial.elf"
     elf.write_bytes(b"")
