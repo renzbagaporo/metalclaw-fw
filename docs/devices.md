@@ -170,7 +170,13 @@ binds either. A part whose register pointer does not name one byte (registers
 wider than a byte, an auto-increment flag in the pointer, a FIFO behind an
 alias) gives the map a pointer map: for each pointer value, the image
 address a transfer starts at. The I2C engine applies it and then runs on
-through the image one byte per bus byte.
+through the image one byte per bus byte. With a pointer map, every
+transaction starts again at the image address its last pointer byte
+selected, so a read with no pointer write re-reads the selected register
+from its first byte; arming the map selects pointer value 0. That is how
+the pointer registers of TI's INA2xx (SBOS448G 8.5.6, SLYS021A 7.5.1.1) and
+Microchip's MCP9808 (DS25095A 4.1.1) behave. Without one, the pointer is a
+byte address that runs on from one transaction to the next.
 
 `core/include/metalclaw/stream.h` is the other image: a fixed-length frame
 of up to 64 bytes, double-buffered, that the part drives out (`OUT`, an ADC)
@@ -212,8 +218,10 @@ port exists.
   is installed on; the interrupt itself stays disabled.
 - `i2c_target.h`: an I2C target that serves a `regmap` from hardware. The
   model arms it once and updates the image under a critical section; the
-  engine answers the bus from interrupt context without the model. Counters:
-  `transactions`, `bytes`.
+  engine answers the bus from interrupt context without the model. The
+  first byte the master writes is the register pointer; with the image's
+  pointer map, each transaction starts again at the register it selected.
+  Counters: `transactions`, `bytes`.
 - `spi_target.h`: an SPI target that serves a `regmap` (with its framing),
   a `stream` or a `command` image from hardware, in the mode the model
   asked for, with `set_mode` to change it. It publishes a clock ceiling per

@@ -15,11 +15,12 @@ calibration reads the wrong current, as it would from the real part.
 The parts' registers are 16 to 40 bits wide behind one pointer value each,
 most significant byte first. The model lays them out back to back in a
 `struct mclw_regmap` and gives the map a pointer map (`regmap.h`), so the
-I2C engine starts each transfer at the register's first byte; every pointer
-value the part does not implement reads zeros. Writes land per byte; the
-model's `on_write` acts once a register's last writable byte has landed,
-restores the bits the datasheet makes read-only, and recomputes in interrupt
-context. Conversion timing runs on the worker in `time_advanced`.
+I2C engine starts each transfer at the register's first byte, and a read
+with no pointer write reads the register last selected again (SBOS448G
+8.5.6); every pointer value the part does not implement reads zeros. Writes
+land per byte; the model's `on_write` acts once a register's last writable
+byte has landed, restores the bits the datasheet makes read-only, and
+recomputes in interrupt context. Conversion timing runs on the worker in `time_advanced`.
 
 ## Bindings
 

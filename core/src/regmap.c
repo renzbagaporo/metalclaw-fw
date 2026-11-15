@@ -57,6 +57,10 @@ uint8_t MCLW_RAM_FUNC(mclw_regmap_bus_select)(const struct mclw_regmap *map, uin
     return map->pointer_map != NULL ? map->pointer_map[pointer] : pointer;
 }
 
+uint8_t MCLW_RAM_FUNC(mclw_regmap_bus_restart)(const struct mclw_regmap *map, uint8_t selected, uint8_t next) {
+    return map->pointer_map != NULL ? selected : next;
+}
+
 static inline uint8_t MCLW_RAM_FUNC(read_one)(struct mclw_regmap *map, uint8_t reg) {
     uint8_t bank = map->active_bank;
     uint8_t flags = map->flags[bank][reg];

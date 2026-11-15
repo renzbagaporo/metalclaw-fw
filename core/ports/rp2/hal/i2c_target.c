@@ -20,8 +20,10 @@ struct mclw_i2c_target {
     const void *owner;
     struct mclw_regmap *image;
     // The image address the master's first written byte selects, through
-    // the image's pointer map; auto-incremented after use.
+    // the image's pointer map; auto-incremented after use, and put back to
+    // `selected` at the end of a transaction when the image has a map.
     uint8_t pointer;
+    uint8_t selected;
     bool pointer_pending;
     struct mclw_i2c_target_stats stats;
 };
@@ -60,7 +62,8 @@ static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
         case I2C_SLAVE_RECEIVE: {
             uint8_t byte = i2c_read_byte_raw(i2c);
             if (t->pointer_pending) {
-                t->pointer = image != NULL ? mclw_regmap_bus_select(image, byte) : byte;
+                t->selected = image != NULL ? mclw_regmap_bus_select(image, byte) : byte;
+                t->pointer = t->selected;
                 t->pointer_pending = false;
             } else if (image != NULL) {
                 mclw_regmap_bus_write(image, t->pointer++, byte);
@@ -72,7 +75,11 @@ static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
             i2c_write_byte_raw(i2c, image != NULL ? mclw_regmap_bus_read(image, t->pointer++) : 0xff);
             t->stats.bytes++;
             break;
+        // A STOP or a repeated START.
         case I2C_SLAVE_FINISH:
+            if (image != NULL) {
+                t->pointer = mclw_regmap_bus_restart(image, t->selected, t->pointer);
+            }
             t->pointer_pending = true;
             t->stats.transactions++;
             break;
@@ -109,6 +116,7 @@ struct mclw_i2c_target *mclw_hal_i2c_target_open(uint8_t sda, uint8_t scl, uint8
     t->owner = owner;
     t->image = NULL;
     t->pointer = 0;
+    t->selected = 0;
     t->pointer_pending = true;
     t->stats.transactions = 0;
     t->stats.bytes = 0;
@@ -144,6 +152,12 @@ int mclw_hal_i2c_target_arm(struct mclw_i2c_target *t, struct mclw_regmap *image
     }
     uint32_t state = mclw_hal_critical_enter();
     t->image = image;
+    // Pointer value 0 is selected, as at a part's power-on (DS25095A
+    // register 5-1); it takes effect only for an image with a pointer map.
+    if (image != NULL) {
+        t->selected = mclw_regmap_bus_select(image, 0);
+        t->pointer = mclw_regmap_bus_restart(image, t->selected, t->pointer);
+    }
     t->pointer_pending = true;
     mclw_hal_critical_exit(state);
     return 0;

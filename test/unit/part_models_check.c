@@ -2,8 +2,10 @@
 // Runs a part model on the host behind a stand-in for the rp2 I2C target
 // engine (core/ports/rp2/hal/i2c_target.c: the first written byte selects
 // the pointer through the image's pointer map, every further byte moves it
-// on), with a simulated clock ticking the model's time_advanced once a
-// millisecond. Against it runs a transcription of one pico-examples
+// on, and each transaction ends with mclw_regmap_bus_restart, one per
+// i2c_*_blocking call as the SDK raises I2C_SLAVE_FINISH at a STOP or a
+// repeated START), with a simulated clock ticking the model's
+// time_advanced once a millisecond. Against it runs a transcription of one pico-examples
 // program's register traffic and arithmetic (pico-examples 0d62f75, the
 // file and lines cited per program), printing what the program prints.
 //
@@ -12,7 +14,8 @@
 //
 // The second form checks what no program's output shows: reset values,
 // identity registers, the reset bits, bursts through the pointer maps, the
-// INA228's accumulators, the conversion-ready flag a read clears.
+// INA228's accumulators, the conversion-ready flag a read clears, and where
+// a transaction starts with and without a pointer map.
 
 #include <math.h>
 #include <stdbool.h>
@@ -45,6 +48,7 @@
 struct mclw_i2c_target {
     struct mclw_regmap *image;
     uint8_t pointer;
+    uint8_t selected;
 };
 
 struct mclw_gpio {
@@ -69,6 +73,10 @@ void mclw_hal_critical_exit(uint32_t state) {
 
 int mclw_hal_i2c_target_arm(struct mclw_i2c_target *t, struct mclw_regmap *image) {
     t->image = image;
+    if (image != NULL) {
+        t->selected = mclw_regmap_bus_select(image, 0);
+        t->pointer = mclw_regmap_bus_restart(image, t->selected, t->pointer);
+    }
     return 0;
 }
 
@@ -93,7 +101,7 @@ static void run_clock(uint64_t us) {
     now_us += us;
     while ((ticked_ms + 1) * 1000 <= now_us) {
         ticked_ms++;
-        if (instance.model->ops->time_advanced != NULL) {
+        if (instance.model != NULL && instance.model->ops->time_advanced != NULL) {
             instance.model->ops->time_advanced(&instance, ticked_ms * 1000);
         }
     }
@@ -115,10 +123,12 @@ static int i2c_write_blocking(uint8_t addr, const uint8_t *buf, size_t len, bool
     if (len == 0) {
         return 0;
     }
-    target.pointer = mclw_regmap_bus_select(target.image, buf[0]);
+    target.selected = mclw_regmap_bus_select(target.image, buf[0]);
+    target.pointer = target.selected;
     for (size_t i = 1; i < len; i++) {
         mclw_regmap_bus_write(target.image, target.pointer++, buf[i]);
     }
+    target.pointer = mclw_regmap_bus_restart(target.image, target.selected, target.pointer);
     return (int)len;
 }
 
@@ -129,6 +139,7 @@ static int i2c_read_blocking(uint8_t addr, uint8_t *buf, size_t len, bool nostop
     for (size_t i = 0; i < len; i++) {
         buf[i] = mclw_regmap_bus_read(target.image, target.pointer++);
     }
+    target.pointer = mclw_regmap_bus_restart(target.image, target.selected, target.pointer);
     return (int)len;
 }
 
@@ -546,8 +557,63 @@ static uint64_t read40(uint8_t reg) {
     return v;
 }
 
+// The engine's pointer over a bare map, without and with a pointer map
+// (pointer p at image byte 2p + 0x40, a part with 16-bit registers).
+static void restarts(void) {
+    static struct mclw_regmap map;
+    static uint8_t pointers[MCLW_REGMAP_BANK_SIZE];
+    uint8_t buf[3];
+
+    mclw_regmap_init(&map, 1, 0, 0x00);
+    for (unsigned a = 0; a < MCLW_REGMAP_BANK_SIZE; a++) {
+        mclw_regmap_set(&map, 0, (uint8_t)a, (uint8_t)(a ^ 0x5A), MCLW_REG_WRITABLE);
+        pointers[a] = (uint8_t)(2 * a + 0x40);
+    }
+    part_address = 0x50;
+    target.pointer = 0x33;
+    CHECK(mclw_hal_i2c_target_arm(&target, &map) == 0);
+
+    // No map: arming leaves the pointer, which runs on from one transaction
+    // to the next.
+    CHECK(i2c_read_blocking(part_address, buf, 1, false) == 1 && buf[0] == (0x33 ^ 0x5A));
+    buf[0] = 0x10;
+    CHECK(i2c_write_blocking(part_address, buf, 1, true) == 1);
+    CHECK(i2c_read_blocking(part_address, buf, 2, false) == 2);
+    CHECK(buf[0] == (0x10 ^ 0x5A) && buf[1] == (0x11 ^ 0x5A));
+    CHECK(i2c_read_blocking(part_address, buf, 2, false) == 2);
+    CHECK(buf[0] == (0x12 ^ 0x5A) && buf[1] == (0x13 ^ 0x5A));
+    buf[0] = 0x20;
+    buf[1] = 0xA1;
+    buf[2] = 0xA2;
+    CHECK(i2c_write_blocking(part_address, buf, 3, false) == 3);
+    CHECK(i2c_read_blocking(part_address, buf, 1, false) == 1 && buf[0] == (0x22 ^ 0x5A));
+    CHECK(mclw_regmap_get(&map, 0, 0x20) == 0xA1 && mclw_regmap_get(&map, 0, 0x21) == 0xA2);
+
+    // A map: arming selects pointer 0, and every transaction starts again at
+    // the register the last pointer byte selected, from its first byte.
+    mclw_regmap_set_pointer_map(&map, pointers);
+    CHECK(mclw_hal_i2c_target_arm(&target, &map) == 0);
+    CHECK(i2c_read_blocking(part_address, buf, 2, false) == 2);
+    CHECK(buf[0] == (0x40 ^ 0x5A) && buf[1] == (0x41 ^ 0x5A));
+    buf[0] = 0x03;
+    CHECK(i2c_write_blocking(part_address, buf, 1, true) == 1);
+    for (int n = 0; n < 3; n++) {
+        CHECK(i2c_read_blocking(part_address, buf, 2, false) == 2);
+        CHECK(buf[0] == (0x46 ^ 0x5A) && buf[1] == (0x47 ^ 0x5A));
+    }
+    CHECK(i2c_read_blocking(part_address, buf, 1, false) == 1 && buf[0] == (0x46 ^ 0x5A));
+    buf[0] = 0x04;
+    buf[1] = 0xB1;
+    buf[2] = 0xB2;
+    CHECK(i2c_write_blocking(part_address, buf, 3, false) == 3);
+    CHECK(i2c_read_blocking(part_address, buf, 2, false) == 2 && buf[0] == 0xB1 && buf[1] == 0xB2);
+    mclw_hal_i2c_target_disarm(&target);
+}
+
 static void behaviours(void) {
     uint8_t burst[6];
+
+    restarts();
 
     // INA219: reset values (SBOS448G Table 2), RST, the void FS0 bit.
     fresh(&mclw_model_ina219, 0x40);
@@ -556,6 +622,11 @@ static void behaviours(void) {
     CHECK(read_reg16(0x05) == 0x1000);
     write_reg16(0x00, 0x8000);
     CHECK(read_reg16(0x00) == 0x399F && read_reg16(0x05) == 0);
+    // A read with no pointer write reads the register last pointed at
+    // (SBOS448G 8.5.6).
+    CHECK(i2c_read_blocking(part_address, burst, 2, false) == 2 && burst[0] == 0x00 && burst[1] == 0x00);
+    CHECK(read_reg16(0x00) == 0x399F);
+    CHECK(i2c_read_blocking(part_address, burst, 2, false) == 2 && burst[0] == 0x39 && burst[1] == 0x9F);
     detach();
 
     // INA228: identity, reserved bits, the accumulators over a second of

@@ -10,8 +10,11 @@ registers, at the full scale `XYZ_DATA_CFG` selects.
 The model fills one 256-byte `struct mclw_regmap` and arms the I2C target
 engine with it. With `CTRL_REG1.F_READ` set a burst reads only the MSBs
 (0x00, 0x01, 0x03, 0x05): a pointer map sends those addresses to a copy of
-the four bytes laid out after the registers. Its `on_write` hook handles
-`CTRL_REG1` (active, fast read), `XYZ_DATA_CFG` and `CTRL_REG2.RST`.
+the four bytes laid out after the registers. With a pointer map the
+engine starts every transaction again at the register its pointer
+selected; the part keeps no auto-increment address past a STOP either
+(MMA8452Q Table 11 note). Its `on_write` hook handles `CTRL_REG1` (active,
+fast read), `XYZ_DATA_CFG` and `CTRL_REG2.RST`.
 
 ## Bindings
 

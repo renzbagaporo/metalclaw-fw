@@ -60,14 +60,21 @@ void mclw_regmap_set_on_write(struct mclw_regmap *map, mclw_regmap_on_write_t fn
 // a FIFO behind an alias). The model lays the registers out in the image and
 // gives, for each of the 256 pointer values, the address of the image byte a
 // transfer starts at; the transfer then runs on through the image one byte
-// per bus byte. The table must outlive the map and may be edited under the
-// critical section. NULL, the default, makes the pointer the address. The
-// I2C engine applies it; SPI framing addresses the image directly.
+// per bus byte. Every transaction on a map with a pointer map starts again at
+// the address its last pointer byte selected, so a read with no pointer
+// write re-reads the selected register from its first byte. The table must
+// outlive the map and may be edited under the critical section. NULL, the
+// default, makes the pointer the address and lets it run on from one
+// transaction to the next. The I2C engine applies it; SPI framing addresses
+// the image directly.
 void mclw_regmap_set_pointer_map(struct mclw_regmap *map, const uint8_t *addresses);
 
-// The engine side: the image address a pointer value the bus wrote selects,
-// then what a bus read or write of `reg` in the active bank does.
+// The engine side: the image address a pointer value the bus wrote selects;
+// where the next transaction starts, given the address the last pointer byte
+// selected and the one this transaction would have gone on to; then what a
+// bus read or write of `reg` in the active bank does.
 uint8_t mclw_regmap_bus_select(const struct mclw_regmap *map, uint8_t pointer);
+uint8_t mclw_regmap_bus_restart(const struct mclw_regmap *map, uint8_t selected, uint8_t next);
 // bus_write commits the value (bank select included) and fires on_write.
 uint8_t mclw_regmap_bus_read(struct mclw_regmap *map, uint8_t reg);
 void mclw_regmap_bus_write(struct mclw_regmap *map, uint8_t reg, uint8_t value);
