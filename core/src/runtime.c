@@ -8,6 +8,7 @@
 #include "metalclaw/hal/i2c_target.h"
 #include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/platform.h"
+#include "metalclaw/hal/spi_sink.h"
 #include "metalclaw/hal/spi_target.h"
 #include "metalclaw/hal/swd.h"
 #include "metalclaw/hal/uart.h"
@@ -129,6 +130,9 @@ static void release_bindings(struct mclw_instance *inst) {
             case MCLW_BINDING_SPI_TARGET:
                 mclw_hal_spi_target_close(b->spi);
                 break;
+            case MCLW_BINDING_SPI_SINK:
+                mclw_hal_spi_sink_close(b->spi_sink);
+                break;
             case MCLW_BINDING_UART:
                 mclw_hal_uart_close(b->uart);
                 break;
@@ -239,6 +243,18 @@ static int resolve_binding(struct mclw_instance *inst, size_t index, const struc
             out->spi = mclw_hal_spi_target_open(req->pins[0], req->pins[1], req->pins[2], req->pins[3],
                 desc->spi.default_mode, desc->spi.msb_first, inst, &err);
             if (out->spi == NULL) {
+                return err;
+            }
+            out->present = true;
+            return 0;
+        case MCLW_BINDING_SPI_SINK:
+            if (req->pin_count != 3 && req->pin_count != 4) {
+                return -EINVAL;
+            }
+            out->spi_sink = mclw_hal_spi_sink_open(req->pins[0], req->pins[1], req->pins[2],
+                req->pin_count == 4 ? req->pins[3] : MCLW_PIN_NONE, desc->spi.default_mode,
+                desc->spi.msb_first, inst, &err);
+            if (out->spi_sink == NULL) {
                 return err;
             }
             out->present = true;
@@ -573,6 +589,15 @@ int mclw_binding_stats(struct mclw_instance *inst, size_t binding, struct mclw_s
             STAT("dropped", st.dropped);
             break;
         }
+        case MCLW_BINDING_SPI_SINK: {
+            struct mclw_spi_sink_stats st;
+            mclw_hal_spi_sink_stats(b->spi_sink, &st);
+            STAT("bytes", st.bytes);
+            STAT("windows", st.windows);
+            STAT("overruns", st.overruns);
+            STAT("max_clock_hz", mclw_hal_spi_sink_max_clock_hz(b->spi_sink));
+            break;
+        }
         case MCLW_BINDING_SPI_TARGET: {
             struct mclw_spi_target_stats st;
             mclw_hal_spi_target_stats(b->spi, &st);
@@ -642,6 +667,8 @@ const char *mclw_binding_kind_name(enum mclw_binding_kind kind) {
             return "swd_wire";
         case MCLW_BINDING_USB_INTERFACE:
             return "usb_interface";
+        case MCLW_BINDING_SPI_SINK:
+            return "spi_sink";
     }
     return "?";
 }

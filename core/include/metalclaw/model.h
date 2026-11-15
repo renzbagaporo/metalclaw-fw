@@ -38,8 +38,9 @@ struct mclw_region_desc {
 // What a device needs from the platform. The name is the attach() keyword
 // the user passes; the kind says what the runtime resolves it into.
 // usb_interface entries have no keyword: the runtime allocates them.
-// spi_target and uart carry the part's datasheet facts; the runtime opens
-// the engine with them and the schema shows them to the fixture side.
+// spi_target, spi_sink and uart carry the part's datasheet facts; the
+// runtime opens the engine with them and the schema shows them to the
+// fixture side.
 enum mclw_binding_kind {
     MCLW_BINDING_GPIO_IN,
     MCLW_BINDING_GPIO_OUT,
@@ -48,9 +49,12 @@ enum mclw_binding_kind {
     MCLW_BINDING_UART,
     MCLW_BINDING_SWD_WIRE,
     MCLW_BINDING_USB_INTERFACE,
+    // A receive-only SPI target, (sck, mosi, cs[, line]).
+    MCLW_BINDING_SPI_SINK,
 };
 
 struct mclw_usb_interface_desc;
+struct mclw_spi_sink;
 
 struct mclw_binding_desc {
     const char *name;
@@ -72,6 +76,7 @@ struct mclw_binding {
         struct mclw_swd *swd;
         struct mclw_i2c_target *i2c;
         struct mclw_spi_target *spi;
+        struct mclw_spi_sink *spi_sink;
         struct mclw_uart *uart;
         struct mclw_usb_interface *usb;
         void *handle;

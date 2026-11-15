@@ -60,6 +60,8 @@ an ops table:
   The names are the `attach()` keywords. `gpio_in` and `gpio_out` take a pin;
   `swd_wire` takes a tuple `(swclk, swdio[, nreset])`; `i2c_target` takes a
   tuple `(sda, scl, address)`; `spi_target` takes `(sck, mosi, miso, cs)`;
+  `spi_sink`, a receive-only SPI target, takes `(sck, mosi, cs[, line])`,
+  the line being the part's data/command select;
   `uart` takes `(tx, rx)`; `usb_interface` takes no keyword, the runtime
   allocates it from the descriptor the model carries (a vendor interface or
   a serial port, and its interface string) and delivers what the host sends
@@ -261,6 +263,18 @@ port exists.
   14-byte register reads stay clean down to a 12 µs gap between windows and
   start failing at about 10 µs, so drivers that read back-to-back without a
   BUSY line rely on a chip-select setup delay in their overlay.
+- `spi_sink.h`: a receive-only SPI target for a sink, on `(sck, mosi,
+  cs[, line])`. Chip select may rise after every byte, as a PL022 does in
+  Motorola mode with CPHA 0, or stay low for a whole frame: nothing is
+  re-armed between windows. On rp2 it is two state machines on PIO0, PIO2
+  where there is one, or PIO1 last (17 instruction words), and two DMA
+  channels: one state machine shifts each byte in with a window flag and
+  the line's level, the other marks every chip-select rise with a token
+  that the first picks up after the next byte, and a DMA channel streams
+  the words into a 2048-entry ring that the worker's poll reads. Its clock
+  ceiling, 10 MHz, is worked out from the programs' instruction counts, not
+  measured. Counters: `bytes`, `windows`, `overruns`, `max_clock_hz`. One
+  sink at a time.
 - `uart.h`: a UART with `send()` that queues and returns, `set_baud`,
   `set_format`, and a receive callback delivered on the worker under the
   runtime lock with whatever accumulated, never per byte and never from an

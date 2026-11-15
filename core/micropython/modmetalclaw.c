@@ -23,7 +23,7 @@ static void dict_store(mp_obj_t dict, const char *key, mp_obj_t value) {
 }
 
 static void binding_facts(mp_obj_t d, const struct mclw_binding_desc *b) {
-    if (b->kind == MCLW_BINDING_SPI_TARGET) {
+    if (b->kind == MCLW_BINDING_SPI_TARGET || b->kind == MCLW_BINDING_SPI_SINK) {
         mp_obj_t modes[4];
         size_t n = 0;
         for (uint8_t m = 0; m < 4; m++) {
@@ -171,6 +171,7 @@ static mp_obj_t mclw_attach_fn(size_t n_args, const mp_obj_t *pos_args, mp_map_t
             case MCLW_BINDING_SWD_WIRE:
             case MCLW_BINDING_I2C_TARGET:
             case MCLW_BINDING_SPI_TARGET:
+            case MCLW_BINDING_SPI_SINK:
             case MCLW_BINDING_UART:
                 pins_from_obj(kw_args->table[i].value, req);
                 break;
