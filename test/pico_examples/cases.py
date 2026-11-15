@@ -8,6 +8,8 @@
 import pytest
 import serial
 
+from test.pico_examples import pins
+from test.pico_examples.pin_specs import PIN_SPECS
 from test.pico_examples.targets import SPECS
 
 NAME = "example_console"
@@ -57,3 +59,13 @@ def test_the_example_completes(harness, example, console):
     missing, forbidden = spec.match(text)
     assert not forbidden, f"{example.target} printed {forbidden}:\n{text[-2000:]}"
     assert not missing, f"{example.target} never printed {missing} within {spec.seconds} s:\n{text[-2000:]}"
+
+
+def test_the_example_drives_its_pins(example):
+    spec = PIN_SPECS.get(example.target)
+    if spec is None:
+        pytest.skip(f"no pin criteria for {example.target}")
+    example.reset()
+    samples = pins.watch(example.memory, example.metadata["chip"], spec.seconds)
+    problems = [p for toggle in spec.toggles for p in toggle.check(samples)]
+    assert not problems, f"{example.target}: {problems} ({len(samples)} samples over {spec.seconds} s)"
