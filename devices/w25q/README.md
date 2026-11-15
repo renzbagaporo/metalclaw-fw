@@ -23,9 +23,11 @@ the part does so in the model.
 
 SPI modes 0 and 3, MSB first (datasheet 6.1). The part reads at up to
 50 MHz (9.6, fR); the harness's memory read is published at 2 MHz, an
-estimate not yet measured on the bench (`docs/devices.md`). A host must
-leave chip select high long enough between windows for the engine to
-re-arm (see pico-examples below).
+estimate not yet measured on the bench (`docs/devices.md`). The engine
+re-arms in hardware at every chip-select rise; a host may start the next
+window at once, as long as its first clock comes about a quarter of a
+microsecond after the rise and its first byte ends at least 2.7 us after it
+(`docs/devices.md`, measured on the carrier).
 
 ```python
 import metalclaw
@@ -105,15 +107,15 @@ and QPI are not modelled.
 `spi/spi_flash` (PL022 at 1 MHz) and `pio/spi/spi_flash` (PIO at 1 MHz on a
 125 MHz RP2040, 1.2 MHz on a 150 MHz RP2350) erase sector 0, read page 0,
 program it with 0..255, read it, erase and read again, printing each page.
-Neither passes on the bench yet, and not for their clock: both start a
-window right after the last one ends. spi_flash leaves chip select high
-for 16 to 32 ns between Write Enable, the erase and the first status poll,
-and pio_spi_flash for 0.7 to 1 us (on fixture 1, with a PIO program on the
-harness timing the pins), while the SPI target is re-armed by the CPU after
-every window, which took 15 to 35 us on fixture 1. A window that starts
-before that is sat out (`missed_windows`), so the erase after each Write
-Enable never reaches the model. Where MISO reads high undriven, as on the
-carrier, the missed polls read BUSY and the program polls for good.
+Both start a window right after the last one ends: spi_flash leaves chip
+select high for 16 to 32 ns between Write Enable, the erase and the first
+status poll and clocks 1.15 us after it falls, and pio_spi_flash leaves it
+high for 0.7 to 1 us and clocks 0.8 to 2 us after the fall (on fixture 1,
+with a PIO program on the harness timing the pins). The engine is running
+for the next window 0.25 us after a rise, so every window reaches the
+model, and the status poll right after an erase or program reads BUSY.
+They poll back to back faster than the worker delivers windows; the
+polls the queue had no room for are counted in `missed_windows`.
 
 ## Sources
 

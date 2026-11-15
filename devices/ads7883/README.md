@@ -11,8 +11,8 @@ The model is one file with no bus code. It fills a `struct mclw_stream`
 with the two-byte frame and arms the SPI target engine with it; the engine
 serves every window from DMA without calling the model. A new sample is
 published into the stream's second buffer and swapped in, so a window never
-sees half of each. The engine arms the new frame at once when idle, or at
-the end of the next window when windows are arriving back to back.
+sees half of each. The engine serves the new frame from the next window
+that starts after the publish.
 
 ## Bindings
 
