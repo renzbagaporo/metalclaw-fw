@@ -292,14 +292,16 @@ PART_SPECS: dict[str, Spec] = {
         forbidden=forbid(r"Bad data"),
         source="gpio/dht_sensor/dht.c",
     ),
-    # pio/quadrature_encoder/quadrature_encoder.c:44, 57-66: every 100 ms a
-    # line when the count moved. At 1000 steps/s that is 100 a line, one
-    # either way for where the 100 ms fall; the travel of 2000 turns the
+    # pio/quadrature_encoder/quadrature_encoder.c:44, 57-66: a line when
+    # the count moved, then sleep_ms(100). The SDK's printf ends in
+    # stdio_flush, which waits for the UART to send the line's 33 characters
+    # (CRLF included) at 115200 baud, 2.86 ms, so a loop is 102.9 ms: 102
+    # or 103 steps a line at 1000 steps/s. The travel of 2000 turns the
     # encoder back every 2 s.
     "pio_quadrature_encoder": Spec(
         console=(r"Hello from quadrature encoder" + NL,
-                 *(r"position +-?\d+, delta +(?:99|100|101)" + NL,) * 3,
-                 *(r"position +-?\d+, delta +-(?:99|100|101)" + NL,) * 3),
+                 *(r"position +-?\d+, delta +(?:102|103)" + NL,) * 3,
+                 *(r"position +-?\d+, delta +-(?:102|103)" + NL,) * 3),
         seconds=6.0,
         source="pio/quadrature_encoder/quadrature_encoder.c",
     ),
