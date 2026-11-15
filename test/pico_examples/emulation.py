@@ -125,6 +125,11 @@ CLOCKED_INPUT_STAND_INS = Emulation(stand_ins=(StandIn(2, 5, "clock"), StandIn(3
 # answer it in time.
 PIO_SPI_FLASH_STAND_IN = Emulation(stand_ins=(FlashStandIn(cs=17, sck=18, mosi=19, miso=16, replaces="flash"),))
 
+# uart/gps_uart/gps_uart.c:20-23: uart1 at 9600 on GP4 (TX) and GP5 (RX),
+# which the default byte-level I2C0 bus leaves unwired; a UART at 9600
+# baud takes the default 300 us wires as they are.
+GP4_GP5_WIRES = Emulation(i2c0_wiring="wires")
+
 EMULATION: dict[str, Emulation] = {
     "pio_uart_rx": RELAYED_ON_GP4_GP5,
     "pio_uart_rx_intr": RELAYED_ON_GP4_GP5,
@@ -136,6 +141,7 @@ EMULATION: dict[str, Emulation] = {
     "dht": RELAYED,
     "pio_clocked_input": CLOCKED_INPUT_STAND_INS,
     "pio_spi_flash": PIO_SPI_FLASH_STAND_IN,
+    "gps_uart": GP4_GP5_WIRES,
     "slave_mem_i2c": I2C_STAND_INS,
     "slave_mem_i2c_burst": I2C_STAND_INS,
 }

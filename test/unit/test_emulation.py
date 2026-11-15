@@ -176,3 +176,11 @@ def test_a_result_with_a_flash_stand_in_carries_its_label():
     item = types.SimpleNamespace(callspec=types.SimpleNamespace(params={"emulation": flash}), user_properties=[])
     platform.pytest_collection_modifyitems([item])
     assert item.user_properties == [("emulator_stand_ins", "pin_spi_flash_gp17")]
+
+
+def test_gps_uart_takes_the_pin_level_wires_on_gp4_and_gp5():
+    # gps_uart.c:20-23: uart1 TX on GP4, RX on GP5; the part sends on the
+    # program's RX and listens on its TX.
+    assert EMULATION["gps_uart"] == Emulation(i2c0_wiring="wires")
+    (gps,) = PARTS["gps_uart"]
+    assert gps.bindings["uart"] == (5, 4)
