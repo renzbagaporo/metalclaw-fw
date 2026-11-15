@@ -241,10 +241,14 @@ byte and the host polls that, back to back. The image names the opcodes
 that start an internal operation and the status bits that say so; the
 engine sets those bits at the release of such a window and holds them until
 the model has taken it, so a poll right after a program or erase never sees
-the part idle too early. Without a BUSY line the engine keeps two windows
-for the worker rather than one, so a write enable and the erase right
-behind it both reach the model, and a publish lands at once even while a
-window that reads only the status byte is open. `w25q` is built this way.
+the part idle too early. Without a BUSY line the engine queues up to eight
+windows for the worker rather than one, so a write enable and the erase
+right behind it both reach the model; a host polling faster than the
+worker delivers fills that queue with polls, and each new window then
+displaces a queued one that only repeats the window before it. A publish
+of the status reaches the next window from the engine at once, and one of
+the rest lands at once even while a window that reads only the status byte
+is open. `w25q` is built this way.
 
 `core/include/metalclaw/sink.h` is for parts that only listen and have no
 register map to serve: display controllers, LED drivers, a port expander.
@@ -298,18 +302,35 @@ port exists.
   byte must reach the state machine within one SCK period of the last
   address bit, and the chain spends about 200 ns there) and counters (`transactions`, `bytes`,
   short and long windows, DMA faults, stale windows; for a command image a
-  stale window is one that began while BUSY was high, and a missed window,
-  counted for an image without BUSY, one that began before the engine had
-  re-armed after the window before and that it sat out). On rp2 it is one PIO
-  program and DMA; every window is served with no CPU in the byte path, and
-  the model is called back only through `on_write` or `on_frame` at
-  chip-select release, or through `on_window` on the worker. A command
-  image's opcode, offset and address lookups are a chain of DMA control
-  blocks that patch each other, which is what bounds its clock. Two targets
-  may share one bus; each keeps its own chip select. At 125 MHz, back-to-back
-  14-byte register reads stay clean down to a 12 µs gap between windows and
-  start failing at about 10 µs, so drivers that read back-to-back without a
-  BUSY line rely on a chip-select setup delay in their overlay.
+  stale window is one that began while BUSY was high or that found the
+  worker's queue full; a missed window is one the engine served but could
+  not hand to the model). On rp2 it is one PIO program and five DMA
+  channels per target, and no CPU runs at a chip-select edge: at every rise
+  a reset program of DMA control blocks, started by the chip-select monitor
+  state machine, restarts the data state machine for the next window,
+  records the window that ended in one of four slots and arms the response
+  program again; a DMA interrupt then hands the window to the model, through
+  `on_write` or `on_frame` there, or through `on_window` on the worker.
+  Windows reach the model in order however close together they come. With
+  no window open, a changed stream frame is armed by running the reset
+  program again, and a register map's changed bank, or a command image's
+  changed status if it has BUSY, is put in the next window by the CPU in a
+  few instructions, which cuts a window that a host ignoring BUSY begins in
+  those instructions; an image without BUSY has its status from the next
+  release. A register map's command byte and a command image's opcode, offset and
+  address lookups are chains of DMA control blocks that patch each other,
+  which is what bounds their clocks. Two targets may share one bus; each
+  keeps its own chip select. Measured on the carrier's 150 MHz RP2350
+  harness from the reset program's first block: the data state machine runs
+  again 0.25 µs after it (36 to 38 cycles) for a command image or a
+  register map and 0.46 µs (68 to 72) for a stream, so a window may begin
+  clocking that soon after the rise before it, and the response program is
+  armed 1.9 µs after it for a register map and 2.7 µs for a command image,
+  so a window's first byte must take at least that long. A rise that comes
+  while the reset program for the one before it still runs, under about
+  3 µs apart, is re-armed for only once that one ends. Not measured on
+  fixture 1's 125 MHz RP2040; scaled by clock, about 0.3 µs, 0.55 µs and
+  3.2 µs.
 - `spi_sink.h`: a receive-only SPI target for a sink, on `(sck, mosi,
   cs[, line])`. Chip select may rise after every byte, as a PL022 does in
   Motorola mode with CPHA 0, or stay low for a whole frame: the CPU
