@@ -27,12 +27,20 @@ class Spec:
     boards: tuple[str, ...] = ()
     # Fields that differ in one board's build, by board: {"pico": {...}}.
     per_board: dict = field(default_factory=dict)
+    # Fields that differ on a bench whose lines have pull-ups (the carrier's
+    # 5.1 k on every Pico GP0-22), where an undriven line reads high.
+    with_line_pullups: dict = field(default_factory=dict)
 
     def for_board(self, board: str | None) -> "Spec | None":
         # The criteria for this board's build, or None where they cannot judge it.
         if self.boards and board not in self.boards:
             return None
         return replace(self, boards=(), per_board={}, **self.per_board.get(board, {}))
+
+    def for_bench(self, line_pullups: bool) -> "Spec":
+        if line_pullups and self.with_line_pullups:
+            return replace(self, with_line_pullups={}, **self.with_line_pullups)
+        return self
 
     def match(self, text: str) -> tuple[list[str], list[str]]:
         # The expected patterns not found in order, and the forbidden ones found.
@@ -222,10 +230,12 @@ SPECS: dict[str, Spec] = {
         seconds=3.0,
         source="dma/hello_dma/hello_dma.c",
     ),
-    # dma/sniff_crc/sniff_crc.c:25-100: "123456789" and its CRC32, cbf43926,
-    # little-endian; sniffing all 13 bytes leaves 0, "CRC32 check is good".
+    # dma/sniff_crc/sniff_crc.c:25-100: "123456789" and soft_crc32_block's
+    # CRC32 from CRC32_INIT 0xffffffff with no final XOR (:31-39, :48), which
+    # is ~0xcbf43926 = 0x340bc6d9, appended little-endian; sniffing all 13
+    # bytes then leaves 0, "CRC32 check is good".
     "sniff_crc": Spec(
-        console=(r"Buffer to DMA: 0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0x26 0x39 0xf4 0xcb \r?\n",
+        console=(r"Buffer to DMA: 0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0xd9 0xc6 0x0b 0x34 \r?\n",
                  r"Completed DMA sniff of 13 byte buffer, DMA sniff accumulator value: 0x0\r?\n",
                  r"CRC32 check is good\r?\n"),
         seconds=3.0,
@@ -412,6 +422,12 @@ SPECS: dict[str, Spec] = {
                  r"Capture:\r?\n", r"16: (?=[-_]*-)(?=[-_]*_)[-_]{96}\r?\n", r"17: (?=[-_]*-)(?=[-_]*_)[-_]{96}\r?\n"),
         seconds=3.0,
         source="pio/logic_analyser/logic_analyser.c",
+        # The trigger waits for GP16 high (:135). A pulled-up GP16 is high
+        # before the PWM starts (:139-151), so the capture fires at once and
+        # holds the idle level, which the program prints all the same.
+        with_line_pullups={"console": (
+            r"PIO logic analyser example\r?\n", r"Arming trigger\r?\n", r"Starting PWM example\r?\n",
+            r"Capture:\r?\n", r"16: [-_]{96}\r?\n", r"17: [-_]{96}\r?\n")},
     ),
     # pio/spi/spi_loopback.c:18-90: MOSI and MISO are both GP16, so each
     # CPHA/CPOL mode reads back the 20 bytes it sent; then "Example PASSED".

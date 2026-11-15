@@ -2,7 +2,7 @@
 
 from test.pico_examples import pins
 
-TIMER, GPIO_IN, GPIO_OE = pins.CHIPS["rp2350"]
+TIMER, GPIO_IN, IO_BANK0 = pins.CHIPS["rp2350"]
 
 
 class FakeLink:
@@ -26,13 +26,15 @@ class FakeLink:
         t = self.elapsed
         if address == GPIO_IN:
             return [((t // 250_000) & 1) << 25]
-        if address == GPIO_OE:
-            return [1 << 25]
+        if address == IO_BANK0 + 8 * 25:
+            return [pins.STATUS_OETOPAD]
+        if IO_BANK0 <= address < IO_BANK0 + 8 * 48:
+            return [0]
         raise AssertionError(hex(address))
 
 
 def test_a_toggling_pin_is_seen_across_a_timer_wrap():
-    samples = pins.watch(None, "rp2350", 2.0, link=FakeLink())
+    samples = pins.watch(None, "rp2350", 2.0, (25,), link=FakeLink())
     assert samples[-1].us >= 2_000_000
     seen = pins.edges(samples, 25)
     assert 7 <= len(seen) <= 9
@@ -40,7 +42,7 @@ def test_a_toggling_pin_is_seen_across_a_timer_wrap():
 
 
 def test_a_wrong_period_or_an_undriven_pin_is_reported():
-    samples = pins.watch(None, "rp2350", 2.0, link=FakeLink())
+    samples = pins.watch(None, "rp2350", 2.0, (7, 25), link=FakeLink())
     problems = pins.Toggle(25, 7, (0.45, 0.55)).check(samples)
     assert any("intervals outside" in p for p in problems)
     assert pins.Toggle(7, 1, (0.1, 1.0)).check(samples) != []

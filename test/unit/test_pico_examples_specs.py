@@ -80,3 +80,9 @@ def test_rig_cases_skip_on_an_example_and_example_cases_on_a_rig_image(tmp_path)
     (tmp_path / "example.json").write_text("{}")
     with pytest.raises(pytest.skip.Exception):
         platform.require_rig_image(elf)
+
+
+def test_a_bench_with_line_pullups_takes_its_own_fields():
+    spec = Spec(console=("a",), with_line_pullups={"console": ("b",)})
+    assert spec.for_bench(True).console == ("b",)
+    assert spec.for_bench(False).console == ("a",)

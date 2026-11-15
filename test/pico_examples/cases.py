@@ -71,7 +71,7 @@ def read_console(harness, port, spec) -> str:
     return got.decode(errors="replace")
 
 
-def test_the_example_completes(harness, example, console):
+def test_the_example_completes(harness, example, fixture, console):
     spec = SPECS.get(example.target) or PART_SPECS.get(example.target)
     if spec is None:
         pytest.skip(f"no completion criteria for {example.target} yet")
@@ -79,6 +79,7 @@ def test_the_example_completes(harness, example, console):
     spec = spec.for_board(board)
     if spec is None:
         pytest.skip(f"{example.target}'s console cannot judge its {board} build")
+    spec = spec.for_bench(fixture["line_pullups"])
     with serial.Serial(console, BAUD, timeout=0.1, exclusive=True) as port:
         port.reset_input_buffer()
         example.restart()
@@ -93,6 +94,7 @@ def test_the_example_drives_its_pins(example, parts):
     if spec is None:
         pytest.skip(f"no pin criteria for {example.target}")
     example.restart()
-    samples = pins.watch(example.memory, example.metadata["chip"], spec.seconds)
+    watched = sorted({toggle.pin for toggle in spec.toggles})
+    samples = pins.watch(example.memory, example.metadata["chip"], spec.seconds, watched)
     problems = [p for toggle in spec.toggles for p in toggle.check(samples)]
     assert not problems, f"{example.target}: {problems} ({len(samples)} samples over {spec.seconds} s)"
