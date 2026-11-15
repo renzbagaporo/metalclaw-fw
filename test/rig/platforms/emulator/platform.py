@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from test.pico_examples.emulation import DEFAULT, Emulation, emulation_for
+from test.pico_examples.parts import parts_for
 from test.rig import probe_telemetry
 from test.rig.platforms.emulator.bench import LAYOUTS, Bench, BenchError, Layout, harness_serial, instance
 from test.rig.platforms.hardware.platform import (
@@ -173,7 +174,7 @@ def pytest_collection_modifyitems(items):
     for item in items:
         emulation = getattr(getattr(item, "callspec", None), "params", {}).get("emulation")
         if emulation is not None and emulation.stand_ins:
-            item.user_properties.append(("emulator_stand_ins", " ".join(s.wire for s in emulation.stand_ins)))
+            item.user_properties.append(("emulator_stand_ins", " ".join(s.label for s in emulation.stand_ins)))
 
 
 def session_emulation(param: Emulation | None) -> Emulation:
@@ -341,9 +342,21 @@ def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emu
         pytest.skip(f"{e.target} needs {', '.join(bench.settings.unmet)}, which {bench.layout.script} in this "
                     f"Renode package does not take")
     e.replaced_parts = frozenset(s.replaces for s in emulation.stand_ins)
-    hold_idle(harness, fixture, e.parts_dut_pins())
+    clashes = stand_in_clashes(e.target, e.metadata.get("board"), emulation)
+    if clashes:
+        pytest.exit(f"{e.target}'s stand-ins share pins with harness parts: {', '.join(clashes)}", returncode=2)
+    hold_idle(harness, fixture, e.parts_dut_pins() | {p for s in emulation.stand_ins for p in s.pins})
     e.restart()
     return e
+
+
+# The harness parts still attached that take a stand-in's pins: the
+# harness would then drive a pin the stand-in drives inside the DUT.
+def stand_in_clashes(target: str, board: str | None, emulation: Emulation) -> list[str]:
+    taken = {p for s in emulation.stand_ins for p in s.pins}
+    attached = parts_for(target, board, {s.replaces for s in emulation.stand_ins})
+    return [f"{part.name} on GP{sorted(taken & set(part.dut_pins()))}" for part in attached
+            if taken & set(part.dut_pins())]
 
 
 @pytest.fixture(scope="session")

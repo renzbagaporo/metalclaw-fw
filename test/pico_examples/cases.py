@@ -203,6 +203,13 @@ def test_the_example_enters_bootsel_on_a_double_reset(example, parts):
 def test_the_example_parts_saw_the_program(harness, example, parts):
     checks = [(part, check) for part in parts for check in part.checks]
     if not checks:
+        # A stand-in's pass is never a harness part's: what the part would
+        # have seen is not judged at all.
+        stood_in = [p.name for p in parts_for(example.target, example.metadata.get("board"))
+                    if p.name in example.replaced_parts and p.checks]
+        if stood_in:
+            pytest.skip(f"{example.target}'s part checks read the harness's {', '.join(stood_in)}, which an "
+                        f"emulator-only stand-in replaces in this session")
         pytest.skip(f"no part checks for {example.target}")
     example.restart()
     for part, check in checks:

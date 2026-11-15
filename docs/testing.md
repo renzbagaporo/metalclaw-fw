@@ -238,15 +238,24 @@ variables: `$quantum`, `$wire_latency_us` (whole microseconds, more than two
 quanta, checked before Renode starts; `$spi_input_delay_ns` follows as the
 round trip) and `$i2c0_wiring` (the byte-level bus or pin-level wires, each
 a script beside the bench script, `<script>_i2c0_bus.resc` and
-`<script>_i2c0_wires.resc`). The harness-relayed jumpers run at a 1 µs
-quantum with 3 µs wires. Where the harness relay cannot keep up (the
-open-drain I2C pair of `slave_mem_i2c`), a wire inside the emulated DUT
-stands in for it and the harness part is not attached; every result of
-such a session carries the stand-ins in its test name
-(`[stand-in-jumper_gp4_gp6+jumper_gp5_gp7]`) and in an `emulator_stand_ins`
-property, so it is never taken for a pass through the harness. A variable the
-package's bench script does not declare, or a wiring script it does not
-ship, is left out and named in `renode.log`, and the program's cases skip.
+`<script>_i2c0_wires.resc`). The harness-relayed jumpers, and the 1-Wire and
+DHT parts that answer within tens of microseconds, run at a 1 µs quantum
+with 3 µs wires; a program that takes DUT GP4 or GP5 as GPIO, PIO or UART
+gets the pin-level I2C0 wires as well, the only wiring that reaches the
+carrier's two harness branches of each. Where the harness cannot keep up,
+an emulator-only stand-in inside the emulated DUT takes the harness part's
+place and the part is not attached: zero-latency wires for the open-drain
+I2C pair of `slave_mem_i2c` and for `pio_clocked_input`'s 21 MHz SPI
+jumpers, and Renode's `RP2_PinSPIFlash` on the DUT's own GP16-19 for
+`pio_spi_flash`, whose PIO controller samples MISO on its own clock edges.
+No harness part a session still attaches may take a stand-in's pins.
+Every result of such a session carries the stand-ins in its test name
+(`[stand-in-jumper_gp4_gp6+jumper_gp5_gp7]`, `[stand-in-pin_spi_flash_gp17]`)
+and in an `emulator_stand_ins` property, so it is never taken for a pass
+through the harness; part checks that read a replaced harness part skip. A
+variable the package's bench script does not declare, a wiring script it
+does not ship, or a stand-in type its `Infrastructure.dll` lacks, is left
+out and named in `renode.log`, and the program's cases skip.
 `METALCLAW_RENODE_QUANTUM` takes the place of the program's quantum.
 
 `METALCLAW_RENODE_INSTANCE` (0 to 7, default 0) lets several benches run on

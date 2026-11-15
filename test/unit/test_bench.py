@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from test.pico_examples.emulation import I2C_STAND_INS, Emulation, StandIn
+from test.pico_examples.emulation import EMULATION, I2C_STAND_INS, Emulation, FlashStandIn, StandIn
 from test.rig.platforms.emulator import bench
 
 
@@ -385,3 +385,40 @@ def test_a_starting_bench_sets_its_programs_needs_and_notes_them(tmp_path, monke
     # The empty test script declares nothing.
     assert ("rig: scripts/multi-node/metalclaw_carrier.resc does not take $i2c0_wiring wires "
             "(metalclaw_carrier_i2c0_wires.resc)\n") in log
+
+
+def test_a_flash_stand_in_is_loaded_into_the_dut_after_the_bench_script(tmp_path):
+    s = settings(EMULATION["pio_spi_flash"], carrier_script(tmp_path))
+    assert s.commands == (
+        'mach set "pico"',
+        'machine LoadPlatformDescriptionFromString "spiFlash: SPI.RP2_PinSPIFlash @ none { gpio: gpio; '
+        'csPin: 17; sckPin: 18; mosiPin: 19; misoPin: 16 }"')
+    assert s.unmet == () and s.variables == ()
+    run = commands(dut_machine="pico", settings=s)
+    include = run.index("include @/renode/bench.resc")
+    assert run[include + 1:] == [*s.commands, 'mach set "pico"', "xipMemory LoadBinary @/w/dut_flash.bin", "start"]
+
+
+def test_a_package_without_a_stand_ins_renode_type_leaves_it_unmet(tmp_path):
+    flash = Emulation(stand_ins=(FlashStandIn(17, 18, 19, 16, "flash"), StandIn(2, 5, "clock")))
+    s = bench.bench_settings(flash, carrier_script(tmp_path), SCRIPT, "pico", None, lambda name: False)
+    assert s.unmet == ("RP2_PinSPIFlash (pin_spi_flash_gp17)",)
+    # A wire needs nothing beyond the bench scripts' own.
+    assert s.commands[0] == 'emulation CreateDigitalWire "jumper_gp2_gp5" false'
+
+
+def test_a_package_has_a_type_its_infrastructure_assembly_names(tmp_path):
+    assert not bench.package_has_type(tmp_path, "RP2_PinSPIFlash")
+    (tmp_path / "Infrastructure.dll").write_bytes(b"MZ\x00RP2_GPIOBank0\x00")
+    assert not bench.package_has_type(tmp_path, "RP2_PinSPIFlash")
+    (tmp_path / "Infrastructure.dll").write_bytes(b"MZ\x00RP2_PinSPIFlash\x00")
+    assert bench.package_has_type(tmp_path, "RP2_PinSPIFlash")
+
+
+def test_a_starting_bench_labels_a_flash_stand_in_in_its_log(tmp_path, monkeypatch):
+    def emulated(b):
+        b.emulation = EMULATION["pio_spi_flash"]
+        (b.renode_dir / "Infrastructure.dll").write_bytes(b"RP2_PinSPIFlash")
+    run, _ = launch(tmp_path, monkeypatch, "metalclaw_pico_rp2", emulated)
+    assert any("SPI.RP2_PinSPIFlash" in command for command in run)
+    assert "rig: emulator-only stand-ins pin_spi_flash_gp17\n" in (tmp_path / "work" / "renode.log").read_text()
