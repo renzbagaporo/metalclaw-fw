@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from test.rig.platforms.hardware import platform
+from test.rig.platforms.hardware.dap import DapError
 from test.rig.platforms.hardware.platform import Dut
 from test.rig.platforms.hardware.probe import ProbeError
 
@@ -26,12 +28,54 @@ class FakeProbe:
         self.calls.append(("reset",))
 
 
-def make_dut(probe):
+# A DUT whose debug accesses answer WAIT `asleep` times, as a dormant one does.
+class FakeMemory:
+    def __init__(self, asleep=0):
+        self.asleep = asleep
+        self.writes = []
+
+    def write_words(self, address, words):
+        if self.asleep:
+            self.asleep -= 1
+            raise DapError("DAP transfer stopped after 0 of 1, ack 2")
+        self.writes.append((address, words))
+
+
+class FakeHarness:
+    def __init__(self):
+        self.code = []
+
+    def run(self, code, timeout=5.0):
+        self.code.append(code)
+        return ""
+
+
+def make_dut(probe, memory=None, harness=None):
     dut = object.__new__(Dut)
     dut.image = IMAGE
     dut.probe = probe
+    dut.memory = memory or FakeMemory()
+    dut.harness = harness or FakeHarness()
     dut.mailbox = SimpleNamespace(last_result=7)
     return dut
+
+
+def test_a_dormant_dut_is_woken_on_gp15_and_halted_before_the_download():
+    probe, memory, harness = FakeProbe(), FakeMemory(asleep=3), FakeHarness()
+    dut = make_dut(probe, memory, harness)
+    dut.flash(wake_harness_pin=15)
+    assert memory.writes == [(platform.DHCSR, [platform.DHCSR_HALT])]
+    assert "PWM(Pin(15)" in harness.code[0] and "_wake.deinit()" in harness.code[-1]
+    assert probe.calls[0] == ("download", IMAGE, False)
+
+
+def test_a_dut_that_never_wakes_raises_and_stops_the_square_wave(monkeypatch):
+    monkeypatch.setattr(Dut, "WAKE_TIMEOUT_S", 0.0)
+    harness = FakeHarness()
+    dut = make_dut(FakeProbe(), FakeMemory(asleep=10**6), harness)
+    with pytest.raises(DapError):
+        dut.flash(wake_harness_pin=15)
+    assert "_wake.deinit()" in harness.code[-1]
 
 
 def test_a_download_that_succeeds_resets_once():
