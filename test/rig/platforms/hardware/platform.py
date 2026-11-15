@@ -205,6 +205,8 @@ class Harness:
         self._ticks = None
         self._elapsed_us = 0
         self._held = None
+        # Why the last interface read found the harness but no strings.
+        self._unreadable = None
 
     def repl(self) -> Repl:
         return Repl(self.serial)
@@ -262,18 +264,27 @@ class Harness:
     # By serial: another harness on the same machine has the same VID:PID.
     # A device that leaves mid-read, or that sysfs already lists but that
     # cannot be opened yet, is re-enumerating, so it has no interfaces yet.
+    # So is one that refuses to open: udev gives the new device node its
+    # permissions a moment after it appears, and until then pyusb fails the
+    # open with EACCES, or reads no language IDs and so no strings.
     def usb_interfaces(self) -> list[str]:
         device = dap.find_harness(self.serial)
         if device is None:
             return []
         try:
-            return [name for _, name in dap.interface_strings(device)]
+            names = [name for _, name in dap.interface_strings(device)]
         except usb.core.USBError as error:
-            if error.errno not in (errno.ENODEV, errno.EIO):
+            if error.errno not in (errno.ENODEV, errno.EIO, errno.EACCES):
                 raise
+            self._unreadable = error
+            return []
+        except ValueError as error:
+            self._unreadable = error
             return []
         finally:
             usb.util.dispose_resources(device)
+        self._unreadable = None
+        return names
 
     # A serial function the harness serves for an attached device, by its
     # interface string. Linux names the tty after its interface number; the
@@ -298,7 +309,9 @@ class Harness:
         deadline = time.monotonic() + timeout
         while not settled(self.usb_interfaces()):
             if time.monotonic() >= deadline:
-                raise TimeoutError(f"harness {self.serial} did not {what}")
+                unreadable = getattr(self, "_unreadable", None)
+                raise TimeoutError(f"harness {self.serial} did not {what}"
+                                   + (f" (its strings were unreadable: {unreadable})" if unreadable else ""))
             time.sleep(0.25)
         self.wait_enumerated(timeout)
 
