@@ -9,6 +9,7 @@ class FakeLink:
     # A DUT whose GP25 toggles every 250 ms of its timer, which wraps.
     def __init__(self, step_us=1000, start=(1 << 32) - 600_000):
         self.now = start
+        self.elapsed = 0
         self.step = step_us
 
     def __enter__(self):
@@ -20,8 +21,9 @@ class FakeLink:
     def read_words(self, address, count):
         if address == TIMER:
             self.now = (self.now + self.step) % (1 << 32)
+            self.elapsed += self.step
             return [self.now]
-        t = self.now
+        t = self.elapsed
         if address == GPIO_IN:
             return [((t // 250_000) & 1) << 25]
         if address == GPIO_OE:
