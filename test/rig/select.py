@@ -25,7 +25,9 @@ ENGINES = {
     "I2C_TARGET": ("core/ports/rp2/hal/i2c_target.c", "core/include/metalclaw/hal/i2c_target.h"),
     "UART": ("core/ports/rp2/hal/uart.c", "core/ports/rp2/hal/uart_pio.c", "core/ports/rp2/hal/uart_internal.h",
              "core/include/metalclaw/hal/uart.h"),
-    "GPIO": ("core/ports/rp2/hal/gpio.c", "core/include/metalclaw/hal/gpio.h"),
+    "GPIO": ("core/ports/rp2/hal/gpio.c", "core/ports/rp2/hal/gpio_internal.h", "core/ports/rp2/hal/gpio_link.c",
+             "core/ports/rp2/hal/spi_peer.c", "core/include/metalclaw/hal/gpio.h",
+             "core/include/metalclaw/hal/spi_peer.h"),
 }
 # Every image's run resets and reads the DUT through the probe, so the probe
 # is in every image's path.
