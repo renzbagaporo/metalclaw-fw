@@ -9,6 +9,7 @@ import pytest
 import serial
 
 from test.pico_examples import pins
+from test.pico_examples.parts import PARTS
 from test.pico_examples.pin_specs import PIN_SPECS
 from test.pico_examples.targets import SPECS
 
@@ -23,8 +24,20 @@ for instance in metalclaw.instances():
 """
 
 
+# The program's external parts, attached on the harness before any case
+# restarts it, and gone once its cases are done.
 @pytest.fixture(scope="module")
-def console(harness, example, fixture):
+def parts(harness, example, fixture):
+    attached = PARTS.get(example.target, ())
+    for part in attached:
+        harness.run(part.code(fixture))
+    yield attached
+    for part in attached:
+        harness.run(f"import metalclaw\nfor i in metalclaw.instances():\n    if i.name == {part.name!r}: i.detach()\n")
+
+
+@pytest.fixture(scope="module")
+def console(harness, example, fixture, parts):
     uart = fixture["uart"]
     harness.run(DETACH + f"metalclaw.attach('console_bridge', {NAME!r}, uart={(uart['tx'], uart['rx'])})\n")
     harness.wait_interface(INTERFACE)
@@ -61,7 +74,7 @@ def test_the_example_completes(harness, example, console):
     assert not missing, f"{example.target} never printed {missing} within {spec.seconds} s:\n{text[-2000:]}"
 
 
-def test_the_example_drives_its_pins(example):
+def test_the_example_drives_its_pins(example, parts):
     spec = PIN_SPECS.get(example.target)
     if spec is None:
         pytest.skip(f"no pin criteria for {example.target}")
