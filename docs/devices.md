@@ -181,9 +181,11 @@ through one runtime call, `mclw_binding_stats()`, as named values.
 ## Where a model runs
 
 Two cores. Core 0 runs MicroPython, bare metal, and TinyUSB. Core 1 is the
-**worker**: it drains work the engines post from their interrupts, runs
-every registered poll, and ticks the clock. Every engine interrupt is
-enabled on core 1, so MicroPython's atomic sections never delay one.
+**worker**: in rounds it runs the work the engines post from their
+interrupts (what was queued as the round began; work posted meanwhile
+waits for the next), runs every registered poll, and ticks the clock, so
+work that keeps coming never holds the polls off. Every engine interrupt
+is enabled on core 1, so MicroPython's atomic sections never delay one.
 
 | Model entry point | Runs on | Holds |
 | --- | --- | --- |

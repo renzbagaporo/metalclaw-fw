@@ -40,21 +40,28 @@ static void __not_in_flash_func(tick_handler)(uint alarm) {
     hardware_alarm_set_target(alarm, make_timeout_time_us(WORKER_TICK_US));
 }
 
+// One round: the work queued as it starts. Work posted meanwhile, a
+// callback's repost of itself included, waits for the next round, after the
+// polls. Draining until empty starved the polls, and the clock with them,
+// whenever work came in faster than it was done: pico-examples' spi_flash
+// polling a w25q's status back to back, every window posting its delivery,
+// kept an RP2040 worker draining for good, and the erase never ended.
 static void drain(void) {
-    for (;;) {
-        uint32_t state = mclw_hal_critical_enter();
-        struct mclw_work *w = work_head;
+    uint32_t state = mclw_hal_critical_enter();
+    struct mclw_work *w = work_head;
 
-        if (w != NULL) {
-            work_head = w->next;
-            w->next = NULL;
-            w->pending = false;
-        }
+    work_head = NULL;
+    mclw_hal_critical_exit(state);
+    while (w != NULL) {
+        struct mclw_work *next;
+
+        state = mclw_hal_critical_enter();
+        next = w->next;
+        w->next = NULL;
+        w->pending = false;
         mclw_hal_critical_exit(state);
-        if (w == NULL) {
-            return;
-        }
         w->fn(w);
+        w = next;
     }
 }
 
