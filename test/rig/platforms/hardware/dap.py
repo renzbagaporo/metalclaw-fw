@@ -30,6 +30,7 @@ DAP_DISCONNECT = 0x03
 DAP_TRANSFER_CONFIGURE = 0x04
 DAP_TRANSFER = 0x05
 DAP_TRANSFER_BLOCK = 0x06
+DAP_SWJ_PINS = 0x10
 DAP_SWJ_CLOCK = 0x11
 DAP_SWJ_SEQUENCE = 0x12
 DAP_SWD_CONFIGURE = 0x13
@@ -127,6 +128,21 @@ def reset_power_manager(serial, clock_hz=1_000_000):
         time.sleep(0.05)
         link._ap_write(RP_AP_DBG_POW_OVRD, 0)
     time.sleep(0.2)
+
+
+# DAP_SWJ_Pins' nRESET bit (CMSIS-DAP DAP_SWJ_Pins), the probe's RUN line.
+PIN_NRESET = 0x80
+
+
+# Resets on the DUT's RUN through the probe's nRESET: `count` times low for
+# `low_us`, `gap_us` between them. DAP_SWJ_Pins' wait runs on the probe, so
+# the low and the gap are the probe's own time and only the turnaround
+# between two commands is the host's.
+def run_resets(serial, count, low_us, gap_us):
+    with _Link(serial, 1_000_000, RP2040, connect=False) as link:
+        for n in range(count):
+            for level, wait in ((0, low_us), (PIN_NRESET, gap_us if n + 1 < count else 0)):
+                link._command(bytes([DAP_SWJ_PINS, level, PIN_NRESET]) + struct.pack("<I", int(wait)))
 
 
 class DapError(RuntimeError):

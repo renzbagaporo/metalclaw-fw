@@ -26,7 +26,9 @@ ENGINES = {
     "SPI_SINK": ("core/ports/rp2/hal/spi_sink.c", "core/include/metalclaw/hal/spi_sink.h"),
     "UART": ("core/ports/rp2/hal/uart.c", "core/ports/rp2/hal/uart_pio.c", "core/ports/rp2/hal/uart_internal.h",
              "core/include/metalclaw/hal/uart.h"),
-    "GPIO": ("core/ports/rp2/hal/gpio.c", "core/include/metalclaw/hal/gpio.h"),
+    "GPIO": ("core/ports/rp2/hal/gpio.c", "core/ports/rp2/hal/gpio_internal.h", "core/ports/rp2/hal/gpio_link.c",
+             "core/ports/rp2/hal/spi_peer.c", "core/include/metalclaw/hal/gpio.h",
+             "core/include/metalclaw/hal/spi_peer.h"),
     "WIRE": ("core/ports/rp2/hal/wire.c", "core/ports/rp2/hal/wire_programs.c", "core/ports/rp2/hal/wire_programs.h",
              "core/include/metalclaw/hal/wire.h"),
 }

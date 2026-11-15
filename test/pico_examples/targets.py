@@ -30,6 +30,16 @@ class Spec:
     # Fields that differ on a bench whose lines have pull-ups (the carrier's
     # 5.1 k on every Pico GP0-22), where an undriven line reads high.
     with_line_pullups: dict = field(default_factory=dict)
+    # What the case does as the program runs, in order, each once `pattern`
+    # has matched after where the previous one did: (pattern, bytes) types
+    # on the console, (pattern, str) runs code on the harness, for a part
+    # that is to act then.
+    input: tuple[tuple[str, bytes | str], ...] = ()
+    # The DUT pins these criteria take an analog level on, and the fields
+    # that differ on a bench whose harness can only drive them high or low
+    # (fixture "analog_pins").
+    analog_pins: tuple[int, ...] = ()
+    without_analog: dict = field(default_factory=dict)
 
     def for_board(self, board: str | None) -> "Spec | None":
         # The criteria for this board's build, or None where they cannot judge it.
@@ -37,10 +47,13 @@ class Spec:
             return None
         return replace(self, boards=(), per_board={}, **self.per_board.get(board, {}))
 
-    def for_bench(self, line_pullups: bool) -> "Spec":
-        if line_pullups and self.with_line_pullups:
-            return replace(self, with_line_pullups={}, **self.with_line_pullups)
-        return self
+    def for_bench(self, line_pullups: bool, analog_pins=()) -> "Spec":
+        spec = self
+        if line_pullups and spec.with_line_pullups:
+            spec = replace(spec, with_line_pullups={}, **spec.with_line_pullups)
+        if not set(spec.analog_pins) <= set(analog_pins) and spec.without_analog:
+            spec = replace(spec, without_analog={}, **spec.without_analog)
+        return spec
 
     def match(self, text: str) -> tuple[list[str], list[str]]:
         # The expected patterns not found in order, and the forbidden ones found.
@@ -95,6 +108,13 @@ def _hello_48mhz(with_rtc: bool) -> tuple[str, ...]:
     names = _FREQS + (("clk_rtc  ",) if with_rtc else ())
     block = tuple(rf"{n}= \d+kHz\r?\n" for n in names)
     return (r"Hello, world!" + NL, *block, *block, r"Hello, 48MHz")
+
+
+def _rows(byte) -> tuple[str, ...]:
+    # printbuf of a 256-byte page whose byte i is byte(i), in spi_master_slave
+    # and both spi_flash programs: sixteen "%02x" a row, a space between, a
+    # newline after the last.
+    return tuple(" ".join(f"{byte(16 * r + c):02x}" for c in range(16)) + NL for r in range(16))
 
 
 def _wake_cycles(asleep: str, runs: int) -> tuple[str, ...]:
@@ -345,13 +365,13 @@ SPECS: dict[str, Spec] = {
     # low_power/low_power_dormant/low_power_dormant_timer.c:18-77: per run
     # "Wake up, test run: N", 10 s awake, "Dormant for 10000ms", 10 s
     # dormant on the AON timer. On RP2040 that timer runs only from an
-    # external clock on GP20 (:25-29, 66-68), so only pico2 is judged here.
+    # external clock on GP20 (:25-29, 66-68), which the harness makes
+    # (parts.py).
     "low_power_dormant_timer": Spec(
         console=_wake_cycles(r"Dormant for 10000ms", 3),
         seconds=80.0,
         forbidden=forbid(r"returned error"),
         source="low_power/low_power_dormant/low_power_dormant_timer.c",
-        boards=("pico2",),
     ),
     # low_power/low_power_sleep/low_power_sleep_timer.c:13-47: per run "Wake
     # up, test run: N", 10 s awake, "Sleeping for 10000ms", 10 s asleep.
@@ -512,12 +532,14 @@ SPECS: dict[str, Spec] = {
         source="spi/spi_dma/spi_dma.c",
     ),
     # spi/spi_master_slave/spi_master/spi_master.c:48-89: the 00..ff buffer,
-    # then every 10 s one 256-byte exchange and the MISO page it read.
+    # then every 10 s one 256-byte exchange and the MISO page it read, which
+    # the rig's spi_page_target answers with spi_slave.c's ~i (parts.py).
     "spi_master": Spec(
         console=(r"SPI master example\r?\n",
                  r"SPI master says: The following buffer will be written to MOSI endlessly:\r?\n",
-                 *(" ".join(f"{16 * r + c:02x}" for c in range(16)) + NL for r in range(16)),
-                 *(rf"SPI master says: read page {p} from the MISO line:\r?\n" + HEX_ROW * 16 for p in range(3))),
+                 *(_rows(lambda i: i)),
+                 *(rf"SPI master says: read page {p} from the MISO line:\r?\n" + "".join(_rows(lambda i: 255 - i))
+                   for p in range(3))),
         seconds=40.0,
         source="spi/spi_master_slave/spi_master/spi_master.c",
     ),
@@ -604,6 +626,37 @@ SPECS: dict[str, Spec] = {
                  r"Waiting to be rebooted by watchdog\r?\n", r"Rebooted by Watchdog!\r?\n"),
         seconds=3.0,
         source="watchdog/hello_watchdog/hello_watchdog.c",
+    ),
+    # adc/adc_console/adc_console.c:40-100: the banner and the help, then
+    # one command per character from the console, each echoed: "c4"
+    # selects the temperature sensor and says so, "s" samples it once,
+    # "x" is unknown and brings the help back. "w" is never sent: it drives
+    # GP2-GP29 as outputs against whatever the bench holds on them.
+    "adc_console": Spec(
+        console=(r"={27}\r?\nRP2040 ADC and Test Console\r?\n={27}\r?\n", r"Commands:\r?\n",
+                 r"w\t: Wiggle pins\r?\n", r"c4\r?\nSwitched to channel 4\r?\n",
+                 r"s\r?\n0x[0-9a-f]{3} -> \d\.\d{6} V\r?\n", r"x\r?\nUnrecognised command: x\r?\n",
+                 r"Commands:\r?\n"),
+        seconds=3.0,
+        forbidden=forbid(r"Unknown input channel"),
+        source="adc/adc_console/adc_console.c",
+        input=((r"w\t: Wiggle pins\r?\n", b"c4"), (r"Switched to channel 4\r?\n", b"s"), (r" V\r?\n", b"x")),
+    ),
+    # uart/uart_advanced/uart_advanced.c:29-84: uart0 with its FIFOs off
+    # greets, then the RX interrupt sends back every character it gets,
+    # plus one.
+    "uart_advanced": Spec(
+        console=(r"Hello, uart interrupts\r?\n", r"IBM"),
+        seconds=3.0,
+        source="uart/uart_advanced/uart_advanced.c",
+        input=((r"Hello, uart interrupts\r?\n", b"HAL"),),
+    ),
+    # pio/hello_pio/hello.c:42: the pin it blinks; that a key stops the
+    # blink is judged by its pins (pin_specs.py).
+    "hello_pio": Spec(
+        console=(r"Using gpio 25\r?\n",),
+        seconds=3.0,
+        source="pio/hello_pio/hello.c",
     ),
     # hello_world/serial/hello_serial.c: stdio_init_all(), then
     # printf("Hello, world!\n") every second, forever.

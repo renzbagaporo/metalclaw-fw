@@ -7,6 +7,7 @@ import pytest
 
 from test.pico_examples.part_targets import PART_SPECS
 from test.pico_examples.parts import PARTS, Attach, PinError, harness_pins, i2c_pins
+from test.pico_examples.targets import SPECS
 from test.rig.platforms.hardware.platform import FIXTURE, METALCLAW_PICO_RP2_FIXTURE
 
 
@@ -48,24 +49,22 @@ def test_a_pair_without_i2c_functions_is_refused():
         harness_pins(FIXTURE, (5, 6), i2c_pins)
 
 
-# Every part attaches on the carrier; on fixture 1 too, unless it is bound
-# to GP2, GP3 or GP28, which reach no harness pin there.
-def test_every_part_attaches_on_the_carrier_and_on_fixture_1_unless_on_its_probe_pins():
+# Fixture 1 reaches neither the DUT's GP2 nor its GP3 (nor GP28): a part on
+# one of them attaches on the carrier only.
+def test_every_part_attaches_on_both_fixtures_but_those_on_pins_fixture_1_lacks():
     for target, parts in PARTS.items():
         for part in parts:
-            assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(METALCLAW_PICO_RP2_FIXTURE), target
-            pins = {p for binding, values in part.bindings.items()
-                    for p in values[:part.pin_counts.get(binding, len(values))]}
-            if pins & {2, 3, 28}:
+            fixtures = (METALCLAW_PICO_RP2_FIXTURE,) if {2, 3, 28} & set(part.dut_pins()) else (
+                FIXTURE, METALCLAW_PICO_RP2_FIXTURE)
+            for fixture in fixtures:
+                assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(fixture), target
+            if len(fixtures) == 1:
                 with pytest.raises(PinError):
                     part.code(FIXTURE)
-            else:
-                assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(FIXTURE), target
 
 
 def test_the_wire_parts_bind_what_the_programs_drive():
-    on_fixture_1 = {t for t, parts in PARTS.items() if all(
-        not {2, 3, 28} & {p for v in part.bindings.values() for p in v} for part in parts)}
+    on_fixture_1 = {t for t, parts in PARTS.items() if all(not {2, 3, 28} & set(part.dut_pins()) for part in parts)}
     batch = {"pio_ws2812", "pio_ws2812_parallel", "pio_apa102", "pio_onewire", "dht", "pio_quadrature_encoder",
              "pio_quadrature_encoder_substep", "pio_ir_loopback", "pio_hub75"}
     assert batch <= set(PARTS)
@@ -102,7 +101,8 @@ def test_every_attached_model_is_a_device_and_every_target_has_criteria():
         models |= set(re.findall(r"metalclaw_device\((\w+)", cmake.read_text()))
     for target, parts in PARTS.items():
         assert {p.model for p in parts} <= models, target
-        assert (target in PART_SPECS and PART_SPECS[target].source) or any(p.checks for p in parts), target
+        spec = SPECS.get(target) or PART_SPECS.get(target)
+        assert (spec and spec.source) or any(p.checks for p in parts), target
 
 
 def test_a_part_carries_its_checks():

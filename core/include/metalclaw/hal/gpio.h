@@ -29,4 +29,21 @@ bool mclw_hal_gpio_read(const struct mclw_gpio *gpio);
 bool mclw_hal_gpio_fell(struct mclw_gpio *gpio);
 uint8_t mclw_hal_gpio_pin(const struct mclw_gpio *gpio);
 
+// An output carries a square wave from the port's own hardware: `period_ns`
+// long, high for the first `high_ns` of it, until the next call; a period
+// of 0 returns the pin to plain writes. -ERANGE for a period the hardware
+// cannot make, -EBUSY when the hardware is held for another period. The
+// wave the hardware makes is the nearest it can.
+int mclw_hal_gpio_square(struct mclw_gpio *gpio, uint32_t period_ns, uint32_t high_ns);
+
+// Links between two pins the port keeps up in hardware, with no CPU per
+// edge: `to`, an output, follows every level `from` has, a buffer a few
+// nanoseconds behind it; or `a` and `b` become one open-drain line, either
+// side held low by what is on it is driven low on the other, and released
+// sides are pulled up. A link lasts until either pin is unlinked or closed.
+// -ENOSPC when the port has no engine left for it.
+int mclw_hal_gpio_follow(struct mclw_gpio *to, struct mclw_gpio *from);
+int mclw_hal_gpio_join(struct mclw_gpio *a, struct mclw_gpio *b);
+void mclw_hal_gpio_unlink(struct mclw_gpio *gpio);
+
 #endif

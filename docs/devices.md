@@ -5,7 +5,7 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct mclw_model` and nothing else the
-runtime needs to know about. Thirty-two exist:
+runtime needs to know about. Thirty-five exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
 [`console_bridge`](../devices/console_bridge/README.md), a USB serial port on
 the board's console UART;
@@ -65,9 +65,19 @@ and data;
 [`dht22`](../devices/dht22/README.md), an Aosong humidity and temperature
 sensor on its single data line;
 [`quadrature_encoder`](../devices/quadrature_encoder/README.md), an
-incremental encoder the harness turns; and
+incremental encoder the harness turns;
 [`tsop382`](../devices/tsop382/README.md), a Vishay IR receiver module in
-the path from an IR LED (`tsop38238`), which reads the NEC frames it sees.
+the path from an IR LED (`tsop38238`), which reads the NEC frames it sees;
+and three for what a board finds on its pins beyond a part:
+[`square_wave`](../devices/square_wave/README.md), a square wave on one pin:
+a clock, a button pressed and let go, a wake signal, or, behind an RC
+filter, a PWM level;
+[`jumper`](../devices/jumper/README.md), a jumper wire between two of the
+board's pins, push-pull one way (`jumper`) or open-drain both ways
+(`jumper_open_drain`); and
+[`spi_page`](../devices/spi_page/README.md), the other end of an SPI link
+that moves 256-byte pages one byte per chip-select window, as the target
+(`spi_page_target`) or the controller (`spi_page_controller`).
 
 A device is written from its datasheet and contains no bus code. It declares
 which buses the part speaks, fills an image the datasheet describes (a
@@ -303,7 +313,22 @@ port exists.
 - `pins.h`: pin ownership. Claims are per owner; a board may name pins that
   no device may ever claim with `METALCLAW_RESERVED_PINS`.
 - `gpio.h`: one pin driven or sampled by a device. An input also latches a
-  fall, so a pulse that comes and goes between two reads is still seen.
+  fall, so a pulse that comes and goes between two reads is still seen. An
+  output can carry a square wave from the port's hardware (on rp2 a PWM
+  slice with an integer divider: 16 ns to about 134 ms at 125 MHz; both
+  pins of a slice share its period), and two pins can be linked in
+  hardware: one output following an input a few nanoseconds behind it, or
+  two pins joined as one open-drain line. On rp2 a link is one PIO state
+  machine with no CPU or DMA (`mov pins, pins`, one instruction; the
+  open-drain join, twelve, waits out a 2 µs settle after it lets a side go
+  before it looks at that side again).
+- `spi_peer.h`: an SPI peer on four pins a model holds as gpio bindings,
+  mode 0, MSB first, one byte per chip-select window, the framing a PL022
+  uses in mode 0: a target that shifts out the next byte of a 256-byte
+  ring per window and keeps what came in at the same place, or a controller
+  that clocks a transfer at its own rate. On rp2 one PIO state machine
+  (nine and seven instructions) and two DMA channels each, PIO0 first, then
+  PIO2, then PIO1.
 - `swd.h`: the SWD wire: transfers, bit sequences, pin control, clock. On
   rp2 it is a PIO program; every wait is bounded and a timeout resyncs the
   state machine. A wait for the state machine's FIFOs sleeps on WFE, woken
