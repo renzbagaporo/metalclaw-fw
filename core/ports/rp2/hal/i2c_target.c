@@ -34,12 +34,19 @@ struct mclw_i2c_target {
     // With a sink armed instead of an image: the interrupt writes entries
     // at `head`, the worker's poll takes them from `tail`.
     struct mclw_sink *sink;
-    bool sink_first;
+    // The transaction the bytes so far belong to.
+    uint8_t open;
     bool sink_ended;
     bool sink_open;
     volatile uint32_t head;
     volatile uint32_t tail;
     uint16_t ring[I2C_SINK_RING];
+};
+
+enum open_kind {
+    OPEN_NONE,
+    OPEN_WRITE,
+    OPEN_READ,
 };
 
 static struct mclw_i2c_target targets[2];
@@ -68,71 +75,99 @@ static i2c_inst_t *instance_for(uint8_t sda, uint8_t scl) {
     return ((sda / 2) & 1u) ? i2c1 : i2c0;
 }
 
-static void sink_event(struct mclw_i2c_target *t, i2c_inst_t *i2c, i2c_slave_event_t event) {
-    switch (event) {
-        case I2C_SLAVE_RECEIVE: {
-            uint8_t byte = i2c_read_byte_raw(i2c);
-            uint32_t head = t->head;
+// The bytes the RX FIFO holds, in bus order. The SDK's interrupt reports a
+// STOP or repeated START (I2C_SLAVE_FINISH) before RX_FULL, so an interrupt
+// taken late sees a transaction end ahead of that transaction's last bytes,
+// with the next transaction's first bytes behind them in the FIFO. Each
+// entry's FIRST_DATA_BYTE (IC_DATA_CMD bit 11, RP2040 and RP2350
+// datasheets) marks where the bus started a write, so transactions are
+// split there.
+static void receive(struct mclw_i2c_target *t, uint8_t byte, bool first);
 
-            if (head - t->tail >= I2C_SINK_RING) {
-                t->stats.dropped++;
-            } else {
-                t->ring[head % I2C_SINK_RING] = (uint16_t)(byte | (t->sink_first ? MCLW_SINK_FIRST : 0u));
-                t->head = head + 1u;
-            }
-            t->sink_first = false;
-            t->sink_ended = false;
-            t->stats.bytes++;
-            break;
+static void drain(struct mclw_i2c_target *t, i2c_inst_t *i2c) {
+    i2c_hw_t *hw = i2c_get_hw(i2c);
+
+    while (hw->rxflr != 0u) {
+        uint32_t entry = hw->data_cmd;
+        receive(t, (uint8_t)entry, (entry & I2C_IC_DATA_CMD_FIRST_DATA_BYTE_BITS) != 0u);
+    }
+}
+
+static void end_transaction(struct mclw_i2c_target *t) {
+    if (t->sink != NULL) {
+        t->sink_ended = true;
+    } else {
+        if (t->image != NULL) {
+            t->pointer = mclw_regmap_bus_restart(t->image, t->selected, t->pointer);
         }
-        case I2C_SLAVE_REQUEST:
-            i2c_write_byte_raw(i2c, t->sink->read_byte);
-            t->stats.bytes++;
-            break;
-        case I2C_SLAVE_FINISH:
-            t->sink_first = true;
-            t->sink_ended = true;
-            t->stats.transactions++;
-            break;
+        t->pointer_pending = true;
+    }
+    t->open = OPEN_NONE;
+    t->stats.transactions++;
+}
+
+static void receive(struct mclw_i2c_target *t, uint8_t byte, bool first) {
+    struct mclw_regmap *image = t->image;
+
+    if (first && t->open != OPEN_NONE) {
+        end_transaction(t);
+    }
+    t->open = OPEN_WRITE;
+    t->stats.bytes++;
+    if (t->sink != NULL) {
+        uint32_t head = t->head;
+
+        if (head - t->tail >= I2C_SINK_RING) {
+            t->stats.dropped++;
+        } else {
+            t->ring[head % I2C_SINK_RING] = (uint16_t)(byte | (first ? MCLW_SINK_FIRST : 0u));
+            t->head = head + 1u;
+        }
+        t->sink_ended = false;
+        return;
+    }
+    if (image != NULL && mclw_regmap_bus_input(image, byte)) {
+        t->pointer_pending = false;
+    } else if (t->pointer_pending) {
+        t->selected = image != NULL ? mclw_regmap_bus_select(image, byte) : byte;
+        t->pointer = t->selected;
+        t->pointer_pending = false;
+    } else if (image != NULL) {
+        mclw_regmap_bus_write(image, t->pointer++, byte);
     }
 }
 
 static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
     struct mclw_i2c_target *t = &targets[i2c_hw_index(i2c)];
     uint32_t state = mclw_hal_critical_enter();
-    struct mclw_regmap *image = t->image;
 
-    if (t->sink != NULL) {
-        sink_event(t, i2c, event);
-        mclw_hal_critical_exit(state);
-        return;
-    }
+    drain(t, i2c);
     switch (event) {
-        case I2C_SLAVE_RECEIVE: {
-            uint8_t byte = i2c_read_byte_raw(i2c);
-            if (image != NULL && mclw_regmap_bus_input(image, byte)) {
-                t->pointer_pending = false;
-            } else if (t->pointer_pending) {
-                t->selected = image != NULL ? mclw_regmap_bus_select(image, byte) : byte;
-                t->pointer = t->selected;
-                t->pointer_pending = false;
-            } else if (image != NULL) {
-                mclw_regmap_bus_write(image, t->pointer++, byte);
-            }
-            t->stats.bytes++;
+        case I2C_SLAVE_RECEIVE:
             break;
-        }
+        // A read is clock-stretched until it is answered, so its request
+        // is never ahead of the bytes before it. A write before it ended
+        // with the repeated START.
         case I2C_SLAVE_REQUEST:
-            i2c_write_byte_raw(i2c, image != NULL ? mclw_regmap_bus_read(image, t->pointer++) : 0xff);
+            if (t->open == OPEN_WRITE) {
+                end_transaction(t);
+            }
+            t->open = OPEN_READ;
+            if (t->sink != NULL) {
+                i2c_write_byte_raw(i2c, t->sink->read_byte);
+            } else {
+                i2c_write_byte_raw(i2c, t->image != NULL ? mclw_regmap_bus_read(t->image, t->pointer++) : 0xff);
+            }
             t->stats.bytes++;
             break;
-        // A STOP or a repeated START.
+        // A STOP or a repeated START, of the open transaction or, from an
+        // interrupt taken late, of one before it that a first byte already
+        // ended. A write the target is still in is left open for its
+        // own end.
         case I2C_SLAVE_FINISH:
-            if (image != NULL) {
-                t->pointer = mclw_regmap_bus_restart(image, t->selected, t->pointer);
+            if (t->open == OPEN_READ || (t->open == OPEN_WRITE && (i2c_get_hw(i2c)->status & I2C_IC_STATUS_SLV_ACTIVITY_BITS) == 0u)) {
+                end_transaction(t);
             }
-            t->pointer_pending = true;
-            t->stats.transactions++;
             break;
     }
     mclw_hal_critical_exit(state);
@@ -216,6 +251,7 @@ struct mclw_i2c_target *mclw_hal_i2c_target_open(uint8_t sda, uint8_t scl, uint8
     t->pointer = 0;
     t->selected = 0;
     t->pointer_pending = true;
+    t->open = OPEN_NONE;
     t->stats.transactions = 0;
     t->stats.bytes = 0;
     t->stats.dropped = 0;
@@ -261,6 +297,7 @@ int mclw_hal_i2c_target_arm(struct mclw_i2c_target *t, struct mclw_regmap *image
         t->pointer = mclw_regmap_bus_restart(image, t->selected, t->pointer);
     }
     t->pointer_pending = true;
+    t->open = OPEN_NONE;
     mclw_hal_critical_exit(state);
     return 0;
 }
@@ -279,7 +316,7 @@ int mclw_hal_i2c_target_arm_sink(struct mclw_i2c_target *t, struct mclw_sink *si
     t->image = NULL;
     t->head = 0;
     t->tail = 0;
-    t->sink_first = true;
+    t->open = OPEN_NONE;
     t->sink_ended = false;
     t->sink_open = false;
     t->sink = sink;
