@@ -121,6 +121,17 @@ the rig's download with no part attached and polls BUSY until the part
 is attached, so the engine is armed in the middle of those polls; it
 takes its first window from the next chip-select rise.
 
+pio_spi_flash's Pico 2 build (fixture 1) raises chip select after Write
+Enable and after the erase and lowers it in the very next instruction
+(both are `gpio_put`s through the RP2350's GPIO coprocessor), so it stays
+high for one or two cycles of the DUT's 150 MHz clock, against the 50 ns
+the part needs after an erase, program or write (9.6, tSHSL2). Fixture 1's
+125 MHz RP2040 harness samples chip select every 8 ns and misses some of
+those pulses (12 of 15 rig runs lost an erase), a second PIO state machine
+counting rises on the same pin missing the same ones; the two windows then reach the model as
+one, which refuses it, and the sector is not erased. The carrier's 150 MHz
+RP2350 harness sees them all.
+
 ## Sources
 
 Winbond W25Q16JV datasheet, Revision D (August 12, 2016), in
