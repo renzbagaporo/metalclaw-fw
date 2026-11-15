@@ -286,7 +286,15 @@ PART_SPECS: dict[str, Spec] = {
     ),
     # gpio/dht_sensor/dht.c:36-40: a reading every 2 s and more. 45.6 %RH and
     # 23.4 degC are 456 and 234 tenths; 23.4 * 9 / 5 + 32 is 74.12 in float.
+    # The program calls a bit 1 when its high lasted more than 16 passes of
+    # a sleep_us(1) loop. On the carrier's Pico, at 125 MHz, a pass takes
+    # about 1.1 us (72 passes over the AM2302's 80 us high), so a 0 (26-28 us,
+    # datasheet section 6) counts about 24: the decoded bytes read ff ff ff
+    # ff ff and every reading is "Bad data". A 0 short enough to read as one
+    # would be out of the datasheet, so the pico build's console is not
+    # judged; its start signals still are (parts.py).
     "dht": Spec(
+        boards=("pico2",),
         console=(r"Humidity = 45\.6%, Temperature = 23\.4C \(74\.1F\)" + NL,) * 2,
         seconds=6.0,
         forbidden=forbid(r"Bad data"),
