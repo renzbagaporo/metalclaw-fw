@@ -66,6 +66,10 @@ def test_the_example_completes(harness, example, console):
     spec = SPECS.get(example.target) or PART_SPECS.get(example.target)
     if spec is None:
         pytest.skip(f"no completion criteria for {example.target} yet")
+    board = example.metadata.get("board")
+    spec = spec.for_board(board)
+    if spec is None:
+        pytest.skip(f"{example.target}'s console cannot judge its {board} build")
     with serial.Serial(console, BAUD, timeout=0.1, exclusive=True) as port:
         port.reset_input_buffer()
         example.restart()
