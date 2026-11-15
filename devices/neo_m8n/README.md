@@ -66,7 +66,7 @@ gnss.detach()
 | `nmea_version` | u32 | ro | | | `CFG-NMEA.nmeaVersion`: 0x40 is 4.0, 0x41 4.10 |
 | `sentences` | u32 | ro | | | NMEA sentences sent |
 | `dropped` | u32 | ro | | | NMEA sentences an epoch had not sent when the next began, or when NMEA output was turned off or the part went to backup |
-| `gnss` | u32 | ro | | | the enabled GNSS as `MON-GNSS` reports them (bit 0 GPS, 1 GLONASS, 2 BeiDou, 3 Galileo), as `CFG-GNSS` left them |
+| `gnss` | u32 | rw | | 1 .. 15 | the enabled GNSS as `MON-GNSS` reports them (bit 0 GPS, 1 GLONASS, 2 BeiDou, 3 Galileo), as `CFG-GNSS` left them; a set is a configuration the part kept from before, so `gnss=1` starts it as a GPS-only receiver whose NMEA talker is `GP` |
 | `backup` | bool | ro | | | in software backup after `RXM-PMREQ` |
 
 At power-on there is no fix: position, speed and heading are zero, `fix` is

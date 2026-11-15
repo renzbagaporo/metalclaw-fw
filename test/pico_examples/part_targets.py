@@ -13,6 +13,18 @@ def _twice(*lines: str) -> tuple[str, ...]:
     return lines + lines
 
 
+# printbuf() in spi/spi_flash/spi_flash.c:97-104 and pio/spi/spi_flash.c:94-97:
+# sixteen "%02x" a row, a space between, a newline after the last.
+def _rows(byte) -> tuple[str, ...]:
+    return tuple(" ".join(f"{byte(16 * r + c):02x}" for c in range(16)) + NL for r in range(16))
+
+
+def _flash(*banner: str) -> tuple[str, ...]:
+    erased = _rows(lambda i: 0xFF)
+    return (*banner, r"After erase:" + NL, *erased, r"After program:" + NL, *_rows(lambda i: i),
+            r"Erase again:" + NL, *erased)
+
+
 PART_SPECS: dict[str, Spec] = {
     # bmp280_i2c.c:223 prints the greeting (its spelling), then from 243 on
     # every 500 ms printf("Pressure = %.3f kPa\n", pressure / 1000.f) and
@@ -181,5 +193,71 @@ PART_SPECS: dict[str, Spec] = {
         console=(r"Hello, max7219! Drawing things on a 8 x 7 segment display since 2022\.\.\." + NL,),
         seconds=2.0,
         source="spi/max7219_8x7seg_spi/max7219_8x7seg_spi.c",
+    ),
+    # uart/gps_uart/gps_uart.c:246 greets; every line it reads it echoes
+    # (line 74, the sentence's own CR LF included); a $GPRMC with status A
+    # (147-184) prints the coordinates as floats (253-254). 47.3977420 N is
+    # 4723.86452 in the M8's ddmm.mmmmm, which the program's float
+    # arithmetic (118-125) turns into 47.397739; 122.3321500 W likewise into
+    # -122.332146. A fix a second; the first line may be cut short.
+    "gps_uart": Spec(
+        console=(r"Waiting for NMEA data" + NL, *(
+            r"Full NMEA String: \$GPRMC,\d{6}\.\d{2},A,4723\.86452,N,12219\.92900,W,[^\r\n]*\r*\n",
+            r"Valid GPS Data Received" + NL, r"Latitude: 47\.397739" + NL, r"Longitude: -122\.332146" + NL) * 3),
+        seconds=6.0,
+        source="uart/gps_uart/gps_uart.c",
+    ),
+    # i2c/pa1010d_i2c/pa1010d_i2c.c:137 greets, writes its PMTK 314 and then
+    # each second reads 250 bytes, splits the $GNRMC in them at commas and
+    # prints the fields (75-90). The first read comes before the part has
+    # taken the command and holds the start of a full epoch, with no RMC in
+    # its first 254 bytes; the program's strstr then finds none and it
+    # prints from address 0 (43-44), so only later blocks are judged. The
+    # PA1010D's RMC (datasheet Table-10) has hhmmss.sss, ddmm.mmmm: 47.397742
+    # N is 4723.8645; 1.5 m/s is 2.92 kn; 90.00 degrees; 15 Nov 2026; no
+    # magnetic variation; mode A.
+    "pa1010d_i2c": Spec(
+        console=(r"Hello, PA1010D! Reading raw data from module\.\.\." + NL, *_twice(
+            r"Protocol:GNRMC" + NL, r"UTC Time: \d{6}\.000" + NL, r"Status: Data Valid" + NL,
+            r"Latitude: 4723\.8645" + NL, r"N/S indicator: N" + NL, r"Longitude: 12219\.9290" + NL,
+            r"E/W indicator: W" + NL, r"Speed over ground: 2\.92" + NL, r"Course over ground: 90\.00" + NL,
+            r"Date: 15/11/26" + NL, r"Magnetic Variation: " + NL, r"E/W degree indicator: " + NL,
+            r"Mode: A" + NL, r"Checksum: [0-9A-F]{2}" + NL)),
+        seconds=8.0,
+        source="i2c/pa1010d_i2c/pa1010d_i2c.c",
+    ),
+    # uart/lcd_uart/lcd_uart.c prints nothing: it sets the backpack up
+    # (125-149) and then forwards the console's input to it. Its parts
+    # checks (parts.py) judge it.
+    "lcd_uart": Spec(
+        console=(),
+        seconds=2.0,
+        source="uart/lcd_uart/lcd_uart.c",
+    ),
+    # spi/mpu9250_spi/mpu9250_spi.c:114 greets, 136 prints WHO_AM_I (0x71),
+    # then every 100 ms raw counts (145-149). +-2 g at 16384 LSB/g: -125,
+    # 750, 980 mg are -2048, 12288, 16056; +-250 deg/s at 131 LSB/(deg/s):
+    # 5, -12, 0.25 deg/s are 655, -1572, 33; 31 C is (31 - 21) x 333.87 =
+    # 3339 (PS-MPU-9250A-01 3.4.2), which the program reads with the
+    # MPU-6050's formula: 3339 / 340.0 + 36.53.
+    "mpu9250_spi": Spec(
+        console=(r"Hello, MPU9250! Reading raw data from registers via SPI\.\.\." + NL,
+                 r"I2C address is 0x71" + NL, *_twice(
+                     r"Acc\. X = -2048, Y = 12288, Z = 16056" + NL, r"Gyro\. X = 655, Y = -1572, Z = 33" + NL,
+                     r"Temp\. = 46\.350588" + NL)),
+        source="spi/mpu9250_spi/mpu9250_spi.c",
+    ),
+    # spi/spi_flash/spi_flash.c:114 and 131 greet, then the first sector is
+    # erased, read, programmed with 0..255, read, erased and read (137-155).
+    "spi_flash": Spec(
+        console=_flash(r"SPI flash example" + NL, r"SPI initialised, let's goooooo" + NL),
+        seconds=3.0,
+        source="spi/spi_flash/spi_flash.c",
+    ),
+    # pio/spi/spi_flash.c:106 and 119 greet; the same traffic through PIO.
+    "pio_spi_flash": Spec(
+        console=_flash(r"PIO SPI Example" + NL, r"Loaded program at \d+" + NL),
+        seconds=3.0,
+        source="pio/spi/spi_flash.c",
     ),
 }

@@ -5,7 +5,7 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct mclw_model` and nothing else the
-runtime needs to know about. Twenty-one exist:
+runtime needs to know about. Twenty-five exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
 [`console_bridge`](../devices/console_bridge/README.md), a USB serial port on
 the board's console UART;
@@ -37,7 +37,15 @@ monitors on I2C, one engine shared by four models: `ina219`, `ina228`,
 [`lis3dh`](../devices/lis3dh/README.md), an ST accelerometer on I2C;
 [`mma8451q`](../devices/mma8451q/README.md), an NXP accelerometer on I2C;
 [`mpl3115a2`](../devices/mpl3115a2/README.md), an NXP pressure and altitude
-sensor on I2C with its interrupt lines; and five displays, each a sink:
+sensor on I2C with its interrupt lines;
+[`pa1010d`](../devices/pa1010d/README.md), a CDTop GNSS module that sends
+NMEA and takes PMTK commands through its I2C buffer;
+[`mpu9250`](../devices/mpu9250/README.md), an InvenSense accelerometer and
+gyroscope on SPI or I2C;
+[`w25q`](../devices/w25q/README.md), the Winbond W25Q16JV serial NOR flash on
+SPI, as the model `w25q16jv`;
+[`lcd_backpack`](../devices/lcd_backpack/README.md), Adafruit's serial
+character LCD backpack on UART; and five displays, each a sink:
 [`ssd130x`](../devices/ssd130x/README.md), Solomon Systech SSD1306 and SSD1309
 OLED controllers on I2C or 4-wire SPI, two models;
 [`ht16k33`](../devices/ht16k33/README.md), a Holtek LED matrix driver on I2C;
@@ -196,7 +204,12 @@ selected, so a read with no pointer write re-reads the selected register
 from its first byte; arming the map selects pointer value 0. That is how
 the pointer registers of TI's INA2xx (SBOS448G 8.5.6, SLYS021A 7.5.1.1) and
 Microchip's MCP9808 (DS25095A 4.1.1) behave. Without one, the pointer is a
-byte address that runs on from one transaction to the next.
+byte address that runs on from one transaction to the next. A part with no
+register pointer at all, a byte stream behind its address, gives the map an
+`on_input` hook instead: every transaction starts at image address 0 and
+every byte the master writes goes to the hook, in interrupt context, rather
+than into the image. That is the I2C buffer of MediaTek's GNSS receivers
+(GlobalTop's "NMEA over I2C" guide, 3 and 4), which `pa1010d` serves.
 
 `core/include/metalclaw/stream.h` is the other image: a fixed-length frame
 of up to 64 bytes, double-buffered, that the part drives out (`OUT`, an ADC)
@@ -217,6 +230,21 @@ until it has processed a command, and the host waits for it, which is what
 makes all of that free of timing: the engine raises BUSY in hardware at
 every chip-select release and the model lowers it with
 `mclw_hal_spi_target_set_busy()` once its edits are published.
+
+The same image serves a serial NOR flash. Its Read Data is a memory read:
+the opcode, three address bytes and the array from that address, with no
+NOP, served from the image's pages by address bits 15..8 and 7..0; bits
+23..16 reach the model and select nothing. A page the image does not hold
+reads as the image's filler (`mclw_command_set_filler`, 0xFF for a flash).
+Such a part has no BUSY line: it reports its own busy state in the status
+byte and the host polls that, back to back. The image names the opcodes
+that start an internal operation and the status bits that say so; the
+engine sets those bits at the release of such a window and holds them until
+the model has taken it, so a poll right after a program or erase never sees
+the part idle too early. Without a BUSY line the engine keeps two windows
+for the worker rather than one, so a write enable and the erase right
+behind it both reach the model, and a publish lands at once even while a
+window that reads only the status byte is open. `w25q` is built this way.
 
 `core/include/metalclaw/sink.h` is for parts that only listen and have no
 register map to serve: display controllers, LED drivers, a port expander.
@@ -253,15 +281,19 @@ port exists.
   model arms it once and updates the image under a critical section; the
   engine answers the bus from interrupt context without the model. The
   first byte the master writes is the register pointer; with the image's
-  pointer map, each transaction starts again at the register it selected.
-  Armed with a sink instead, it captures every written byte into a
-  256-entry ring from the interrupt, and the worker's poll delivers them.
-  Counters: `transactions`, `bytes`, `dropped` (sink bytes the worker had
-  no room for).
+  pointer map, each transaction starts again at the register it selected;
+  with its `on_input` hook there is no pointer and written bytes go to the
+  hook. Armed with a sink instead of an image, it captures every written
+  byte into a 256-entry ring from the interrupt, and the worker's poll
+  delivers them. Counters: `transactions`, `bytes`, `dropped` (sink bytes
+  the worker had no room for).
 - `spi_target.h`: an SPI target that serves a `regmap` (with its framing),
   a `stream` or a `command` image from hardware, in the mode the model
   asked for, with `set_mode` to change it. It publishes a clock ceiling per
-  image (10.7 MHz, 15 MHz and 8 MHz) and counters (`transactions`, `bytes`,
+  image (10.7 MHz, 15 MHz and 8 MHz; 2 MHz for a command image with a
+  memory read, an estimate not yet measured on the bench: the first data
+  byte must reach the state machine within one SCK period of the last
+  address bit, and the chain spends about 200 ns there) and counters (`transactions`, `bytes`,
   short and long windows, DMA faults, stale windows; for a command image a
   stale window is one that began while BUSY was high). On rp2 it is one PIO
   program and DMA; every window is served with no CPU in the byte path, and

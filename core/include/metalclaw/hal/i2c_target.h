@@ -14,10 +14,16 @@
 // selects pointer value 0. Without a map the pointer is a byte address that
 // runs on from one transaction to the next.
 //
-// A sink (metalclaw/sink.h) is armed instead for a part with no register
-// pointer: every written byte, the first included, is captured with
-// MCLW_SINK_FIRST on the first of each transaction, and reads return the
-// sink's read_byte.
+// A part with no register pointer at all takes one of two forms:
+//   - an image with an on_input hook (metalclaw/regmap.h), for a part whose
+//     reads carry data: every written byte goes to the hook in interrupt
+//     context, one at a time and with no transaction boundaries, and every
+//     transaction reads from image address 0;
+//   - a sink (metalclaw/sink.h), for a part that only listens: every
+//     written byte is captured, MCLW_SINK_FIRST on the first of each
+//     transaction, and handed to the model on the worker with the
+//     transaction's end; reads return the sink's read_byte.
+// A target holds one image or one sink; arming either replaces the other.
 
 #ifndef MCLW_HAL_I2C_TARGET_H
 #define MCLW_HAL_I2C_TARGET_H

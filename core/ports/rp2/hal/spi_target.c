@@ -85,7 +85,12 @@ struct spi_descriptor {
 // The data channel D streams the answer into the TX FIFO.
 //
 //   prologue  2 status bytes out; opcode -> &optab[op] -> jump -> L
-//   optab[op] picks a list: write, response, buffer read, register read
+//   optab[op] picks a list: write, response, buffer read, register read,
+//             or the memory read's stub, which jumps to the memory list:
+//             2 status bytes out, address bits 23..16 -> memory_high,
+//             jump into the register list after its status block, which
+//             then takes bits 15..8 and 7..0 as a register read takes its
+//             two address bytes
 //   pagetab   maps address bits 15..8 to the page's address bits 15..8
 //
 // A chain trigger fires before the last write of the finished block has
@@ -126,6 +131,12 @@ enum {
     SPI_LIST_CBS = 21,
 };
 
+// The memory read's stub sits in the buffer list's terminator slot: an
+// image with a memory read names it for the buffer read too, so no window
+// ever runs the buffer list on.
+#define SPI_LIST_MEMORY_STUB 12u
+#define SPI_MEMORY_CBS 3u
+
 enum {
     SPI_PROLOGUE_STATUS,
     SPI_PROLOGUE_OPCODE,
@@ -149,6 +160,22 @@ enum {
 #define SPI_COMMAND_DATA_RUN 256u
 #define SPI_COMMAND_CLOCK_HZ 8000000u
 #define SPI_COMMAND_STEP_REPEAT 4u
+// A memory read's first data byte must reach the TX FIFO between the
+// sample of its last address bit and the host's sample of the next bit:
+// the state machine's autopull stalls the MISO bit until it does. After the
+// last address byte the chain runs two blocks and the data channel's first
+// transfer, a third of the six blocks the response read was measured to fit
+// in 600 ns, so about 200 ns against one SCK period. Not measured on the
+// bench: the ceiling below keeps a factor of two on that estimate.
+#define SPI_COMMAND_MEMORY_CLOCK_HZ 2000000u
+// How long a publish waits for an open window's opcode, to learn whether
+// the window reads only the status byte: a byte at 250 kHz.
+#define SPI_COMMAND_OPCODE_WAIT_US 32u
+// Windows a command image without a BUSY line keeps for the worker. A part
+// with BUSY ignores a window while it is busy; one without takes the next
+// command at once, so a write enable and the erase right behind it must
+// both reach the model.
+#define SPI_RECORDS 2u
 
 struct spi_command_block {
     uint8_t optab[256];
@@ -162,9 +189,14 @@ struct spi_command_block {
     uint32_t status;
     uint32_t jump;
     uint32_t scratch;
-    uint8_t unused[0x500 - 0x4ec];
+    uint32_t memory_jump;
+    uint32_t register_jump;
+    uint32_t memory_high;
+    uint8_t unused[0x500 - 0x4f8];
     uint8_t responses[MCLW_COMMAND_RESPONSES_MAX][MCLW_COMMAND_RESPONSE_MAX];
-    uint8_t unused2[0x600 - 0x580];
+    // The memory list's own blocks; the loader reaches them by a jump.
+    struct spi_cb memory[SPI_MEMORY_CBS];
+    uint8_t unused2[0x600 - 0x580 - SPI_MEMORY_CBS * sizeof(struct spi_cb)];
     // Two copies, so a read from any offset runs on without wrapping.
     uint8_t buffer[2 * MCLW_COMMAND_BUFFER_SIZE];
 };
@@ -173,6 +205,8 @@ _Static_assert(sizeof(struct spi_command_block) == 2048u, "command block is one 
 _Static_assert(offsetof(struct spi_command_block, lists) % 256u == 0u, "list base is page aligned");
 _Static_assert(offsetof(struct spi_command_block, buffer) % 256u == 0u, "buffer is page aligned");
 _Static_assert(SPI_LIST_REGISTER * sizeof(struct spi_cb) < 255u, "list heads fit a byte");
+_Static_assert(SPI_LIST_MEMORY_STUB * sizeof(struct spi_cb) < 255u, "list heads fit a byte");
+_Static_assert(offsetof(struct spi_command_block, responses) == 0x500u, "responses are page aligned");
 
 struct spi_bus {
     uint8_t sck;
@@ -216,10 +250,19 @@ struct mclw_spi_target {
     volatile bool busy;
     bool window_busy;
     volatile bool shadow_pending;
-    volatile bool record_full;
+    // Windows whose release set the image's busy bits and which the model
+    // has not yet taken: until it has taken them all, the engine's status
+    // keeps those bits. The next shadow puts the model's status back
+    // whether or not it changed.
+    uint8_t busy_windows;
+    bool status_forced;
+    // Windows waiting for the worker, oldest at record_first.
+    volatile uint8_t record_count;
+    uint8_t record_first;
     uint8_t page_slot[MCLW_COMMAND_PAGES_MAX];
-    uint16_t record_len;
-    bool record_busy;
+    uint16_t record_len[SPI_RECORDS];
+    bool record_busy[SPI_RECORDS];
+    bool record_forced[SPI_RECORDS];
     struct mclw_work record_work;
 
     uint8_t banks;
@@ -238,7 +281,7 @@ struct mclw_spi_target {
 
     uint8_t tx_buf[SPI_BUFFER_BYTES];
     uint8_t capture[SPI_BUFFER_BYTES];
-    uint8_t record[MCLW_COMMAND_WINDOW_MAX + 1u];
+    uint8_t record[SPI_RECORDS][MCLW_COMMAND_WINDOW_MAX + 1u];
     uint8_t delivered[MCLW_COMMAND_WINDOW_MAX + 1u];
 
     struct mclw_spi_target_stats stats;
@@ -736,8 +779,17 @@ static uint8_t __not_in_flash_func(command_shadow)(struct mclw_spi_target *t) {
     uint8_t dirty = image->dirty;
 
     image->dirty = 0;
+    if (t->status_forced) {
+        dirty |= MCLW_COMMAND_DIRTY_STATUS;
+        t->status_forced = false;
+    }
     if ((dirty & MCLW_COMMAND_DIRTY_STATUS) != 0u) {
-        b->status = image->status * 0x01010101u;
+        uint8_t status = image->status;
+
+        if (t->busy_windows != 0u) {
+            status |= image->busy_status;
+        }
+        b->status = status * 0x01010101u;
     }
     if ((dirty & MCLW_COMMAND_DIRTY_RESPONSES) != 0u) {
         for (uint8_t i = 0; i < image->response_count; i++) {
@@ -813,7 +865,7 @@ static void command_build(struct mclw_spi_target *t) {
     uint32_t page_high = address_of(pages) & 0xffff0000u;
 
     memset(b, 0, sizeof(*b));
-    memset(pages, 0, SPI_COMMAND_PAGE_SLOTS * MCLW_COMMAND_PAGE_SIZE);
+    memset(pages, image->filler, SPI_COMMAND_PAGE_SLOTS * MCLW_COMMAND_PAGE_SIZE);
 
     memset(b->optab, (int)(SPI_LIST_WRITE * sizeof(struct spi_cb)), sizeof(b->optab));
     for (uint8_t i = 0; i < image->response_count; i++) {
@@ -822,6 +874,9 @@ static void command_build(struct mclw_spi_target *t) {
     }
     b->optab[image->read_buffer_opcode] = (uint8_t)(SPI_LIST_BUFFER * sizeof(struct spi_cb));
     b->optab[image->read_register_opcode] = (uint8_t)(SPI_LIST_REGISTER * sizeof(struct spi_cb));
+    if (image->has_memory_read) {
+        b->optab[image->read_memory_opcode] = (uint8_t)(SPI_LIST_MEMORY_STUB * sizeof(struct spi_cb));
+    }
     command_layout(t, b->pagetab);
 
     b->dblock[SPI_DBLOCK_WRITE] = (struct spi_dblock){
@@ -871,6 +926,17 @@ static void command_build(struct mclw_spi_target *t) {
     l[SPI_LIST_REGISTER + 5] = (struct spi_cb){ address_of(&b->dblock[SPI_DBLOCK_REGISTER]), d_al1, 4u, load_d };
     l[SPI_LIST_REGISTER + 6] = drain_rest;
 
+    if (image->has_memory_read) {
+        uint32_t jump_l = address_of(&dma_hw->ch[L].al3_read_addr_trig);
+
+        b->memory_jump = address_of(b->memory);
+        b->register_jump = address_of(&l[SPI_LIST_REGISTER + 1]);
+        l[SPI_LIST_MEMORY_STUB] = (struct spi_cb){ address_of(&b->memory_jump), jump_l, 1u, jump };
+        b->memory[0] = (struct spi_cb){ address_of(&b->status), txf, 2u, tx_status };
+        b->memory[1] = (struct spi_cb){ rxf, address_of(&b->memory_high), 1u, rx_byte };
+        b->memory[2] = (struct spi_cb){ address_of(&b->register_jump), jump_l, 1u, jump };
+    }
+
     t->command->dirty = 0xffu;
     (void)command_shadow(t);
 }
@@ -916,6 +982,38 @@ static uint32_t __not_in_flash_func(command_loaded)(const struct mclw_spi_target
     return at > start ? (at - start) / sizeof(struct spi_cb) : 0u;
 }
 
+// The address bytes a memory read received: bits 23..16 once the loader has
+// gone past the memory list's second block, then 15..8 and 7..0 as the
+// register list it jumped into counts them.
+static uint16_t __not_in_flash_func(command_memory_record)(const struct mclw_spi_target *t, uint8_t *record,
+    uint16_t len) {
+    const volatile struct spi_command_block *b = command_block(t);
+    uint32_t at = dma_channel_hw_addr((uint)t->loader_dma)->read_addr;
+    uint32_t memory = address_of(b->memory);
+    uint32_t reg = address_of(&b->lists[SPI_LIST_REGISTER]);
+    uint32_t reg_end = address_of(&b->lists[SPI_LIST_CBS]);
+    uint32_t loaded;
+
+    if (at > memory && at <= memory + SPI_MEMORY_CBS * sizeof(struct spi_cb)) {
+        if ((at - memory) / sizeof(struct spi_cb) >= SPI_MEMORY_CBS) {
+            record[len++] = *(const volatile uint8_t *)&b->memory_high;
+        }
+        return len;
+    }
+    if (at <= reg || at > reg_end) {
+        return len;
+    }
+    loaded = (at - reg) / sizeof(struct spi_cb);
+    record[len++] = *(const volatile uint8_t *)&b->memory_high;
+    if (loaded >= 3u) {
+        record[len++] = *(const volatile uint8_t *)&b->lists[SPI_LIST_REGISTER + 3].read;
+        if (loaded >= 6u) {
+            record[len++] = *(const volatile uint8_t *)&b->dblock[SPI_DBLOCK_REGISTER].read;
+        }
+    }
+    return len;
+}
+
 static void __not_in_flash_func(command_finalize)(struct mclw_spi_target *t) {
     const volatile struct spi_command_block *b = command_block(t);
     uint8_t list;
@@ -931,22 +1029,34 @@ static void __not_in_flash_func(command_finalize)(struct mclw_spi_target *t) {
     if (fault) {
         t->stats.dma_faults++;
     }
-    if (t->window_busy || t->record_full) {
+    // With BUSY, the window before is still waiting for the worker, BUSY
+    // high since its release: the part ignores this one, and the one it was
+    // busy with is kept for delivery. Without, the worker is behind by
+    // more windows than the engine keeps.
+    if (t->busy_pin >= 0 ? (t->window_busy || t->record_count != 0u) : t->record_count >= SPI_RECORDS) {
         t->stats.stale_windows++;
     }
-    // The window before is still waiting for the worker, BUSY high since its
-    // release: the part ignores this one, and the one it was busy with is
-    // kept for delivery.
-    if (t->record_full) {
+    if (t->record_count >= (t->busy_pin >= 0 ? 1u : SPI_RECORDS)) {
         return;
     }
+    uint8_t slot = (uint8_t)((t->record_first + t->record_count) % SPI_RECORDS);
+    uint8_t *record = t->record[slot];
+
+    t->record_forced[slot] = false;
     if (list == SPI_COMMAND_NO_OPCODE) {
         t->stats.short_windows++;
     } else {
         uint32_t head = list / sizeof(struct spi_cb);
         uint32_t loaded = command_loaded(t, head);
+        uint8_t opcode = *(const volatile uint8_t *)&b->prologue[SPI_PROLOGUE_LOOKUP].read;
+        const struct mclw_command_image *image = t->command;
 
-        t->record[len++] = *(const volatile uint8_t *)&b->prologue[SPI_PROLOGUE_LOOKUP].read;
+        record[len++] = opcode;
+        if ((image->busy_opcodes[opcode / 8u] & (1u << (opcode % 8u))) != 0u) {
+            command_block(t)->status |= (uint32_t)image->busy_status * 0x01010101u;
+            t->busy_windows++;
+            t->record_forced[slot] = true;
+        }
         if (head == SPI_LIST_WRITE && loaded >= 2u) {
             uint32_t params = remaining <= MCLW_COMMAND_WINDOW_MAX ?
                 MCLW_COMMAND_WINDOW_MAX - remaining : 0u;
@@ -955,22 +1065,24 @@ static void __not_in_flash_func(command_finalize)(struct mclw_spi_target *t) {
                 params = MCLW_COMMAND_WINDOW_MAX;
                 t->stats.long_windows++;
             }
-            memcpy(&t->record[len], t->capture, params);
+            memcpy(&record[len], t->capture, params);
             len = (uint16_t)(len + params);
         } else if (head == SPI_LIST_BUFFER && loaded >= 3u) {
-            t->record[len++] = *(const volatile uint8_t *)&b->dblock[SPI_DBLOCK_BUFFER].read;
+            record[len++] = *(const volatile uint8_t *)&b->dblock[SPI_DBLOCK_BUFFER].read;
+        } else if (head == SPI_LIST_MEMORY_STUB) {
+            len = command_memory_record(t, record, len);
         } else if (head == SPI_LIST_REGISTER && loaded >= 3u) {
-            t->record[len++] = *(const volatile uint8_t *)&b->lists[SPI_LIST_REGISTER + 3].read;
+            record[len++] = *(const volatile uint8_t *)&b->lists[SPI_LIST_REGISTER + 3].read;
             if (loaded >= 6u) {
-                t->record[len++] = *(const volatile uint8_t *)&b->dblock[SPI_DBLOCK_REGISTER].read;
+                record[len++] = *(const volatile uint8_t *)&b->dblock[SPI_DBLOCK_REGISTER].read;
             }
         }
         t->stats.transactions++;
         t->stats.bytes += len;
     }
-    t->record_len = len;
-    t->record_busy = t->window_busy;
-    t->record_full = true;
+    t->record_len[slot] = len;
+    t->record_busy[slot] = t->window_busy;
+    t->record_count++;
     mclw_hal_work_post(&t->record_work);
 }
 
@@ -983,13 +1095,32 @@ static bool command_idle(const struct mclw_spi_target *t) {
         *(volatile uint8_t *)&command_block(t)->jump == SPI_COMMAND_NO_OPCODE;
 }
 
+// Whether the open window, once its opcode is in, reads nothing but the
+// status byte: then the engine's copy may change under it, the status the
+// window clocks out changing with it. A part without BUSY is polled with
+// such windows back to back, so a publish that waited for an idle bus might
+// wait as long as the host keeps polling. Called in the critical section.
+static bool __not_in_flash_func(command_status_window)(const struct mclw_spi_target *t) {
+    const volatile uint8_t *list = (const volatile uint8_t *)&command_block(t)->jump;
+    uint32_t start = time_us_32();
+
+    while (*list == SPI_COMMAND_NO_OPCODE && !pin_high(t->cs) &&
+        time_us_32() - start < SPI_COMMAND_OPCODE_WAIT_US) {
+    }
+    return *list == SPI_LIST_WRITE * sizeof(struct spi_cb);
+}
+
 static void command_notify(struct mclw_command_image *image, void *ctx) {
     struct mclw_spi_target *t = ctx;
     uint32_t state = mclw_hal_critical_enter();
 
     if (t->image == SPI_IMAGE_COMMAND) {
         if (!command_idle(t)) {
-            t->shadow_pending = true;
+            if (t->busy_pin < 0 && command_status_window(t)) {
+                (void)command_shadow(t);
+            } else {
+                t->shadow_pending = true;
+            }
         } else if ((command_shadow(t) & MCLW_COMMAND_DIRTY_STATUS) != 0u && command_idle(t)) {
             // Between windows the state machine holds the first status byte
             // in its OSR and the second in the TX FIFO, both copied at the
@@ -1014,8 +1145,9 @@ static void command_deliver(struct mclw_work *work) {
     uint32_t state;
     uint16_t len;
     bool busy;
+    bool forced;
 
-    if (!t->record_full) {
+    if (t->record_count == 0u) {
         return;
     }
     if (!mclw_hal_try_lock()) {
@@ -1024,10 +1156,15 @@ static void command_deliver(struct mclw_work *work) {
     }
     state = mclw_hal_critical_enter();
     image = t->image == SPI_IMAGE_COMMAND ? t->command : NULL;
-    len = t->record_len;
-    busy = t->record_busy;
-    memcpy(t->delivered, t->record, len);
-    t->record_full = false;
+    len = t->record_len[t->record_first];
+    busy = t->record_busy[t->record_first];
+    forced = t->record_forced[t->record_first];
+    memcpy(t->delivered, t->record[t->record_first], len);
+    t->record_first = (uint8_t)((t->record_first + 1u) % SPI_RECORDS);
+    t->record_count--;
+    if (t->record_count != 0u) {
+        mclw_hal_work_post(work);
+    }
     mclw_hal_critical_exit(state);
     // A publish made while this window was open is copied here, under the
     // runtime lock, and not at release: core 0 may be editing the image
@@ -1037,6 +1174,17 @@ static void command_deliver(struct mclw_work *work) {
     }
     if (image != NULL && image->on_window != NULL) {
         image->on_window(image, t->delivered, len, busy, image->on_window_ctx);
+    }
+    // The model has taken a window that set the busy bits: once it has
+    // taken every such window, its own status stands again.
+    if (image != NULL && forced) {
+        state = mclw_hal_critical_enter();
+        if (t->busy_windows != 0u) {
+            t->busy_windows--;
+        }
+        t->status_forced = true;
+        mclw_hal_critical_exit(state);
+        command_notify(image, t);
     }
     mclw_hal_unlock();
 }
@@ -1614,7 +1762,8 @@ struct mclw_spi_target *mclw_hal_spi_target_open(uint8_t sck, uint8_t mosi, uint
     t->command = NULL;
     t->busy_pin = -1;
     t->busy = false;
-    t->record_full = false;
+    t->record_count = 0;
+    t->record_first = 0;
     t->shadow_pending = false;
     t->record_work = (struct mclw_work){ .fn = command_deliver, .ctx = t, .pending = false, .next = NULL };
     t->banks = 0;
@@ -1713,7 +1862,8 @@ void mclw_hal_spi_target_disarm(struct mclw_spi_target *t) {
         t->stream = NULL;
         t->command = NULL;
         t->busy = false;
-        t->record_full = false;
+        t->record_count = 0;
+        t->record_first = 0;
         t->shadow_pending = false;
     }
     mclw_hal_critical_exit(state);
@@ -1901,7 +2051,10 @@ int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_comma
     }
     t->command = image;
     t->image = SPI_IMAGE_COMMAND;
-    t->record_full = false;
+    t->record_count = 0;
+    t->record_first = 0;
+    t->busy_windows = 0;
+    t->status_forced = false;
     t->shadow_pending = false;
     memset(&t->stats, 0, sizeof(t->stats));
     command_build(t);
@@ -2024,7 +2177,8 @@ uint32_t mclw_hal_spi_target_max_clock_hz(const struct mclw_spi_target *t) {
         case SPI_IMAGE_STREAM:
             return SPI_STREAM_CLOCK_HZ;
         case SPI_IMAGE_COMMAND:
-            return SPI_COMMAND_CLOCK_HZ;
+            return t->command != NULL && t->command->has_memory_read ? SPI_COMMAND_MEMORY_CLOCK_HZ
+                                                                     : SPI_COMMAND_CLOCK_HZ;
         case SPI_IMAGE_NONE:
         default:
             return 0u;

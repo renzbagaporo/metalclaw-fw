@@ -7,6 +7,8 @@
 //   response reads  opcode, NOP, response...         status on the NOP
 //   register read   opcode, addr[15:8], addr[7:0], NOP, registers from addr...
 //   buffer read     opcode, offset, NOP, buffer bytes from offset, wrapping
+//   memory read     opcode, addr[23:16], addr[15:8], addr[7:0], registers
+//                   from addr[15:0]... (a serial NOR flash's Read Data)
 //
 // Every byte that carries no data is the status byte, the first one
 // included. The engine serves all of it from hardware. The model is called
@@ -17,8 +19,19 @@
 //
 // Registers live in up to MCLW_COMMAND_PAGES_MAX pages of 256 bytes,
 // named by address bits 15..8. Reads of a page the image does not hold
-// return zero; writes are the model's business, since they arrive as
-// windows like every other command.
+// return the image's filler, zero unless set; writes are the model's
+// business, since they arrive as windows like every other command. A memory
+// read has no NOP: its first data byte leaves one bit time after its last
+// address bit, which lowers the clock the engine can serve it at. Address
+// bits 23..16 reach the model but select nothing.
+//
+// A part without a BUSY line (a NOR flash) reports its own busy state in
+// the status byte, and its host polls that. For such a part the image names
+// the opcodes that start an internal operation and the status bits that say
+// so; the engine sets those bits from the release of such a window until
+// the model has taken it, and every such window before it, so a host that
+// polls at once never sees the part idle before the model has taken the
+// command. From then on the status is the model's, as it last published it.
 
 #ifndef MCLW_COMMAND_H
 #define MCLW_COMMAND_H
@@ -63,6 +76,11 @@ struct mclw_command_image {
     uint8_t status;
     uint8_t read_register_opcode;
     uint8_t read_buffer_opcode;
+    bool has_memory_read;
+    uint8_t read_memory_opcode;
+    uint8_t filler;
+    uint8_t busy_status;
+    uint8_t busy_opcodes[256 / 8];
     uint8_t response_count;
     struct mclw_command_response responses[MCLW_COMMAND_RESPONSES_MAX];
     uint8_t page_count;
@@ -86,6 +104,16 @@ void mclw_command_init(struct mclw_command_image *image, uint8_t read_register_o
     uint8_t read_buffer_opcode);
 void mclw_command_set_on_window(struct mclw_command_image *image, mclw_command_on_window_t fn,
     void *ctx);
+// A memory read opcode, which takes the place of the register or buffer
+// read on that opcode; a part with neither names the memory opcode for both.
+void mclw_command_set_memory_read(struct mclw_command_image *image, uint8_t opcode);
+// What a read of a page the image does not hold returns.
+void mclw_command_set_filler(struct mclw_command_image *image, uint8_t filler);
+// The status bits the engine sets at the release of a window that began
+// with `opcode`, until the model has taken that window.
+void mclw_command_set_busy_status(struct mclw_command_image *image, uint8_t bits);
+void mclw_command_add_busy_opcode(struct mclw_command_image *image, uint8_t opcode);
+bool mclw_command_busy_opcode(const struct mclw_command_image *image, uint8_t opcode);
 // -ENOSPC when the image is full.
 int mclw_command_add_page(struct mclw_command_image *image, uint8_t page);
 int mclw_command_add_response(struct mclw_command_image *image, uint8_t opcode);

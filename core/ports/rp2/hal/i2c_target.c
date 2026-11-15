@@ -110,7 +110,9 @@ static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
     switch (event) {
         case I2C_SLAVE_RECEIVE: {
             uint8_t byte = i2c_read_byte_raw(i2c);
-            if (t->pointer_pending) {
+            if (image != NULL && mclw_regmap_bus_input(image, byte)) {
+                t->pointer_pending = false;
+            } else if (t->pointer_pending) {
                 t->selected = image != NULL ? mclw_regmap_bus_select(image, byte) : byte;
                 t->pointer = t->selected;
                 t->pointer_pending = false;
