@@ -103,13 +103,15 @@ draws custom characters.
 
 ## pico-examples
 
-`uart/lcd_uart` (pico-examples 0d62f75) sets the backpack up on uart1, TX
-on GP8, at 9600: backlight on (it sends the byte at address 0 as the
-ignored argument), 16x2, contrast 155, brightness 255, both cursors off,
-the splash "Hello LCD, from Pi Towers!" padded to 32, home and clear. Then
-it forwards what arrives on its console, changing the backlight colour per
-character. It prints nothing, so `test/pico_examples/parts.py` judges it by
-the part's state.
+`uart/lcd_uart` (pico-examples 0d62f75) is written to set the backpack up
+on uart1, TX on GP8, at 9600: backlight on, 16x2, contrast 155, brightness
+255, both cursors off, the splash "Hello LCD, from Pi Towers!" padded to
+32, home and clear, and then to forward its console. As built it does not
+get that far. Its backlight-on passes a NULL buffer for the command's
+argument byte, and GCC at -O2 compiles that read into a UDF: the program
+sends `0xFE 0x42` and takes a HardFault, so the backpack waits for the
+argument and keeps its factory state. It prints nothing, so
+`test/pico_examples/parts.py` judges it by the part's state.
 
 ## Sources
 

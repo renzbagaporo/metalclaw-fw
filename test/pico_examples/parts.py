@@ -241,19 +241,20 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     ),
     # uart/lcd_uart/lcd_uart.c:29-31: uart1 at 9600, TX only, on GP8; the
     # part's TX would reach GP9, which the program leaves alone. It prints
-    # nothing; what it sent is in the part (lines 125-149).
+    # nothing. As built it sends 0xFE 0x42, Display On, and faults before
+    # the argument byte: GCC turned lcd_set_backlight's read through a NULL
+    # buffer (line 101) into a UDF in lcd_init (see program_parts_check.c).
+    # So the backpack takes no command and keeps its factory state. The
+    # Pico 2's stdio_init_all lets about 2.5 s pass before lcd_init.
     "lcd_uart": (
         Attach("lcd_backpack", "lcd", {"uart": (9, 8)}, {}, {},
-               checks=(Check("(part.columns, part.rows)", lambda v: tuple(v) == (16, 2), "the size is 16x2"),
-                       Check("part.contrast", lambda v: v == 155, "the contrast is the program's 155"),
-                       Check("(part.brightness, part.backlight)", lambda v: tuple(v) == (255, True),
-                             "the backlight is on at 255"),
-                       Check("(part.underline_cursor, part.block_cursor)", lambda v: tuple(v) == (False, False),
-                             "both cursors are off"),
+               checks=(Check("part.stats('uart')['bytes_rx']", lambda v: v == 2,
+                             "the program sent two bytes, 0xFE 0x42, and nothing after its fault", 5.0),
+                       Check("(part.commands, part.characters, part.contrast, part.brightness, part.backlight)",
+                             lambda v: tuple(v) == (0, 0, 200, 255, True),
+                             "the unfinished Display On left the factory state: no command, no text", 5.0),
                        Check("bytes(part.read_region('splash', 0, 16)) + bytes(part.read_region('splash', 20, 16))",
-                             lambda v: v == b"Hello LCD, from Pi Towers!      ", "the splash screen is the program's"),
-                       Check("bytes(part.read_region('display', 0, 16)) + bytes(part.read_region('display', 20, 16))",
-                             lambda v: v == b" " * 32, "the screen is clear"))),
+                             lambda v: v == b"\xff" * 32, "the splash is still the built-in one", 5.0))),
     ),
     # spi/mpu9250_spi/mpu9250_spi.c:43-46: MISO GP4, CS GP5, SCK GP6, MOSI GP7.
     "mpu9250_spi": (

@@ -226,9 +226,8 @@ PART_SPECS: dict[str, Spec] = {
         seconds=8.0,
         source="i2c/pa1010d_i2c/pa1010d_i2c.c",
     ),
-    # uart/lcd_uart/lcd_uart.c prints nothing: it sets the backpack up
-    # (125-149) and then forwards the console's input to it. Its parts
-    # checks (parts.py) judge it.
+    # uart/lcd_uart/lcd_uart.c prints nothing, and faults in lcd_init as
+    # built (parts.py); its parts checks judge it.
     "lcd_uart": Spec(
         console=(),
         seconds=2.0,

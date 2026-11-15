@@ -41,17 +41,23 @@ def run_program(check, target):
     (part,) = PARTS[target]
     values = [f"{k}={','.join(map(str, v)) if isinstance(v, tuple) else v}" for k, v in part.properties.items()]
     out = run(check, target, part.model, *values)
-    console = "".join(line + "\n" for line in out.split("\n") if not line.startswith(("part.", "region.")))
+    console = "".join(line + "\n" for line in out.split("\n")
+                      if not line.startswith(("part.", "region.", "stats.")))
     return console, part, the_part(out)
 
 
-# The part as the harness REPL shows it: properties, and regions through
-# read_region(name, offset, length).
+# The part as the harness REPL shows it: properties, regions through
+# read_region(name, offset, length), and the counters a program printed
+# through stats(binding).
 def the_part(out: str):
     props = dict(re.findall(r"^part\.(\w+) = (.*)$", out, re.M))
     regions = {k: bytes.fromhex(v) for k, v in re.findall(r"^region\.(\w+) = ([0-9a-f]*)$", out, re.M)}
+    stats = {}
+    for binding, name, value in re.findall(r"^stats\.(\w+)\.(\w+) = (\d+)$", out, re.M):
+        stats.setdefault(binding, {})[name] = int(value)
     part = SimpleNamespace(**{k: eval(v) for k, v in props.items()})
     part.read_region = lambda name, offset, length: regions[name][offset:offset + length]
+    part.stats = lambda binding: stats[binding]
     return part
 
 

@@ -111,6 +111,7 @@ struct mclw_uart {
     size_t head;
     size_t tail;
     uint32_t sent;
+    uint32_t received;
     uint64_t next_byte_us;
 };
 
@@ -141,6 +142,7 @@ size_t mclw_hal_uart_send(struct mclw_uart *u, const uint8_t *bytes, size_t len)
 void mclw_hal_uart_stats(const struct mclw_uart *u, struct mclw_uart_stats *out) {
     memset(out, 0, sizeof(*out));
     out->bytes_tx = u->sent;
+    out->bytes_rx = u->received;
 }
 
 // The part's side of the wire: the next byte it sent, once its 10 bits
@@ -160,6 +162,7 @@ static void run_clock(uint64_t us);
 static void uart_write(const uint8_t *bytes, size_t len) {
     for (size_t i = 0; i < len; i++) {
         run_clock(10000000u / uart.baud);
+        uart.received++;
         if (uart.rx != NULL) {
             uart.rx(&uart, &bytes[i], 1, uart.ctx);
         }
@@ -723,32 +726,19 @@ static void pa1010d_program(void) {
     }
 }
 
-// uart/lcd_uart/lcd_uart.c:62-149. Display On sends the byte at address 0.
-static void lcd_write(uint8_t cmd, const uint8_t *buf, uint8_t buflen) {
-    const uint8_t pre = 0xfe;
-    uart_write(&pre, 1);
-    uart_write(&cmd, 1);
-    uart_write(buf, buflen);
-    sleep_ms(10);
-}
-
+// uart/lcd_uart/lcd_uart.c:62-149 as the pinned build compiles it. lcd_init
+// (125) starts with Display On, whose one argument byte lcd_set_backlight
+// (101) passes as a NULL buffer. GCC sees the read through NULL and, as
+// -fisolate-erroneous-paths-dereference does at -O2 (CMAKE_BUILD_TYPE
+// Release), puts a UDF in its place after the 0xFE and 0x42 are written:
+// both builds' lcd_init end `ldrb r3, [r3, #0]; udf #255`. The program
+// takes a HardFault there and sends nothing more.
 static void lcd_uart_program(void) {
-    static const uint8_t address_zero = 0x00;
-    uint8_t size[] = { 16, 2 };
-    uint8_t contrast = 155;
-    uint8_t brightness = 255;
-    uint8_t splash_buf[] = "Hello LCD, from Pi Towers!      ";
+    static const uint8_t display_on[] = { 0xfe, 0x42 };
 
-    lcd_write(0x42, &address_zero, 1);
-    lcd_write(0xd1, size, 2);
-    lcd_write(0x50, &contrast, 1);
-    lcd_write(0x99, &brightness, 1);
-    lcd_write(0x54, NULL, 0);
-    lcd_write(0x4b, NULL, 0);
-    lcd_write(0x40, splash_buf, 16 * 2);
-    lcd_write(0x48, NULL, 0);
-    lcd_write(0x58, NULL, 0);
+    uart_write(display_on, sizeof(display_on));
     sleep_ms(100);
+    printf("stats.uart.bytes_rx = %u\n", (unsigned)uart.received);
 }
 
 // spi/mpu9250_spi/mpu9250_spi.c:63-109, 111-152.
