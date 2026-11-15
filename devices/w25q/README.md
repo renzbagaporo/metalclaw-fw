@@ -116,6 +116,10 @@ for the next window 0.25 us after a rise, so every window reaches the
 model, and the status poll right after an erase or program reads BUSY.
 They poll back to back faster than the worker delivers windows; the
 polls the queue had no room for are counted in `missed_windows`.
+On the carrier, where MISO reads high undriven, each program starts from
+the rig's download with no part attached and polls BUSY until the part
+is attached, so the engine is armed in the middle of those polls; it
+takes its first window from the next chip-select rise.
 
 ## Sources
 

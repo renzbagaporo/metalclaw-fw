@@ -1023,11 +1023,24 @@ static void load_y(const struct mclw_spi_target *t, uint32_t value) {
 // Starts the reset program and hands it the first window: a chip-select
 // rise the monitor is made to report if chip select is high now, else the
 // next real one. Either way the first record describes no window.
+//
+// The monitor stays stopped until RW is parked on its FIFO, so that every
+// token it pushes runs the reset program at its rise. RW counts the
+// monitor's DREQ while disarmed too, a credit for each token pushed since
+// (4 with the FIFO full, measured), and clearing the FIFO leaves the
+// credits without their tokens (RP2350 datasheet 12.6.4.2: a FIFO the CPU
+// touches desynchronises its channel); a rise that came before RW was
+// parked would be taken once it was, microseconds late. Either way the
+// reset program ran at no rise, restarting the data state machine inside
+// a window a host had begun, which lost its first bits: seen arming a w25q
+// while pico-examples' spi_flash polled it back to back.
 static void engine_start(struct mclw_spi_target *t) {
     struct spi_engine *e = t->engine;
     dma_channel_config c = default_config((uint)t->rl_dma);
 
+    sm_enable(t->monitor_sm, false);
     pio_sm_clear_fifos(SPI_PIO, t->monitor_sm);
+    dma_debug_hw->ch[t->rw_dma].dbg_ctdreq = 0;
     // The data state machine waits at its first OUT for a TX word that
     // only the reset program provides, after it has stopped it.
     pio_sm_restart(SPI_PIO, t->sm);
@@ -1048,6 +1061,9 @@ static void engine_start(struct mclw_spi_target *t) {
     for (uint32_t i = 0; i < SPI_LOADER_WAIT_LOOPS && !reset_idle(t); i++) {
         tight_loop_contents();
     }
+    pio_sm_restart(SPI_PIO, t->monitor_sm);
+    pio_sm_exec(SPI_PIO, t->monitor_sm, jmp_to(t->bus, SPI_MONITOR_ENTRY));
+    sm_enable(t->monitor_sm, true);
     if (pin_high(t->cs)) {
         pio_sm_exec(SPI_PIO, t->monitor_sm, pio_encode_push(false, false));
     }
