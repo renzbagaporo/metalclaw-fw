@@ -28,9 +28,9 @@ model's own descriptors.
 
 ## Devices
 
-Sixteen device packages exist; `bmx280` and `icm4268x` define two models
+Twenty device packages exist; `bmx280` and `icm4268x` define two models
 each and `sx126x`, `cellular` and `ina2xx` four each, so `models()` lists
-twenty-seven. The SWD debug probe: attaching it adds a CMSIS-DAP v2
+thirty-one. The SWD debug probe: attaching it adds a CMSIS-DAP v2
 interface to the USB device, and `probe-rs` then drives the board under
 test through the harness. The console bridge: attaching it adds a serial port to the USB device that carries the board
 under test's console UART. And six simulated parts the board under test's
@@ -42,15 +42,17 @@ cellular modems on UART with a small fake network behind them. And parts
 unmodified pico-examples programs talk to: BMP280 and BME280 environmental
 sensors on I²C or SPI; on I²C an MCP9808 temperature sensor, a PCF8523
 real-time clock, INA219, INA228, INA237 and INA260 current and power
-monitors, an MPU-6050 IMU, LIS3DH and MMA8451Q accelerometers and an
-MPL3115A2 pressure and altitude sensor. A device is written from its
+monitors, an MPU-6050 IMU, LIS3DH and MMA8451Q accelerometers, an
+MPL3115A2 pressure and altitude sensor and a PA1010D GNSS module; an
+MPU-9250 IMU and a W25Q16JV NOR flash on SPI; and on UART an Adafruit serial
+LCD backpack, and the NEO-M8N again as a GPS-only NMEA receiver. A device is written from its
 datasheet with no bus code; the SPI, I²C and UART engines live in the port
 and serve every transfer with no CPU in the byte path.
 
 ```python
 >>> import metalclaw
 >>> metalclaw.models()
-('ads7883', 'bmp388', 'bmp280', 'bme280', 'sim7080g', 'sim7000', 'a7672x', 'sequans_monarch', 'console_bridge', 'icm42688', 'icm42686', 'ina219', 'ina228', 'ina237', 'ina260', 'lis3dh', 'mcp9808', 'mma8451q', 'mpl3115a2', 'mpu6050', 'neo_m8n', 'pcf8523', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68')
+('ads7883', 'bmp388', 'bmp280', 'bme280', 'sim7080g', 'sim7000', 'a7672x', 'sequans_monarch', 'console_bridge', 'icm42688', 'icm42686', 'ina219', 'ina228', 'ina237', 'ina260', 'lcd_backpack', 'lis3dh', 'mcp9808', 'mma8451q', 'mpl3115a2', 'mpu6050', 'mpu9250', 'neo_m8n', 'pa1010d', 'pcf8523', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68', 'w25q16jv')
 >>> probe = metalclaw.attach("swd_probe", "dut", swd=(2, 3, 28))
 >>> baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
 >>> baro.pressure = 101325
@@ -99,7 +101,7 @@ core/                         the harness firmware
   micropython/                the `metalclaw` module and Instance type
   ports/rp2/                  port config, USB device, REPL stream, HAL, board definitions
   third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
-devices/                      one directory per device model: swd_probe, console_bridge, bmp388, ads7883, icm4268x, neo_m8n, sx126x, cellular, bmx280, mcp9808, pcf8523, ina2xx, mpu6050, lis3dh, mma8451q, mpl3115a2
+devices/                      one directory per device model: swd_probe, console_bridge, bmp388, ads7883, icm4268x, neo_m8n, sx126x, cellular, bmx280, mcp9808, pcf8523, ina2xx, mpu6050, lis3dh, mma8451q, mpl3115a2, pa1010d, mpu9250, w25q, lcd_backpack
 test/
   rig/                        run.py, the hardware platform, the Zephyr DUT fixture
   cases/                      cases for the harness as a whole

@@ -5,7 +5,7 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct mclw_model` and nothing else the
-runtime needs to know about. Sixteen exist:
+runtime needs to know about. Twenty exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
 [`console_bridge`](../devices/console_bridge/README.md), a USB serial port on
 the board's console UART;
@@ -35,9 +35,17 @@ monitors on I2C, one engine shared by four models: `ina219`, `ina228`,
 `ina237` and `ina260`;
 [`mpu6050`](../devices/mpu6050/README.md), an InvenSense six-axis IMU on I2C;
 [`lis3dh`](../devices/lis3dh/README.md), an ST accelerometer on I2C;
-[`mma8451q`](../devices/mma8451q/README.md), an NXP accelerometer on I2C; and
+[`mma8451q`](../devices/mma8451q/README.md), an NXP accelerometer on I2C;
 [`mpl3115a2`](../devices/mpl3115a2/README.md), an NXP pressure and altitude
-sensor on I2C with its interrupt lines.
+sensor on I2C with its interrupt lines;
+[`pa1010d`](../devices/pa1010d/README.md), a CDTop GNSS module that sends
+NMEA and takes PMTK commands through its I2C buffer;
+[`mpu9250`](../devices/mpu9250/README.md), an InvenSense accelerometer and
+gyroscope on SPI or I2C;
+[`w25q`](../devices/w25q/README.md), the Winbond W25Q16JV serial NOR flash on
+SPI, as the model `w25q16jv`; and
+[`lcd_backpack`](../devices/lcd_backpack/README.md), Adafruit's serial
+character LCD backpack on UART.
 
 A device is written from its datasheet and contains no bus code. It declares
 which buses the part speaks, fills an image the datasheet describes (a
