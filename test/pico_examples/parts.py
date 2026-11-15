@@ -244,15 +244,15 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     # nothing. As built it sends 0xFE 0x42, Display On, and faults before
     # the argument byte: GCC turned lcd_set_backlight's read through a NULL
     # buffer (line 101) into a UDF in lcd_init (see program_parts_check.c).
-    # So the backpack takes no command and keeps its factory state. The
-    # Pico 2's stdio_init_all lets about 2.5 s pass before lcd_init.
+    # Each run leaves a Display On waiting for its argument, which the next
+    # run's 0xFE completes; no setting changes. The Pico 2's stdio_init_all
+    # lets about 2.5 s pass before lcd_init.
     "lcd_uart": (
         Attach("lcd_backpack", "lcd", {"uart": (9, 8)}, {}, {},
-               checks=(Check("part.stats('uart')['bytes_rx']", lambda v: v == 2,
-                             "the program sent two bytes, 0xFE 0x42, and nothing after its fault", 5.0),
-                       Check("(part.commands, part.characters, part.contrast, part.brightness, part.backlight)",
-                             lambda v: tuple(v) == (0, 0, 200, 255, True),
-                             "the unfinished Display On left the factory state: no command, no text", 5.0),
+               checks=(Check("part.stats('uart')['bytes_rx']", lambda v: v >= 2 and v % 2 == 0,
+                             "each run of the program sent 0xFE 0x42 and nothing after its fault", 5.0),
+                       Check("(part.contrast, part.brightness, part.columns, part.rows)",
+                             lambda v: tuple(v) == (200, 255, 16, 2), "no setting changed from the factory state", 5.0),
                        Check("bytes(part.read_region('splash', 0, 16)) + bytes(part.read_region('splash', 20, 16))",
                              lambda v: v == b"\xff" * 32, "the splash is still the built-in one", 5.0))),
     ),
