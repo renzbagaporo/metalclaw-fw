@@ -98,6 +98,20 @@ def edges(samples, pin):
     return out
 
 
+# (earliest, latest) time in seconds of each change on `pin`: it came after
+# the sample before the one that saw it and no later than that one. On a
+# bench whose link samples slowly, as the emulator's can between host round
+# trips, an interval between two changes is only known to that precision.
+def edge_bounds(samples, pin):
+    out, previous = [], None
+    for before, s in zip([None] + samples[:-1], samples):
+        level = (s.levels >> pin) & 1
+        if previous is not None and level != previous:
+            out.append((before.us / 1e6, s.us / 1e6))
+        previous = level
+    return out
+
+
 def driven_throughout(samples, pin):
     return bool(samples) and all((s.driven >> pin) & 1 for s in samples)
 
@@ -125,8 +139,11 @@ class Toggle:
         seen = edges(samples, self.pin)
         if len(seen) < self.edges:
             problems.append(f"GP{self.pin} changed {len(seen)} times, expected at least {self.edges}")
-        gaps = [b[0] - a[0] for a, b in zip(seen, seen[1:])]
-        bad = [round(g, 4) for g in gaps if not self.period[0] <= g <= self.period[1]]
+        # An interval fails only if every length its edges' bounds allow is
+        # outside `period`.
+        bounds = edge_bounds(samples, self.pin)
+        bad = [round(b[1] - a[1], 4) for a, b in zip(bounds, bounds[1:])
+               if b[0] - a[1] > self.period[1] or b[1] - a[0] < self.period[0]]
         if bad:
             problems.append(f"GP{self.pin} intervals outside {self.period} s: {bad[:8]}")
         return problems

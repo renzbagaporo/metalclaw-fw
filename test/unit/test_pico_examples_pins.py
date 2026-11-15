@@ -46,3 +46,23 @@ def test_a_wrong_period_or_an_undriven_pin_is_reported():
     problems = pins.Toggle(25, 7, (0.45, 0.55)).check(samples)
     assert any("intervals outside" in p for p in problems)
     assert pins.Toggle(7, 1, (0.1, 1.0)).check(samples) != []
+
+
+def test_an_interval_is_judged_within_what_coarse_samples_can_tell():
+    # 70 ms between samples, as a slow emulated link gives: the 250 ms
+    # toggles are seen up to 70 ms late, so single intervals read as short
+    # as 0.18 s or as long as 0.32 s, and each still passes; a wrong period
+    # still fails.
+    samples = pins.watch(None, "rp2350", 3.0, (25,), link=FakeLink(step_us=70_000))
+    seen = pins.edges(samples, 25)
+    gaps = [b[0] - a[0] for a, b in zip(seen, seen[1:])]
+    assert any(not 0.24 <= g <= 0.26 for g in gaps)
+    assert pins.Toggle(25, 7, (0.24, 0.26)).check(samples) == []
+    assert any("intervals outside" in p for p in pins.Toggle(25, 7, (0.45, 0.55)).check(samples))
+
+
+def test_edge_bounds_hold_each_change_between_two_samples():
+    samples = pins.watch(None, "rp2350", 1.0, (25,), link=FakeLink(step_us=70_000))
+    for (lo, hi), (t, _) in zip(pins.edge_bounds(samples, 25), pins.edges(samples, 25)):
+        assert lo < hi == t
+        assert int(hi / 0.25) != int(lo / 0.25) or lo * 1e6 % 250_000 == 0
