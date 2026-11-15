@@ -7,7 +7,7 @@
 
 from dataclasses import dataclass
 
-from test.pico_examples.pins import Toggle
+from test.pico_examples.pins import Levels, Morse, Segments, Toggle
 
 
 @dataclass(frozen=True)
@@ -81,6 +81,38 @@ PIN_SPECS: dict[str, PinSpec] = {
     # pins, so GP3 counts on fixture 1 too.
     "pio_blink": PinSpec(4.0, (Toggle(3, 20, half(1 / 8)), Toggle(4, 16, half(1 / 6)),
                                Toggle(5, 10, half(1 / 4)), Toggle(6, 5, half(1 / 2))), "pio/pio_blink/blink.c"),
+    # picoboard/blinky/blinky.c:11, 42-77: "Hello world" in Morse on the
+    # LED at DOT_PERIOD_MS 100, then 1 s off; the whole message takes about
+    # 12.4 s, so two pauses and the message between them fit in 27 s.
+    "picoboard_blinky": PinSpec(27.0, (Morse(LED, "HELLO WORLD", 0.1),), "picoboard/blinky/blinky.c"),
+    # gpio/hello_7segment/hello_7segment.c:28-29, 46-90: segments A..G on
+    # GP2..GP8, lit low (OUTOVER inverted), the next digit every 250 ms, up
+    # while GP9 is low, down while high; parts.py presses GP9 2 s of every
+    # 4. The watcher reads the DUT's pads, so the segments on GP2 and GP3
+    # count on fixture 1 too.
+    "hello_7segment": PinSpec(9.0, (Segments(2, 9, 28, 4),), "gpio/hello_7segment/hello_7segment.c"),
+    # pio/hello_pio/hello.c:48-55: PIO blinks the LED at 500 ms half periods
+    # while no key has come in, checked once a second; a key at 3 s ends it
+    # by 4 s at the latest, and nothing changes the LED after.
+    "hello_pio": PinSpec(7.0, (Toggle(LED, 6, half(0.5), until=4.2),), "pio/hello_pio/hello.c",
+                         send=((3.0, b"q"),)),
+    # picoboard/button/button.c:26-58, 66-74: every 10 ms the LED shows the
+    # BOOTSEL button, read from QSPI_SS while it floats. No harness pin
+    # reaches the Pico's BOOTSEL (on QSPI_SS, behind 1 kOhm) on either
+    # bench, so the rig presses it on QSPI_SS's input path (pins.bootsel).
+    "picoboard_button": PinSpec(
+        7.0, (Levels(LED, ((0.0, 1.0, 0), (1.0, 2.5, 1), (2.5, 4.0, 0), (4.0, 5.5, 1), (5.5, 7.0, 0))),),
+        "picoboard/button/button.c", presses=(Press(1.0, 2.5), Press(4.0, 5.5))),
 }
 
-BOOTSEL_SPECS: dict[str, BootselSpec] = {}
+BOOTSEL_SPECS: dict[str, BootselSpec] = {
+    # system/hello_double_tap: pico_bootsel_via_double_reset
+    # (pico-sdk src/rp2_common/pico_bootsel_via_double_reset) arms a flag
+    # that survives RUN (RAM on RP2040, POWMAN CHIP_RESET.DOUBLE_TAP on
+    # RP2350), waits PICO_BOOTSEL_VIA_DOUBLE_RESET_TIMEOUT_MS 200, and
+    # clears it; a reset that finds it set calls rom_reset_usb_boot_extra
+    # with ACTIVITY_LED 25 (CMakeLists.txt). The second reset comes 100 ms
+    # after the first is let go: past the boot to that check, inside its
+    # window. One reset is followed by the 250 ms blink (hello_double_tap.c:20-25).
+    "hello_double_tap": BootselSpec(LED, 0.01, 0.1, 2.0, 5, "system/hello_double_tap/hello_double_tap.c"),
+}

@@ -162,3 +162,111 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     "mpl3115a2_i2c": _i2c_part("mpl3115a2", 0x60, {"pressure": 95000, "altitude": 321500, "temperature": 21625},
                            int1=16),
 }
+
+
+# What a program finds on its pins beyond a part: a signal on an input, or a
+# jumper between two of its own pins. Times are in ns, the square_wave
+# model's unit; a wave whose period is under 2 ms comes from the harness's
+# PWM, a longer one follows the simulation clock.
+MS = 1_000_000
+
+
+def _wave(name: str, pin: int, period: int, high: int, **variants) -> Attach:
+    return Attach("square_wave", name, {"out": (pin,)}, properties={"period": period, "high": high}, **variants)
+
+
+def _level(level: bool) -> dict:
+    return {"period": 0, "high": 0, "level": level}
+
+
+def _jumper(name: str, source: int, sink: int) -> Attach:
+    return Attach("jumper", name, {"source": (source,), "sink": (sink,)}, one_window=True)
+
+
+def _i2c_jumpers() -> tuple[Attach, ...]:
+    # slave_mem_i2c.c:20-23: the i2c0 target on GP4 (SDA) / GP5 (SCL), the
+    # i2c1 controller on GP6 / GP7, wired SDA to SDA and SCL to SCL.
+    return (Attach("jumper_open_drain", "sda", {"a": (4,), "b": (6,)}, one_window=True),
+            Attach("jumper_open_drain", "scl", {"a": (5,), "b": (7,)}, one_window=True))
+
+
+# low_power_{dormant,sleep,pstate}_gpio.c wait while LOW_POWER_WAKE_GPIO 15
+# is high, go to sleep once it is low, and wake on its rising edge. GP15
+# rests high and dips low for 100 ms a second: every dip is one sleep and
+# one wake, and the DUT is reachable over SWD but for the dips.
+WAKE = _wave("wake", 15, 1000 * MS, 900 * MS)
+
+STIMULI: dict[str, tuple[Attach, ...]] = {
+    "low_power_dormant_gpio": (WAKE,),
+    "low_power_sleep_gpio": (WAKE,),
+    "low_power_pstate_gpio": (WAKE,),
+    # gpio/hello_gpio_irq/hello_gpio_irq.c:11, 29: GPIO_WATCH_PIN 2 with
+    # an interrupt on both edges; an edge every 200 ms.
+    "hello_gpio_irq": (_wave("edges", 2, 400 * MS, 200 * MS),),
+    # gpio/hello_7segment/hello_7segment.c:28-29, 71-79: the button on
+    # FIRST_GPIO + 7 = GP9, pressed when low; 2 s pressed, 2 s released.
+    "hello_7segment": (_wave("button", 9, 4000 * MS, 2000 * MS),),
+    # low_power_dormant_timer.c:25-29, 66-68 on RP2040: the AON timer runs
+    # from RTC_CLOCK_SRC_GPIO_IN 20 at RTC_CLOCK_FREQ_HZ, 46875 Hz
+    # (pico-sdk pico_low_power), clk_usb / 1024 on a Pico.
+    "low_power_dormant_timer": (_wave("rtc_clock", 20, 21333, 10667, boards=("pico",)),),
+    # adc/joystick_display/joystick_display.c:15-21: X on GP26 (ADC0), Y on
+    # GP27 (ADC1). A 1 MHz PWM through the carrier's RC filter holds X at a
+    # quarter and Y at three quarters of the harness's 3V3; a harness pin
+    # straight on the DUT's can only hold X low and Y high.
+    "joystick_display": (_wave("x", 26, 1000, 250, without_analog=_level(False)),
+                         _wave("y", 27, 1000, 750, without_analog=_level(True))),
+    # adc/microphone_adc/microphone_adc.c:24-25: ADC0 on GP26, at 40 %, or
+    # low.
+    "microphone_adc": (_wave("mic", 26, 1000, 400, without_analog=_level(False)),),
+}
+
+JUMPERS: dict[str, tuple[Attach, ...]] = {
+    # pio/uart_rx/uart_rx.c:26-27, uart_rx_intr.c:33-34: uart1 TX on GP4 to
+    # the PIO receiver on GP3.
+    "pio_uart_rx": (_jumper("tx_to_rx", 4, 3),),
+    "pio_uart_rx_intr": (_jumper("tx_to_rx", 4, 3),),
+    # pio/uart_dma/uart_dma.c:21-22: the PIO transmitter on GP4 to the PIO
+    # receiver on GP5.
+    "pio_uart_dma": (_jumper("tx_to_rx", 4, 5),),
+    # pio/manchester_encoding/manchester_encoding.c:17-18 and
+    # pio/differential_manchester/differential_manchester.c: GP2 to GP3.
+    "pio_manchester_encoding": (_jumper("tx_to_rx", 2, 3),),
+    "pio_differential_manchester": (_jumper("tx_to_rx", 2, 3),),
+    # pwm/measure_duty_cycle/measure_duty_cycle.c:16-17: PWM out on GP2,
+    # measured on GP5 (PWM 2B).
+    "pwm_measure_duty_cycle": (_jumper("out_to_in", 2, 5),),
+    # pio/clocked_input/clocked_input.c:23-30: SPI0 SCK GP2 to the PIO's
+    # clock GP5, SPI0 TX GP3 to its data GP4.
+    "pio_clocked_input": (_jumper("clock", 2, 5), _jumper("data", 3, 4)),
+    "slave_mem_i2c": _i2c_jumpers(),
+    "slave_mem_i2c_burst": _i2c_jumpers(),
+}
+
+PARTS.update(STIMULI)
+PARTS.update(JUMPERS)
+
+
+# spi/spi_master_slave: spi_master.c and spi_slave.c are each other's part,
+# SPI0 at 1 MHz in mode 0 on the default pins, one byte per chip-select
+# window (spi_peer.h). The master's MOSI is its TX, GP19, and its MISO its
+# RX, GP16; the slave receives on its RX, GP16, and answers on its TX, GP19.
+UP = bytes(range(256))
+DOWN = bytes(255 - i for i in range(256))
+
+PEERS: dict[str, tuple[Attach, ...]] = {
+    # spi_master.c:79-89: one page every 10 s, which the target answers with
+    # the slave's ~i (spi_slave.c:72-75).
+    "spi_master": (Attach("spi_page_target", "peer", {"sck": (18,), "mosi": (19,), "miso": (16,), "cs": (17,)},
+                          one_window=True,
+                          checks=(Check("part.read_region('mosi', 0, 256)", lambda v: v == UP,
+                                        "the program clocked out its 00..ff page"),)),),
+    # spi_slave.c:72-88: a page of ~i out for every page in; the controller
+    # clocks the master's 00..ff (spi_master.c:70-73) when told to.
+    "spi_slave": (Attach("spi_page_controller", "peer", {"sck": (18,), "mosi": (16,), "miso": (19,), "cs": (17,)},
+                         one_window=True,
+                         checks=(Check("part.read_region('miso', 0, 256)", lambda v: v == DOWN,
+                                       "the program answered a page with its ff..00", setup="part.pages = 1"),)),),
+}
+
+PARTS.update(PEERS)

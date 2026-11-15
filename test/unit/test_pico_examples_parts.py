@@ -7,6 +7,7 @@ import pytest
 
 from test.pico_examples.part_targets import PART_SPECS
 from test.pico_examples.parts import PARTS, Attach, PinError, harness_pins, i2c_pins
+from test.pico_examples.targets import SPECS
 from test.rig.platforms.hardware.platform import FIXTURE, METALCLAW_PICO_RP2_FIXTURE
 
 
@@ -48,11 +49,18 @@ def test_a_pair_without_i2c_functions_is_refused():
         harness_pins(FIXTURE, (5, 6), i2c_pins)
 
 
-def test_every_part_attaches_on_both_fixtures():
+# Fixture 1 reaches neither the DUT's GP2 nor its GP3 (nor GP28): a part on
+# one of them attaches on the carrier only.
+def test_every_part_attaches_on_both_fixtures_but_those_on_pins_fixture_1_lacks():
     for target, parts in PARTS.items():
         for part in parts:
-            for fixture in (FIXTURE, METALCLAW_PICO_RP2_FIXTURE):
+            fixtures = (METALCLAW_PICO_RP2_FIXTURE,) if {2, 3, 28} & set(part.dut_pins()) else (
+                FIXTURE, METALCLAW_PICO_RP2_FIXTURE)
+            for fixture in fixtures:
                 assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(fixture), target
+            if len(fixtures) == 1:
+                with pytest.raises(PinError):
+                    part.code(FIXTURE)
 
 
 def test_the_spi_part_takes_the_carrier_window_branches():
@@ -68,7 +76,7 @@ def test_every_attached_model_is_a_device_and_every_target_has_criteria():
         models |= set(re.findall(r"metalclaw_device\((\w+)", cmake.read_text()))
     for target, parts in PARTS.items():
         assert {p.model for p in parts} <= models, target
-        assert PART_SPECS[target].source, target
+        assert (SPECS.get(target) or PART_SPECS[target]).source, target
 
 
 def test_a_part_carries_its_checks():
