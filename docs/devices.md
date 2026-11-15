@@ -5,7 +5,7 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct mclw_model` and nothing else the
-runtime needs to know about. Sixteen exist:
+runtime needs to know about. Twenty-three exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
 [`console_bridge`](../devices/console_bridge/README.md), a USB serial port on
 the board's console UART;
@@ -35,15 +35,30 @@ monitors on I2C, one engine shared by four models: `ina219`, `ina228`,
 `ina237` and `ina260`;
 [`mpu6050`](../devices/mpu6050/README.md), an InvenSense six-axis IMU on I2C;
 [`lis3dh`](../devices/lis3dh/README.md), an ST accelerometer on I2C;
-[`mma8451q`](../devices/mma8451q/README.md), an NXP accelerometer on I2C; and
+[`mma8451q`](../devices/mma8451q/README.md), an NXP accelerometer on I2C;
 [`mpl3115a2`](../devices/mpl3115a2/README.md), an NXP pressure and altitude
-sensor on I2C with its interrupt lines.
+sensor on I2C with its interrupt lines; and seven parts on wires whose
+timing they define:
+[`ws2812b`](../devices/ws2812b/README.md), a strip of Worldsemi WS2812B
+LEDs on their single-wire input;
+[`apa102`](../devices/apa102/README.md), a strip of APA102C LEDs on clock
+and data;
+[`hub75`](../devices/hub75/README.md), a 128 x 64 HUB75 LED panel scanned
+1/32;
+[`ds18b20`](../devices/ds18b20/README.md), a Maxim thermometer on 1-Wire;
+[`dht22`](../devices/dht22/README.md), an Aosong humidity and temperature
+sensor on its single data line;
+[`quadrature_encoder`](../devices/quadrature_encoder/README.md), an
+incremental encoder the harness turns; and
+[`tsop382`](../devices/tsop382/README.md), a Vishay IR receiver module in
+the path from an IR LED (`tsop38238`), which reads the NEC frames it sees.
 
 A device is written from its datasheet and contains no bus code. It declares
 which buses the part speaks, fills an image the datasheet describes (a
 register map, a frame, or a command image), and arms the engine that serves
-it; or, on UART, it parses what arrives and answers. The transports live in
-the port.
+it; or, on UART, it parses what arrives and answers; or, on a wire, it
+names a timing engine with the datasheet's times and reads what the engine
+captured, or queues what it sends. The transports live in the port.
 
 ## The model
 
@@ -60,7 +75,8 @@ an ops table:
   The names are the `attach()` keywords. `gpio_in` and `gpio_out` take a pin;
   `swd_wire` takes a tuple `(swclk, swdio[, nreset])`; `i2c_target` takes a
   tuple `(sda, scl, address)`; `spi_target` takes `(sck, mosi, miso, cs)`;
-  `uart` takes `(tx, rx)`; `usb_interface` takes no keyword, the runtime
+  `uart` takes `(tx, rx)`; `wire` takes as many pins as its facts say
+  (below); `usb_interface` takes no keyword, the runtime
   allocates it from the descriptor the model carries (a vendor interface or
   a serial port, and its interface string) and delivers what the host sends
   to the model's `usb_rx` op, and a serial port's line coding and control
@@ -69,7 +85,9 @@ an ops table:
   it supports, the default, bit order) and a `uart` binding its default baud
   and format; the runtime opens the engine with them and `schema()` shows
   them. A part that supports several SPI modes exposes an `spi_mode`
-  property; a UART part exposes `baud`.
+  property; a UART part exposes `baud`. A `wire` binding carries its
+  engine and the datasheet's times for it (`struct mclw_wire_facts` in
+  `bus.h`); `schema()` shows the engine and the pin count.
 - **state_size**: bytes of zeroed state the runtime hands the model.
 - **ops**: `init` and `deinit` are required; `reset`, `get`, `set`,
   `inject_fault`, `clear_faults`, `read_region`, `write_region`,
@@ -146,6 +164,7 @@ enabled on core 1, so MicroPython's atomic sections never delay one.
 | `uart` `on_rx` | the worker | the runtime lock |
 | `command` `on_window` | the worker | the runtime lock |
 | `regmap` `on_write`, `stream` `on_frame` | an engine interrupt | the critical section |
+| `onewire` network layer (core, per slot) | an engine interrupt | the critical section |
 
 The runtime lock (`mclw_hal_lock`) is what lets a model touch its
 state from `set` and from `on_rx` without further care. Image edits from
@@ -205,6 +224,17 @@ makes all of that free of timing: the engine raises BUSY in hardware at
 every chip-select release and the model lowers it with
 `mclw_hal_spi_target_set_busy()` once its edits are published.
 
+`core/include/metalclaw/onewire.h` is a 1-Wire slave's image: its ROM
+code, a small memory, and a table of function commands, each answered
+from the image (bytes sent from the memory, bytes received, read slots
+that return a status bit). The network layer in `core/src/onewire.c`
+answers reset, the ROM commands (search, read, match, skip, alarm search)
+and those function commands, one call a slot from the engine's interrupt
+under the critical section; it returns what the part does in the next
+slot. The model takes the commands issued, and what a write command
+received, from its poll, and edits the memory and the status under the
+critical section. A status change shows a slot late at most.
+
 ## The HAL
 
 `core/include/metalclaw/hal/`. Ports implement it; nothing above it knows a
@@ -254,6 +284,30 @@ port exists.
   14 instruction words shared by every PIO UART on that block, DMA both
   ways, 8 data bits, no parity, one or two stop bits, two at once at most.
   Its receive ring holds 1 KiB, about 90 ms at 115200 baud.
+- `wire.h`: a few pins whose timing a part defines, run by one of the
+  port's wire engines, which the binding's facts name: `pulse_bits_in` (a
+  single-wire LED line: each high pulse a bit by its width, frames ended by
+  a long low), `clocked_in` (data sampled at each rising clock edge),
+  `latched_in` (a shift-register panel, looked at one latch at a time:
+  every pin in reach sampled at each clock edge and at the latch, and the
+  enable line's time timed), `pins` (pins another binding's engine
+  samples), `onewire` (a 1-Wire slave's reset, presence and slots, with the
+  network layer above), `responder` (an open-drain line that answers a
+  host's start pulse with a waveform), `steps_out` (consecutive pins stepped
+  through queued states, one each period) and `envelope` (an IR receiver's
+  output following a carrier, with each burst and gap timed). A model reads
+  what an input engine captured, or queues what an output engine sends,
+  from its poll. On rp2 each engine is a PIO program encoded at open from
+  the facts and the system clock, on PIO0, then PIO2 where there is one,
+  then PIO1 last, state machines with identical programs sharing one copy:
+  `pulse_bits_in` 26 instruction words, `clocked_in` 3, `latched_in` 30 on
+  two state machines, `onewire` 27, `responder` 15, `steps_out` 3,
+  `envelope` 14. Input engines but `envelope` stream through a DMA channel
+  into 2 KiB blocks of an 8 KiB static pool, four blocks, which the
+  `latched_in` and `responder` engines also use; `onewire` has a DMA channel
+  whose completion interrupt, on DMA_IRQ_1 on the worker core, runs the
+  network layer. Edges are timed to two harness cycles or so. Counters:
+  `words`, `frames`, `errors`, `overruns`.
 - `usb.h`: a function on the composite device, a vendor bulk interface or
   a CDC ACM serial port, with a receive callback that says how much it
   took, a control callback for a serial port's line coding and lines, and
