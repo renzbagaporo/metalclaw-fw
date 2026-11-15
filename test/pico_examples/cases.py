@@ -5,6 +5,8 @@
 # restarts from reset with the port open, and the case reads until every
 # expected line is in or the program's time is up on the harness's clock.
 
+import time
+
 import pytest
 import serial
 
@@ -47,18 +49,25 @@ def console(harness, example, fixture, parts):
     harness.wait_interface(INTERFACE, present=False)
 
 
+# The clock is a REPL round trip, so it is read while the port idles, and
+# otherwise at most every CLOCK_EVERY_S of host time: a program that prints
+# without pause still ends on its deadline.
+CLOCK_EVERY_S = 0.5
+
+
 def read_console(harness, port, spec) -> str:
-    # The clock is a REPL round trip, so it is read only while the port idles.
     got = bytearray()
     deadline = harness.clock() + spec.seconds
+    checked = time.monotonic()
     while True:
         chunk = port.read(4096)
         got += chunk
-        if chunk:
-            if not spec.match(got.decode(errors="replace"))[0]:
-                break
-        elif harness.clock() >= deadline:
+        if chunk and not spec.match(got.decode(errors="replace"))[0]:
             break
+        if not chunk or time.monotonic() - checked >= CLOCK_EVERY_S:
+            checked = time.monotonic()
+            if harness.clock() >= deadline:
+                break
     return got.decode(errors="replace")
 
 
