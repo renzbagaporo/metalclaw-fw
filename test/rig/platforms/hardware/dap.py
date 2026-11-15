@@ -187,6 +187,11 @@ class DapMemory:
         with _Link(self.serial, self.clock_hz, self.debug_port) as link:
             return link.read_words(address, count)
 
+    # One link held across many accesses, for a caller that polls: each
+    # read_words/write_words above claims the interface and connects anew.
+    def link(self):
+        return _Link(self.serial, self.clock_hz, self.debug_port)
+
     def write_words(self, address, words, timeout=None):
         values = [value & 0xFFFFFFFF for value in words]
         if address <= 0 or address % 4 or not values:
