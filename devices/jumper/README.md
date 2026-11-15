@@ -9,8 +9,13 @@ reach them. Two models:
   at the level the DUT drives on `source`. On rp2 that is one PIO instruction,
   `mov pins, pins`, run every cycle: `sink` follows two synchronizer cycles
   and one instruction behind, about 25 ns at 125 MHz, with one cycle of
-  jitter. Fast enough for a 921 600 baud UART, a 10 Mbit/s Manchester line
-  or an SPI clock of a few tens of MHz.
+  jitter: the harness samples on its own clock, not the DUT's. Fast enough
+  for a 921 600 baud UART, a 5 Mbit/s Manchester line or an SPI clock of a
+  few tens of MHz. pico-examples' 10 Mbit/s `manchester_encoding` samples
+  its line 2 DUT cycles (16 ns at 125 MHz) before the next possible
+  transition, and through the carrier's 150 MHz harness it slips phase in a
+  run of equal bits (its first word read ffff0000 or fffffff8 for
+  00000000): one run in seven decodes all three words.
 - `jumper_open_drain` joins two open-drain lines both ways, as a wire
   between two I2C buses does for SDA or SCL: a side held low by what is on
   it is driven low on the other side, and both sides have the harness's
