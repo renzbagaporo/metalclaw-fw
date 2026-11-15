@@ -117,3 +117,105 @@ BOOTSEL_SPECS: dict[str, BootselSpec] = {
     # window. One reset is followed by the 250 ms blink (hello_double_tap.c:20-25).
     "hello_double_tap": BootselSpec(LED, 0.01, 0.1, 2.0, 5, "system/hello_double_tap/hello_double_tap.c"),
 }
+
+
+# DUT registers that show a program set up what its pins then do, for
+# programs whose pin edges are too fast for a watch over SWD: each word read
+# once the program has run `after` bench seconds from a restart, masked,
+# must be `expected` or one of the values in it. Addresses and fields are
+# the pico-sdk 2.3.0 hardware_regs headers' (src/<chip>/hardware_regs).
+@dataclass(frozen=True)
+class Register:
+    address: int
+    mask: int
+    expected: int | tuple[int, ...]
+    what: str
+
+    def check(self, value: int) -> str | None:
+        allowed = self.expected if isinstance(self.expected, tuple) else (self.expected,)
+        got = value & self.mask
+        if got in allowed:
+            return None
+        return (f"{self.what}: 0x{self.address:08x} & 0x{self.mask:x} is 0x{got:x}, expected "
+                + " or ".join(f"0x{v:x}" for v in allowed))
+
+
+@dataclass(frozen=True)
+class RegisterSpec:
+    # By the DUT's chip (example.json "chip").
+    registers: dict
+    after: float = 0.05
+    source: str = ""
+
+
+# By chip: IO_BANK0 (GPIOn_CTRL at 0x04 + 8n, FUNCSEL bits 4:0), PWM
+# (CH0_CSR 0x00, CH0_CC 0x0c, CH0_TOP 0x10), PIO0 (CTRL 0x000, SM0_CLKDIV
+# 0x0c8, SM0_INSTR 0x0d8, SM0_PINCTRL 0x0dc) and CLOCKS (CLK_GPOUTn_CTRL at
+# 0x0c * n, DIV after it), at the bases addressmap.h gives.
+BASES = {
+    "rp2040": {"io_bank0": 0x40014000, "pwm": 0x40050000, "pio0": 0x50200000, "clocks": 0x40008000},
+    "rp2350": {"io_bank0": 0x40028000, "pwm": 0x400A8000, "pio0": 0x50200000, "clocks": 0x40010000},
+}
+FUNCSEL = 0x1F
+FUNCSEL_PWM, FUNCSEL_PIO0 = 4, 6
+# IO_BANK0_GPIOn_CTRL_FUNCSEL_VALUE_CLOCKS_GPOUT_n.
+FUNCSEL_GPCK = {"rp2040": 8, "rp2350": 9}
+
+
+def _funcsel(chip: str, gpio: int, value: int, name: str) -> Register:
+    return Register(BASES[chip]["io_bank0"] + 0x04 + 8 * gpio, FUNCSEL, value, f"GP{gpio} FUNCSEL {name}")
+
+
+def _hello_pwm(chip: str) -> tuple[Register, ...]:
+    # pwm/hello_pwm/hello_pwm.c:16-29: GP0 and GP1 to PWM (slice 0), TOP 3,
+    # channel A level 1 and B level 3, the slice enabled.
+    pwm = BASES[chip]["pwm"]
+    return (_funcsel(chip, 0, FUNCSEL_PWM, "PWM"), _funcsel(chip, 1, FUNCSEL_PWM, "PWM"),
+            Register(pwm + 0x00, 0x1, 0x1, "PWM CH0_CSR.EN"),
+            Register(pwm + 0x10, 0xFFFF, 3, "PWM CH0_TOP"),
+            Register(pwm + 0x0C, 0xFFFFFFFF, (3 << 16) | 1, "PWM CH0_CC B 3, A 1"))
+
+
+def _pio_squarewave(chip: str) -> tuple[Register, ...]:
+    # pio/squarewave/squarewave.c:37-67: squarewave.pio into PIO0's
+    # instruction memory from 0, SM0 at clk_sys / 2.5 (CLKDIV INT 2, FRAC
+    # 0x80), SET pins GP0 only (PINCTRL SET_COUNT 1, the whole register
+    # written), GP0 to PIO0, SM0 enabled. Instruction memory cannot be read;
+    # SM0_INSTR is the instruction at its PC, which past the first is one of
+    # the loop's: set pins, 1 [1]; set pins, 0; jmp 1 (generated/squarewave.pio.h).
+    pio = BASES[chip]["pio0"]
+    return (Register(pio + 0x000, 0x1, 0x1, "PIO0 CTRL.SM_ENABLE SM0"),
+            Register(pio + 0x0C8, 0xFFFFFF00, 0x00028000, "PIO0 SM0_CLKDIV 2.5"),
+            Register(pio + 0x0DC, 0xFFFFFFFF, 1 << 26, "PIO0 SM0_PINCTRL SET_COUNT 1, SET_BASE 0"),
+            Register(pio + 0x0D8, 0xFFFF, (0xE101, 0xE000, 0x0001), "PIO0 SM0_INSTR in squarewave's loop"),
+            _funcsel(chip, 0, FUNCSEL_PIO0, "PIO0"))
+
+
+# clocks/hello_gpout/hello_gpout.c:17-24: clock_gpio_init (pico-sdk
+# hardware_clocks/clocks.c:269-286) writes CLK_GPOUTn_CTRL as AUXSRC << 5
+# with ENABLE (bit 11), DIV as 10 << DIV_INT_LSB (8 on RP2040, 16 on RP2350),
+# and the pin's FUNCSEL to its GPOUT. AUXSRC: clk_sys, clk_usb, clk_adc,
+# and clk_rtc on RP2040 or clk_peri on RP2350, per chip's clocks.h.
+GPOUT_SOURCES = {"rp2040": (0x6, 0x7, 0x8, 0x9), "rp2350": (0x8, 0x9, 0xA, 0xC)}
+GPOUT_PINS = (21, 23, 24, 25)
+DIV_INT_LSB = {"rp2040": 8, "rp2350": 16}
+
+
+def _hello_gpout(chip: str) -> tuple[Register, ...]:
+    clocks, registers = BASES[chip]["clocks"], []
+    for n, (pin, source) in enumerate(zip(GPOUT_PINS, GPOUT_SOURCES[chip])):
+        registers += [Register(clocks + 0x0C * n, 0x9E0, 0x800 | source << 5, f"CLK_GPOUT{n}_CTRL ENABLE, AUXSRC"),
+                      Register(clocks + 0x0C * n + 0x04, 0xFFFFFFFF, 10 << DIV_INT_LSB[chip], f"CLK_GPOUT{n}_DIV 10"),
+                      _funcsel(chip, pin, FUNCSEL_GPCK[chip], f"GPOUT{n}")]
+    return tuple(registers)
+
+
+def _per_chip(build) -> dict:
+    return {chip: build(chip) for chip in BASES}
+
+
+REGISTER_SPECS: dict[str, RegisterSpec] = {
+    "hello_pwm": RegisterSpec(_per_chip(_hello_pwm), source="pwm/hello_pwm/hello_pwm.c"),
+    "pio_squarewave": RegisterSpec(_per_chip(_pio_squarewave), source="pio/squarewave/squarewave.c"),
+    "hello_gpout": RegisterSpec(_per_chip(_hello_gpout), source="clocks/hello_gpout/hello_gpout.c"),
+}

@@ -16,7 +16,7 @@ import serial
 from test.pico_examples import pins
 from test.pico_examples.part_targets import PART_SPECS
 from test.pico_examples.parts import PinError, parts_for
-from test.pico_examples.pin_specs import BOOTSEL_SPECS, PIN_SPECS
+from test.pico_examples.pin_specs import BOOTSEL_SPECS, PIN_SPECS, REGISTER_SPECS
 from test.pico_examples.targets import SPECS
 from test.pico_examples.usb_devices import usb_device
 
@@ -234,6 +234,21 @@ def test_the_example_parts_saw_the_program(harness, example, parts):
         value = ast.literal_eval(harness.run(f"part = {part.name}\nprint(repr({check.expression}))\n").strip())
         if not check.test(value):
             problems.append(f"{part.name}: {check.description} (got {value!r:.200})")
+    assert not problems, f"{example.target}: {problems}"
+
+
+# The registers that show the program set up what its pins do, read over
+# SWD a moment after it starts (pin_specs.REGISTER_SPECS).
+def test_the_example_sets_its_registers(harness, example, parts):
+    spec = REGISTER_SPECS.get(example.target)
+    if spec is None:
+        pytest.skip(f"no register criteria for {example.target}")
+    chip = example.metadata["chip"]
+    example.restart()
+    harness.sleep(spec.after)
+    with example.memory.link() as link:
+        values = [(register, link.read_words(register.address, 1)[0]) for register in spec.registers[chip]]
+    problems = [p for register, value in values if (p := register.check(value)) is not None]
     assert not problems, f"{example.target}: {problems}"
 
 
