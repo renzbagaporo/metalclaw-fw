@@ -338,30 +338,33 @@ class Target:
     # that never answers. The image is downloaded again before the failure
     # is raised; if that fails too, no later case can pass, so the session
     # stops.
-    # A program can leave the DUT dormant with its clocks stopped, where every
-    # debug access answers WAIT and no reset the probe can send reaches it
-    # (pico-examples' low_power_* wait on GP15 or a timer). A square wave on
-    # the DUT's GP15 wakes it again and again, and the core is halted in one
-    # of those windows; a halted core then takes the download. On a DUT that
-    # is awake the first halt lands at once. WAKE_PIN is that DUT pin.
+    # A program can leave the DUT asleep with its clocks stopped (every debug
+    # access answers WAIT) or with its power manager ignoring the debugger
+    # (the debug port never powers up), and no reset the probe sends reaches
+    # it: pico-examples' low_power_* do both. They wake on a rising edge on
+    # GP15 and stay awake while it is high, so the harness raises it and the
+    # core is halted then. An RP2350 that still does not answer has its power
+    # manager reset through the RP-AP, and is halted as it boots again. A
+    # halted core then takes the download; on a DUT that is awake the first
+    # halt lands at once.
     WAKE_PIN = 15
-    WAKE_TIMEOUT_S = 10.0
+    WAKE_TIMEOUT_S = 3.0
 
     def halt_awake(self, wake_harness_pin) -> None:
         if wake_harness_pin is not None:
-            self.harness.run(f"from machine import Pin, PWM\n_wake = PWM(Pin({wake_harness_pin}), freq=1000, duty_u16=32768)\n")
+            self.harness.run("from machine import Pin\nimport time\n"
+                             f"_wake = Pin({wake_harness_pin}, Pin.OUT, value=0)\ntime.sleep_ms(5)\n_wake.value(1)\n")
         try:
-            deadline = time.monotonic() + self.WAKE_TIMEOUT_S
-            while True:
-                try:
-                    self.memory.write_words(DHCSR, [DHCSR_HALT])
-                    return
-                except dap.DapError:
-                    if time.monotonic() >= deadline:
-                        raise
+            try:
+                self.memory.write_when_reachable(DHCSR, [DHCSR_HALT], self.WAKE_TIMEOUT_S)
+            except dap.DapError:
+                if self.memory.debug_port is not dap.RP2350:
+                    raise
+                dap.reset_power_manager(self.harness.serial)
+                self.memory.write_when_reachable(DHCSR, [DHCSR_HALT], self.WAKE_TIMEOUT_S)
         finally:
             if wake_harness_pin is not None:
-                self.harness.run(f"_wake.deinit()\nPin({wake_harness_pin}, Pin.IN, None)\n")
+                self.harness.run(f"Pin({wake_harness_pin}, Pin.IN, None)\n")
 
     def flash(self, wake_harness_pin=None) -> None:
         self.halt_awake(wake_harness_pin)

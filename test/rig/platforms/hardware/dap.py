@@ -47,6 +47,8 @@ DP_CTRL_STAT = 0x4
 DP_SELECT = 0x8
 DP_RDBUFF = 0xC
 ABORT_CLEAR_ALL = 0x1E
+# DAPABORT as well: abandons an AP access a stalled bus never finished.
+ABORT_DAP_AND_CLEAR = 0x1F
 POWER_UP_REQUEST = 0x50000000
 POWER_UP_ACK = 0xA0000000
 
@@ -90,6 +92,11 @@ class DebugPort:
     # The multidrop target to select after every line reset; None for a
     # point-to-point DP.
     targetsel: int | None = None
+    # False for an access port that is not a MEM-AP: connect neither powers
+    # the debug domain up nor sets up a CSW for it.
+    mem_ap: bool = True
+    # What connect writes to ABORT.
+    abort: int = ABORT_CLEAR_ALL
 
 
 # RP2350 is an ADIv6 target: an AP register is addressed by its full offset,
@@ -99,6 +106,27 @@ RP2350 = DebugPort(ap_select=0x2D00)
 # RP2040 is ADIv5 on an SWD multidrop bus: core 0's DP is TARGETSEL
 # 0x01002927 and its MEM-AP is APSEL 0.
 RP2040 = DebugPort(ap_select=0x0, targetsel=0x01002927)
+# The RP2350's Raspberry Pi AP at 0x80000, reachable with the debug domain
+# unpowered (pico-sdk hardware_regs rp_ap.h).
+RP2350_RP_AP = DebugPort(ap_select=0x80000, mem_ap=False, abort=ABORT_DAP_AND_CLEAR)
+RP_AP_DBG_POW_OVRD = 0x18
+# DBG_POW_OVRD_RESET | DBG_POW_RESET: hold the power manager and the
+# switched core in reset, "everything except the Coresight 2-wire interface
+# and the RP_AP registers" (rp_ap.h).
+RP_AP_POW_OVRD_RESET = 0x30
+
+
+# Resets the RP2350's power manager and switched core from the RP-AP. A
+# program can leave the power manager ignoring the debugger's power-up
+# requests (POWMAN DBG_PWRCFG IGNORE, in the always-on domain, so a RUN
+# reset keeps it); then the debug port never powers up and no core access
+# works. This clears it; the chip then boots as from power on.
+def reset_power_manager(serial, clock_hz=1_000_000):
+    with _Link(serial, clock_hz, RP2350_RP_AP) as link:
+        link._ap_write(RP_AP_DBG_POW_OVRD, RP_AP_POW_OVRD_RESET)
+        time.sleep(0.05)
+        link._ap_write(RP_AP_DBG_POW_OVRD, 0)
+    time.sleep(0.2)
 
 
 class DapError(RuntimeError):
@@ -187,6 +215,24 @@ class DapMemory:
         with _Link(self.serial, self.clock_hz, self.debug_port) as link:
             return link.read_words(address, count)
 
+    # Connects and writes `words` at `address` again and again on one claim of
+    # the interface until one lands or `seconds` pass: for a DUT that is
+    # reachable only for a few milliseconds at a time (one that wakes from a
+    # low-power state and goes straight back), each try costs a handful of
+    # USB round trips instead of a claim and a connect.
+    def write_when_reachable(self, address, words, seconds):
+        with _Link(self.serial, self.clock_hz, self.debug_port, connect=False) as link:
+            deadline = time.monotonic() + seconds
+            while True:
+                try:
+                    link.select = None
+                    link._connect()
+                    link.write_words(address, list(words))
+                    return
+                except DapError:
+                    if time.monotonic() >= deadline:
+                        raise
+
     # One link held across many accesses, for a caller that polls: each
     # read_words/write_words above claims the interface and connects anew.
     def link(self):
@@ -201,7 +247,8 @@ class DapMemory:
 
 
 class _Link:
-    def __init__(self, serial, clock_hz, debug_port):
+    def __init__(self, serial, clock_hz, debug_port, connect=True):
+        self.connect = connect
         self.serial = serial
         self.clock_hz = clock_hz
         self.port = debug_port
@@ -231,7 +278,8 @@ class _Link:
                 self.in_ep = endpoint
         try:
             self._drain()
-            self._connect()
+            if self.connect:
+                self._connect()
         except Exception:
             self.__exit__(None, None, None)
             raise
@@ -294,12 +342,14 @@ class _Link:
             # A multidrop DP answers nothing until it is selected.
             self._wake()
             self._dp_read(DP_DPIDR)
-        self._dp_write(DP_ABORT, ABORT_CLEAR_ALL)
+        self._dp_write(DP_ABORT, self.port.abort)
         if self.port.targetsel is None:
             self._dp_write(DP_SELECT, DP_SELECT1_BANK)
             self._dp_write(DP_CTRL_STAT, 0)
         self._dp_write(DP_SELECT, 0)
         self.select = 0
+        if not self.port.mem_ap:
+            return
         status = self._dp_read(DP_CTRL_STAT)
         if status & POWER_UP_ACK != POWER_UP_ACK:
             self._dp_write(DP_CTRL_STAT, POWER_UP_REQUEST)

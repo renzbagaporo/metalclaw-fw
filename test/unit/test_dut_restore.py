@@ -30,14 +30,17 @@ class FakeProbe:
 
 # A DUT whose debug accesses answer WAIT `asleep` times, as a dormant one does.
 class FakeMemory:
+    debug_port = None
+
     def __init__(self, asleep=0):
         self.asleep = asleep
         self.writes = []
 
-    def write_words(self, address, words):
-        if self.asleep:
+    def write_when_reachable(self, address, words, seconds):
+        while self.asleep:
             self.asleep -= 1
-            raise DapError("DAP transfer stopped after 0 of 1, ack 2")
+            if seconds <= 0 and self.asleep:
+                raise DapError("DAP transfer stopped after 0 of 1, ack 2")
         self.writes.append((address, words))
 
 
@@ -65,7 +68,7 @@ def test_a_dormant_dut_is_woken_on_gp15_and_halted_before_the_download():
     dut = make_dut(probe, memory, harness)
     dut.flash(wake_harness_pin=15)
     assert memory.writes == [(platform.DHCSR, [platform.DHCSR_HALT])]
-    assert "PWM(Pin(15)" in harness.code[0] and "_wake.deinit()" in harness.code[-1]
+    assert "_wake.value(1)" in harness.code[0] and "Pin(15, Pin.IN, None)" in harness.code[-1]
     assert probe.calls[0] == ("download", IMAGE, False)
 
 
@@ -75,7 +78,7 @@ def test_a_dut_that_never_wakes_raises_and_stops_the_square_wave(monkeypatch):
     dut = make_dut(FakeProbe(), FakeMemory(asleep=10**6), harness)
     with pytest.raises(DapError):
         dut.flash(wake_harness_pin=15)
-    assert "_wake.deinit()" in harness.code[-1]
+    assert "Pin(15, Pin.IN, None)" in harness.code[-1]
 
 
 def test_a_download_that_succeeds_resets_once():
