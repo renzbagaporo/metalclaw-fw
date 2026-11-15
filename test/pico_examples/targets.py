@@ -141,9 +141,12 @@ SPECS: dict[str, Spec] = {
     ),
     # binary_info/hello_anything/hello_anything.c:18-39: by default stdio on
     # uart0 (GP0/GP1, 115200) and USB, then "Hello, world!" every second.
+    # With no USB host each printf also waits out stdio_usb's 500 ms stdout
+    # timeout (PICO_STDIO_USB_STDOUT_TIMEOUT_US), so a line comes about
+    # every 1.5 s on the benches.
     "hello_anything": Spec(
         console=(r"Hello, world!\r?\n",) * 3,
-        seconds=4.0,
+        seconds=8.0,
         source="binary_info/hello_anything/hello_anything.c",
     ),
     # clocks/detached_clk_peri/detached_clk_peri.c:66-84: two banner lines,
@@ -173,6 +176,12 @@ SPECS: dict[str, Spec] = {
         console=(r"Hello resus\r?\n", r"Resus event fired\r?\n"),
         seconds=3.0,
         source="clocks/hello_resus/hello_resus.c",
+        # Upstream defect on the RP2350: the callback (:14-31) sets clk_sys to
+        # the RP2040's 125 MHz while clk_peri, which the UART baud is taken
+        # from, is still recorded at the pico2's 150 MHz, so on real silicon
+        # its line comes out at the wrong baud. The callback ran: something
+        # arrives after "Hello resus".
+        per_board={"pico2": {"console": (r"Hello resus\r?\n", r"[^\r\n]+")}},
     ),
     # cmake/build_variants/other.c:10-15, main.c:11-18: the shared define is
     # 123 and this binary's 456, without DO_EXTRA (CMakeLists.txt).

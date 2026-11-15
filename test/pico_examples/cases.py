@@ -55,9 +55,16 @@ def console(harness, example, fixture, parts):
 CLOCK_EVERY_S = 0.5
 
 
+# Every console read gets at least this many bench seconds: a read ends as
+# soon as everything matched, so a long window costs time only on a failure,
+# while a short one fails a program whose loop runs slower than its source's
+# own delays suggest.
+MIN_SECONDS = 10.0
+
+
 def read_console(harness, port, spec) -> str:
     got = bytearray()
-    deadline = harness.clock() + spec.seconds
+    deadline = harness.clock() + max(spec.seconds, MIN_SECONDS)
     checked = time.monotonic()
     while True:
         chunk = port.read(4096)
@@ -86,7 +93,8 @@ def test_the_example_completes(harness, example, fixture, console):
         text = read_console(harness, port, spec)
     missing, forbidden = spec.match(text)
     assert not forbidden, f"{example.target} printed {forbidden}:\n{text[-2000:]}"
-    assert not missing, f"{example.target} never printed {missing} within {spec.seconds} s:\n{text[-2000:]}"
+    assert not missing, (f"{example.target} never printed {missing} within {max(spec.seconds, MIN_SECONDS)} s:"
+                         f"\n{text[-2000:]}")
 
 
 def test_the_example_drives_its_pins(example, parts):
