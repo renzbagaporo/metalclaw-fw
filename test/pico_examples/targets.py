@@ -5,7 +5,7 @@
 # pico-examples tree (example.json beside the ELF names it).
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 # The SDK's panic() and assert() paths, and a fault the example would print.
 FORBIDDEN = (r"\*\*\* PANIC \*\*\*", r"assertion \".*\" failed", r"HardFault")
@@ -22,6 +22,17 @@ class Spec:
     source: str = ""
     notes: str = ""
     extra: dict = field(default_factory=dict)
+    # The boards (example.json "board") whose build this Spec can judge;
+    # empty for every board it builds for.
+    boards: tuple[str, ...] = ()
+    # Fields that differ in one board's build, by board: {"pico": {...}}.
+    per_board: dict = field(default_factory=dict)
+
+    def for_board(self, board: str | None) -> "Spec | None":
+        # The criteria for this board's build, or None where they cannot judge it.
+        if self.boards and board not in self.boards:
+            return None
+        return replace(self, boards=(), per_board={}, **self.per_board.get(board, {}))
 
     def match(self, text: str) -> tuple[list[str], list[str]]:
         # The expected patterns not found in order, and the forbidden ones found.
