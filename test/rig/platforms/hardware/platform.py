@@ -5,6 +5,7 @@
 import ast
 import errno
 import glob
+import json
 import math
 import os
 import time
@@ -94,7 +95,20 @@ DUT_CHIPS = {
 }
 
 
+# A pico-examples build carries its identity beside the ELF instead of a
+# Zephyr .config: target, board and chip (see test/pico_examples).
+EXAMPLE_METADATA = "example.json"
+
+
+def example_metadata(image: Path) -> dict | None:
+    path = image.parent / EXAMPLE_METADATA
+    return json.loads(path.read_text()) if path.is_file() else None
+
+
 def soc_series(image: Path) -> str | None:
+    example = example_metadata(image)
+    if example is not None:
+        return example.get("chip")
     config = image.parent / ".config"
     if config.is_file():
         for line in config.read_text().splitlines():
@@ -106,7 +120,7 @@ def soc_series(image: Path) -> str | None:
 def dut_chip(image: Path) -> DutChip:
     series = soc_series(image)
     if series not in DUT_CHIPS:
-        pytest.exit(f"{image.parent / '.config'} names no DUT chip the rig knows (CONFIG_SOC_SERIES={series!r})",
+        pytest.exit(f"{image} names no DUT chip the rig knows (chip {series!r} from its .config or {EXAMPLE_METADATA})",
                     returncode=2)
     return DUT_CHIPS[series]
 
@@ -288,21 +302,20 @@ class Harness:
         raise TimeoutError(f"harness {self.serial} did not enumerate")
 
 
-class Dut:
-    def __init__(self, harness: Harness, image: Path, toolchain_dir: str):
+# The DUT behind the harness's probe: flashed and reset by probe-rs, its
+# memory read through DapMemory, because every probe-rs session halts the
+# DUT (see dap.py).
+class Target:
+    def __init__(self, harness: Harness, image: Path):
         self.harness = harness
         self.image = image
-        # probe-rs flashes and resets; the mailbox goes through DapMemory,
-        # because every probe-rs session halts the DUT (see dap.py).
         chip = dut_chip(image)
         self.probe = ProbeRs(harness.probe_id, chip.chip_description, chip=chip.probe_chip,
                              on_failure=self.resume)
         self.memory = DapMemory(harness.serial, chip.debug_port)
-        self.mailbox = Mailbox(self.memory, image, toolchain_dir)
 
     # probe-rs 0.30 has no `download --reset`; flashing and resetting are two
-    # sessions. A reset restarts the DUT's result sequence, so the mailbox
-    # baseline must forget the old one.
+    # sessions.
     #
     # A download that fails part way can leave the flash erased with nothing
     # to boot, and every later case would wait out its deadlines on a DUT
@@ -325,13 +338,25 @@ class Dut:
 
     def reset(self) -> None:
         self.probe.reset()
-        self.mailbox.last_result = 0
 
     # A probe-rs session halts the core while it attaches and resumes it as
     # it ends. One cut off by its deadline leaves the core halted with debug
-    # on, and every later mailbox command would wait out its own deadline.
+    # on, and every later access would wait out its own deadline.
     def resume(self) -> None:
         self.memory.write_words(DHCSR, [DHCSR_RESUME])
+
+
+# A Zephyr DUT image built for the rig, which answers on its RAM mailbox.
+class Dut(Target):
+    def __init__(self, harness: Harness, image: Path, toolchain_dir: str):
+        super().__init__(harness, image)
+        self.mailbox = Mailbox(self.memory, image, toolchain_dir)
+
+    # A reset restarts the DUT's result sequence, so the mailbox baseline
+    # forgets the old one.
+    def reset(self) -> None:
+        super().reset()
+        self.mailbox.last_result = 0
 
     def ping(self, timeout=_DEFAULT_MAILBOX_TIMEOUT) -> dict:
         timeout = _mailbox_timeout(timeout)
@@ -416,8 +441,38 @@ def probe(harness: Harness, fixture: dict):
     return harness.probe_id
 
 
+# An unmodified pico-examples program: no mailbox, judged by what it does on
+# its pins (test/pico_examples).
+class Example(Target):
+    def __init__(self, harness: Harness, image: Path):
+        super().__init__(harness, image)
+        self.metadata = example_metadata(image)
+        self.target = self.metadata["target"]
+
+
+def require_rig_image(image: Path) -> None:
+    if example_metadata(image) is not None:
+        pytest.skip("the DUT image is a pico-examples program, not a rig image")
+
+
+def require_example_image(image: Path) -> None:
+    if example_metadata(image) is None:
+        pytest.skip("the DUT image is not a pico-examples program")
+
+
+@pytest.fixture(scope="session")
+def example(harness: Harness, probe, fixture: dict) -> Example:
+    image = dut_image()
+    require_example_image(image)
+    e = Example(harness, image)
+    hold_idle(harness, fixture)
+    e.flash()
+    return e
+
+
 @pytest.fixture(scope="session")
 def dut(harness: Harness, probe, fixture: dict) -> Dut:
+    require_rig_image(dut_image())
     d = Dut(harness, dut_image(), _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
     hold_idle(harness, fixture)
     d.flash()

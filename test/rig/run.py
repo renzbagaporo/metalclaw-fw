@@ -22,9 +22,9 @@ PLATFORMS = {
 
 def case_locations() -> list[str]:
     found = []
-    top = ROOT / "test" / "cases"
-    if top.is_dir():
-        found.append(str(top))
+    for top in (ROOT / "test" / "cases", ROOT / "test" / "pico_examples"):
+        if top.is_dir():
+            found.append(str(top))
     for holder in ("devices", "client"):
         for cases in sorted((ROOT / holder).glob("*/test/cases.py")) + sorted((ROOT / holder).glob("*/test/cases")):
             found.append(str(cases))

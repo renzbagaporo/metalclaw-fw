@@ -14,6 +14,7 @@ from test.rig.platforms.hardware.platform import (
     _DEFAULT_MAILBOX_TIMEOUT,
     ROOT,
     Dut,
+    Example,
     Harness,
     _mailbox_timeout,
     _required,
@@ -21,6 +22,8 @@ from test.rig.platforms.hardware.platform import (
     detach_all_but_probe,
     dut_image,
     hold_idle,
+    require_example_image,
+    require_rig_image,
     soc_series,
 )
 
@@ -194,7 +197,17 @@ def probe(harness: Harness, fixture: dict):
 # cases download it through the probe. The DUT booted with the bench, before
 # the harness could hold any idle level, so it boots again once they are.
 @pytest.fixture(scope="session")
+def example(bench: Bench, harness: Harness, probe, fixture: dict) -> Example:
+    require_example_image(bench.dut_image)
+    e = Example(harness, bench.dut_image)
+    hold_idle(harness, fixture)
+    e.reset()
+    return e
+
+
+@pytest.fixture(scope="session")
 def dut(bench: Bench, harness: Harness, probe, fixture: dict) -> Dut:
+    require_rig_image(bench.dut_image)
     d = EmulatedDut(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"), _time_scale())
     hold_idle(harness, fixture)
     d.reset()
