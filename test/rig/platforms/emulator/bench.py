@@ -859,7 +859,9 @@ def _signals_deferred():
         yield
         return
     held = []
-    numbers = (signal.SIGINT, *EXIT_SIGNALS)
+    # A handler installed outside Python reads as None, and Python cannot
+    # put it back: such a signal is left as it is.
+    numbers = [n for n in (signal.SIGINT, *EXIT_SIGNALS) if signal.getsignal(n) is not None]
     previous = {n: signal.signal(n, lambda number, frame: held.append(number)) for n in numbers}
     try:
         yield

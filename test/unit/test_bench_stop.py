@@ -248,3 +248,18 @@ def comm(pid: int) -> str | None:
         return None
     name, state = stat[stat.index("(") + 1:stat.rindex(")")], stat[stat.rindex(")") + 2]
     return None if state in "ZX" else name
+
+
+def test_a_signal_handled_outside_python_is_left_alone_while_stopping(tmp_path, monkeypatch):
+    # getsignal() answers None for a handler set outside Python, and
+    # signal.signal() refuses None: restoring one raised a TypeError in
+    # place of the interrupt once Renode was down (a runner session on the
+    # emulator, interrupted with SIGINT).
+    real_getsignal, touched = signal.getsignal, []
+    monkeypatch.setattr(bench.signal, "getsignal",
+                        lambda n: None if n == signal.SIGHUP else real_getsignal(n))
+    real_signal = signal.signal
+    monkeypatch.setattr(bench.signal, "signal", lambda n, h: touched.append(n) or real_signal(n, h))
+    b = a_bench(tmp_path)
+    b.stop()
+    assert signal.SIGHUP not in touched and signal.SIGINT in touched
