@@ -158,7 +158,11 @@ model adds a `struct mclw_regmap_framing` (in `hal/spi_target.h`) from
 the datasheet: which command bit means read, which bits are the address,
 whether a multi-byte access walks consecutive addresses, and whether one
 dummy byte precedes read data. The same map serves I2C and SPI; `bmp388`
-binds either.
+binds either. A part whose register pointer does not name one byte (registers
+wider than a byte, an auto-increment flag in the pointer, a FIFO behind an
+alias) gives the map a pointer map: for each pointer value, the image
+address a transfer starts at. The I2C engine applies it and then runs on
+through the image one byte per bus byte.
 
 `core/include/metalclaw/stream.h` is the other image: a fixed-length frame
 of up to 64 bytes, double-buffered, that the part drives out (`OUT`, an ADC)

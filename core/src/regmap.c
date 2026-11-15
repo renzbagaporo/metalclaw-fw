@@ -49,6 +49,14 @@ void mclw_regmap_set_on_write(struct mclw_regmap *map, mclw_regmap_on_write_t fn
     map->on_write_ctx = ctx;
 }
 
+void mclw_regmap_set_pointer_map(struct mclw_regmap *map, const uint8_t *addresses) {
+    map->pointer_map = addresses;
+}
+
+uint8_t MCLW_RAM_FUNC(mclw_regmap_bus_select)(const struct mclw_regmap *map, uint8_t pointer) {
+    return map->pointer_map != NULL ? map->pointer_map[pointer] : pointer;
+}
+
 static inline uint8_t MCLW_RAM_FUNC(read_one)(struct mclw_regmap *map, uint8_t reg) {
     uint8_t bank = map->active_bank;
     uint8_t flags = map->flags[bank][reg];

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 // An I2C target (slave) that serves a register map from hardware. The bus
-// master's first byte after a write START selects the register; further
-// bytes write it with auto-increment; reads return registers with
-// auto-increment. Reads and writes go through mclw_regmap_bus_* in
+// master's first byte after a write START selects the register, through the
+// map's pointer map when it has one; further bytes write it with
+// auto-increment; reads return registers with auto-increment. Reads and writes go through mclw_regmap_bus_* in
 // interrupt context, so the model updates its map under a critical section.
 
 #ifndef MCLW_HAL_I2C_TARGET_H

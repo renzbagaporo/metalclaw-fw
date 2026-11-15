@@ -19,7 +19,8 @@ struct mclw_i2c_target {
     uint8_t address;
     const void *owner;
     struct mclw_regmap *image;
-    // Set by the master's first written byte; auto-incremented after use.
+    // The image address the master's first written byte selects, through
+    // the image's pointer map; auto-incremented after use.
     uint8_t pointer;
     bool pointer_pending;
     struct mclw_i2c_target_stats stats;
@@ -59,7 +60,7 @@ static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
         case I2C_SLAVE_RECEIVE: {
             uint8_t byte = i2c_read_byte_raw(i2c);
             if (t->pointer_pending) {
-                t->pointer = byte;
+                t->pointer = image != NULL ? mclw_regmap_bus_select(image, byte) : byte;
                 t->pointer_pending = false;
             } else if (image != NULL) {
                 mclw_regmap_bus_write(image, t->pointer++, byte);
