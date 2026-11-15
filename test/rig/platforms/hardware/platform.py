@@ -52,6 +52,9 @@ FIXTURE = {
     # and GP28 are the DUT's SWCLK, SWDIO and RUN, so the DUT's own GP2, GP3
     # and GP28 reach nothing. Checked both ways by a pin probe, 2026-11-15.
     "dut_pins": {0: (1,), 1: (0,), **{p: (p,) for p in (*range(4, 23), 26, 27)}},
+    # DUT pins the harness can hold at an analog level: none, every pin is
+    # wired straight to a harness pin.
+    "analog_pins": (),
 }
 
 # The MetalClaw Pico RP2 carrier (v1.r1 schematic) with a Pico on it: the
@@ -81,6 +84,10 @@ METALCLAW_PICO_RP2_FIXTURE = {
         15: (24, 31), 16: (35, 36), 17: (34, 37), 18: (38,), 19: (32, 39), 20: (40, 45), 21: (41, 46),
         22: (33,), 26: (42,), 27: (43,), 28: (44,),
     },
+    # The RC filters on GP26-28 (two poles at about 48 kHz, 330 R into 10 nF
+    # and 2.2 k into 1.5 nF) turn a harness PWM of 1 MHz into a level with a
+    # few millivolts of ripple.
+    "analog_pins": (26, 27, 28),
     # Levels the harness holds while the part on a line is absent, on a
     # board built with line pull-ups, where the pull-up would make the part
     # look active: an unattached sx126x is not busy, or the DUT's driver
@@ -349,14 +356,18 @@ class Target:
     # halt lands at once.
     WAKE_PIN = 15
     WAKE_TIMEOUT_S = 3.0
+    # How long a program may sleep on its own between two wakes:
+    # low_power_dormant_timer is dormant for 10 s at a time.
+    ASLEEP_MAX_S = 12.0
 
-    def halt_awake(self, wake_harness_pin) -> None:
+    def halt_awake(self, wake_harness_pin, timeout=None) -> None:
+        timeout = self.WAKE_TIMEOUT_S if timeout is None else timeout
         if wake_harness_pin is not None:
             self.harness.run("from machine import Pin\nimport time\n"
                              f"_wake = Pin({wake_harness_pin}, Pin.OUT, value=0)\ntime.sleep_ms(5)\n_wake.value(1)\n")
         try:
             try:
-                self.memory.write_when_reachable(DHCSR, [DHCSR_HALT], self.WAKE_TIMEOUT_S)
+                self.memory.write_when_reachable(DHCSR, [DHCSR_HALT], timeout)
             except dap.DapError:
                 if self.memory.debug_port is not dap.RP2350:
                     raise
@@ -383,6 +394,11 @@ class Target:
 
     def reset(self) -> None:
         self.probe.reset()
+
+    # Through RUN, as a reset button does: what a program that counts
+    # resets sees, where the probe's own reset is a debug one.
+    def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
+        dap.run_resets(self.harness.serial, count, round(low_s * 1e6), round(gap_s * 1e6))
 
     # A probe-rs session halts the core while it attaches and resumes it as
     # it ends. One cut off by its deadline leaves the core halted with debug
@@ -545,11 +561,18 @@ class Example(Target):
         if not self.ram_only:
             super().flash(wake_harness_pin)
 
+    # A program that sleeps on its own (low_power_* while their wake pin
+    # dips or their timer runs) can be asleep when the reset lands; it is
+    # halted once it is awake again, as before a download, and reset then.
     def restart(self) -> None:
         if self.ram_only:
             with self.memory.link() as link:
                 start_from_ram(link, self.elf, self.vectors)
-        else:
+            return
+        try:
+            self.reset()
+        except ProbeError:
+            self.halt_awake(None, self.ASLEEP_MAX_S)
             self.reset()
 
 

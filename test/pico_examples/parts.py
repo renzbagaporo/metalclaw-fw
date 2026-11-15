@@ -54,6 +54,9 @@ class Check:
     description: str
     # Bench seconds the program gets before the check, after a restart.
     after_seconds: float = 2.0
+    # Run on the harness with the instance as `part` right after the
+    # restart: what the part is to do for this run.
+    setup: str = ""
 
 
 @dataclass(frozen=True)
@@ -68,15 +71,38 @@ class Attach:
     # Properties set once attached: name -> value.
     properties: dict = field(default_factory=dict)
     checks: tuple = ()
+    # The boards (example.json "board") whose build uses this part; empty
+    # for every board.
+    boards: tuple[str, ...] = ()
+    # Every binding's pins from one PIO window together, for a part whose
+    # engine links its pins (a jumper).
+    one_window: bool = False
+    # Properties that differ on a bench whose harness cannot hold the
+    # part's pins at an analog level (fixture "analog_pins"), only high or
+    # low.
+    without_analog: dict = field(default_factory=dict)
+
+    def dut_pins(self) -> tuple[int, ...]:
+        return tuple(p for b, v in self.bindings.items() for p in v[:self.pin_counts.get(b, len(v))])
+
+    def properties_for(self, fixture: dict) -> dict:
+        if set(self.dut_pins()) <= set(fixture.get("analog_pins", ())):
+            return self.properties
+        return {**self.properties, **self.without_analog}
+
+    def _pins(self, fixture: dict) -> dict:
+        counts = {b: self.pin_counts.get(b, len(v)) for b, v in self.bindings.items()}
+        if self.one_window:
+            chosen = iter(harness_pins(fixture, self.dut_pins()))
+            return {b: tuple(next(chosen) for _ in range(n)) for b, n in counts.items()}
+        return {b: harness_pins(fixture, v[:counts[b]], RULES.get(b)) for b, v in self.bindings.items()}
 
     def code(self, fixture: dict) -> str:
-        args = []
-        for binding, values in self.bindings.items():
-            n = self.pin_counts.get(binding, len(values))
-            pins = harness_pins(fixture, values[:n], RULES.get(binding))
-            args.append(f"{binding}={tuple(pins) + tuple(values[n:])!r}")
+        pins = self._pins(fixture)
+        args = [f"{b}={tuple(pins[b]) + tuple(v[self.pin_counts.get(b, len(v)):])!r}"
+                for b, v in self.bindings.items()]
         lines = [f"{self.name} = metalclaw.attach({self.model!r}, {self.name!r}, {', '.join(args)})"]
-        lines += [f"{self.name}.{k} = {v!r}" for k, v in self.properties.items()]
+        lines += [f"{self.name}.{k} = {v!r}" for k, v in self.properties_for(fixture).items()]
         return "import metalclaw\n" + "\n".join(lines) + "\n"
 
 

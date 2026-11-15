@@ -30,6 +30,16 @@ class Spec:
     # Fields that differ on a bench whose lines have pull-ups (the carrier's
     # 5.1 k on every Pico GP0-22), where an undriven line reads high.
     with_line_pullups: dict = field(default_factory=dict)
+    # What the case does as the program runs, in order, each once `pattern`
+    # has matched after where the previous one did: (pattern, bytes) types
+    # on the console, (pattern, str) runs code on the harness, for a part
+    # that is to act then.
+    input: tuple[tuple[str, bytes | str], ...] = ()
+    # The DUT pins these criteria take an analog level on, and the fields
+    # that differ on a bench whose harness can only drive them high or low
+    # (fixture "analog_pins").
+    analog_pins: tuple[int, ...] = ()
+    without_analog: dict = field(default_factory=dict)
 
     def for_board(self, board: str | None) -> "Spec | None":
         # The criteria for this board's build, or None where they cannot judge it.
@@ -37,10 +47,13 @@ class Spec:
             return None
         return replace(self, boards=(), per_board={}, **self.per_board.get(board, {}))
 
-    def for_bench(self, line_pullups: bool) -> "Spec":
-        if line_pullups and self.with_line_pullups:
-            return replace(self, with_line_pullups={}, **self.with_line_pullups)
-        return self
+    def for_bench(self, line_pullups: bool, analog_pins=()) -> "Spec":
+        spec = self
+        if line_pullups and spec.with_line_pullups:
+            spec = replace(spec, with_line_pullups={}, **spec.with_line_pullups)
+        if not set(spec.analog_pins) <= set(analog_pins) and spec.without_analog:
+            spec = replace(spec, without_analog={}, **spec.without_analog)
+        return spec
 
     def match(self, text: str) -> tuple[list[str], list[str]]:
         # The expected patterns not found in order, and the forbidden ones found.

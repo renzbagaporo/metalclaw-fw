@@ -11,9 +11,35 @@ from test.pico_examples.pins import Toggle
 
 
 @dataclass(frozen=True)
+class Press:
+    # The board's BOOTSEL button held from `at` to `release`, seconds into
+    # the watch.
+    at: float
+    release: float
+
+
+@dataclass(frozen=True)
 class PinSpec:
     seconds: float
-    toggles: tuple[Toggle, ...]
+    # The checks: Toggle, Morse, Segments, Levels (pins.py).
+    toggles: tuple
+    source: str = ""
+    # What the case does while it watches: (seconds, bytes) typed on the
+    # console, and presses of the BOOTSEL button.
+    send: tuple[tuple[float, bytes], ...] = ()
+    presses: tuple[Press, ...] = ()
+
+
+@dataclass(frozen=True)
+class BootselSpec:
+    # Resets on RUN: held low `low_s`, `gap_s` between them. After one, the
+    # program blinks `led` at least `edges` times in `seconds`; after two
+    # the bootrom presents USB and the LED stops.
+    led: int
+    low_s: float
+    gap_s: float
+    seconds: float
+    edges: int
     source: str = ""
 
 
@@ -56,3 +82,5 @@ PIN_SPECS: dict[str, PinSpec] = {
     "pio_blink": PinSpec(4.0, (Toggle(3, 20, half(1 / 8)), Toggle(4, 16, half(1 / 6)),
                                Toggle(5, 10, half(1 / 4)), Toggle(6, 5, half(1 / 2))), "pio/pio_blink/blink.c"),
 }
+
+BOOTSEL_SPECS: dict[str, BootselSpec] = {}
