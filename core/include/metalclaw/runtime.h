@@ -49,8 +49,8 @@ const struct mclw_model *mclw_model_find(const char *id);
 
 // A binding request as the user supplied it: one pin for gpio kinds, a pin
 // tuple for swd_wire (swclk, swdio[, nreset]), i2c_target (sda, scl,
-// address), spi_target (sck, mosi, miso, cs) and uart (tx, rx), nothing for
-// usb_interface. `present` is false for an omitted optional.
+// address), spi_target (sck, mosi, miso, cs), uart (tx, rx) and wire (as
+// many as its facts say), nothing for usb_interface. `present` is false for an omitted optional.
 struct mclw_binding_request {
     bool present;
     uint8_t pin_count;
@@ -110,6 +110,7 @@ int mclw_binding_stats(struct mclw_instance *inst, size_t binding, struct mclw_s
 const char *mclw_value_type_name(enum mclw_value_type type);
 const char *mclw_access_name(enum mclw_access access);
 const char *mclw_binding_kind_name(enum mclw_binding_kind kind);
+const char *mclw_wire_engine_name(enum mclw_wire_engine engine);
 const char *mclw_uart_parity_name(enum mclw_uart_parity parity);
 const char *mclw_trace_kind_name(enum mclw_trace_kind kind);
 

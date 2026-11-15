@@ -48,11 +48,44 @@ def test_a_pair_without_i2c_functions_is_refused():
         harness_pins(FIXTURE, (5, 6), i2c_pins)
 
 
-def test_every_part_attaches_on_both_fixtures():
+# Every part attaches on the carrier; on fixture 1 too, unless it is bound
+# to GP2, GP3 or GP28, which reach no harness pin there.
+def test_every_part_attaches_on_the_carrier_and_on_fixture_1_unless_on_its_probe_pins():
     for target, parts in PARTS.items():
         for part in parts:
-            for fixture in (FIXTURE, METALCLAW_PICO_RP2_FIXTURE):
-                assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(fixture), target
+            assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(METALCLAW_PICO_RP2_FIXTURE), target
+            pins = {p for binding, values in part.bindings.items()
+                    for p in values[:part.pin_counts.get(binding, len(values))]}
+            if pins & {2, 3, 28}:
+                with pytest.raises(PinError):
+                    part.code(FIXTURE)
+            else:
+                assert f"metalclaw.attach({part.model!r}, {part.name!r}, " in part.code(FIXTURE), target
+
+
+def test_the_wire_parts_bind_what_the_programs_drive():
+    on_fixture_1 = {t for t, parts in PARTS.items() if all(
+        not {2, 3, 28} & {p for v in part.bindings.values() for p in v} for part in parts)}
+    batch = {"pio_ws2812", "pio_ws2812_parallel", "pio_apa102", "pio_onewire", "dht", "pio_quadrature_encoder",
+             "pio_quadrature_encoder_substep", "pio_ir_loopback", "pio_hub75"}
+    assert batch <= set(PARTS)
+    assert batch & on_fixture_1 == {"pio_onewire", "dht", "pio_quadrature_encoder", "pio_quadrature_encoder_substep",
+                                    "pio_ir_loopback"}
+    assert {t for t in batch if any(p.needs_line_pullups for p in PARTS[t])} == {"pio_onewire", "dht"}
+
+
+def test_the_encoder_takes_consecutive_pins_on_both_benches():
+    # DUT GP11 has carrier branches 16 and 23; only 23 follows GP10's 22.
+    (encoder,) = PARTS["pio_quadrature_encoder"]
+    assert "ab=(22, 23)" in encoder.code(METALCLAW_PICO_RP2_FIXTURE)
+    assert "ab=(10, 11)" in encoder.code(FIXTURE)
+
+
+def test_the_hub75_panel_takes_one_pio_window_on_the_carrier():
+    (panel,) = PARTS["pio_hub75"]
+    code = panel.code(METALCLAW_PICO_RP2_FIXTURE)
+    pins = [int(p) for p in re.findall(r"\b(\d+)\b", code.split("attach(", 1)[1])]
+    assert pins and all(p < 32 for p in pins), code
 
 
 def test_the_spi_part_takes_the_carrier_window_branches():

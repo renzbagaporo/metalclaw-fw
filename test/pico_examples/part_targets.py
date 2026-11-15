@@ -6,6 +6,9 @@
 # (test/unit/test_part_models.py runs the models' arithmetic and the
 # programs' conversions to check them).
 
+import re
+
+from test.pico_examples import lights
 from test.pico_examples.targets import FORBIDDEN, NL, Spec, forbid
 
 
@@ -258,5 +261,69 @@ PART_SPECS: dict[str, Spec] = {
         console=_flash(r"PIO SPI Example" + NL, r"Loaded program at \d+" + NL),
         seconds=3.0,
         source="pio/spi/spi_flash.c",
+    ),
+    # The LED, panel, 1-Wire, DHT, encoder and IR programs. pio_apa102 and
+    # pio_hub75 print nothing; their parts' checks judge them.
+    # pio/ws2812/ws2812.c:113, 130-133: the banner, then the first
+    # pattern's name and direction, from newlib's first two rand() values.
+    "pio_ws2812": Spec(
+        console=(r"WS2812 Smoke Test, using pin 2" + NL, *(p + NL for p in map(re.escape,
+                                                                         lights.first_pattern(False)))),
+        seconds=2.0,
+        source="pio/ws2812/ws2812.c",
+    ),
+    # ws2812_parallel.c:286, 304-308, with a third rand() for "(still)".
+    "pio_ws2812_parallel": Spec(
+        console=(r"WS2812 parallel using pin 2" + NL, *(p + NL for p in map(re.escape,
+                                                                      lights.first_pattern(True)))),
+        seconds=2.0,
+        source="pio/ws2812/ws2812_parallel.c",
+    ),
+    # pio/onewire/onewire.c:36-66: a search finds the one part and prints
+    # its ROM code, then each reading as temp / 16.0 with %f. The rom is
+    # family 28h, serial C0FFEEh and their CRC; 21.375 degC is exact.
+    "pio_onewire": Spec(
+        console=(r"Found 1 devices" + NL, rf"\t0: 0x{lights.ds18b20_rom(0xC0FFEE):x}" + NL,
+                 *(r"\t0: 21\.375000" + NL,) * 3),
+        seconds=6.0,
+        source="pio/onewire/onewire.c",
+    ),
+    # gpio/dht_sensor/dht.c:36-40: a reading every 2 s and more. 45.6 %RH and
+    # 23.4 degC are 456 and 234 tenths; 23.4 * 9 / 5 + 32 is 74.12 in float.
+    "dht": Spec(
+        console=(r"Humidity = 45\.6%, Temperature = 23\.4C \(74\.1F\)" + NL,) * 2,
+        seconds=6.0,
+        forbidden=forbid(r"Bad data"),
+        source="gpio/dht_sensor/dht.c",
+    ),
+    # pio/quadrature_encoder/quadrature_encoder.c:44, 57-66: every 100 ms a
+    # line when the count moved. At 1000 steps/s that is 100 a line, one
+    # either way for where the 100 ms fall; the travel of 2000 turns the
+    # encoder back every 2 s.
+    "pio_quadrature_encoder": Spec(
+        console=(r"Hello from quadrature encoder" + NL,
+                 *(r"position +-?\d+, delta +(?:99|100|101)" + NL,) * 3,
+                 *(r"position +-?\d+, delta +-(?:99|100|101)" + NL,) * 3),
+        seconds=6.0,
+        source="pio/quadrature_encoder/quadrature_encoder.c",
+    ),
+    # quadrature_encoder_substep.c:374, 400-414: a line every 10 ms or so
+    # while it moves. Steps exactly 1 ms apart are 64 substeps each, so the
+    # speed estimate is 64000 substeps/s, give or take the DUT's 1 us
+    # timestamps (63935..64063), negative the other way.
+    "pio_quadrature_encoder_substep": Spec(
+        console=(r"Hello from quadrature encoder substep" + NL,
+                 *(r"pos: -?\d+ +speed: 6[34]\d{3} +raw_steps: -?\d+ *" + NL,) * 3,
+                 *(r"pos: -?\d+ +speed: -6[34]\d{3} +raw_steps: -?\d+ *" + NL,) * 3),
+        seconds=6.0,
+        source="pio/quadrature_encoder_substep/quadrature_encoder_substep.c",
+    ),
+    # pio/ir_nec/ir_loopback/ir_loopback.c:37-59: a frame a second to
+    # address 0, data counting up from 0, each received back 100 ms later.
+    "pio_ir_loopback": Spec(
+        console=tuple(rf"sent: 00, {d:02x}\treceived: 00, {d:02x}" for d in range(3)),
+        seconds=5.0,
+        forbidden=forbid(r"could not configure PIO"),
+        source="pio/ir_nec/ir_loopback/ir_loopback.c",
     ),
 }

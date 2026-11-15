@@ -13,6 +13,7 @@
 #include "metalclaw/hal/swd.h"
 #include "metalclaw/hal/uart.h"
 #include "metalclaw/hal/usb.h"
+#include "metalclaw/hal/wire.h"
 
 #ifndef METALCLAW_INSTANCES_MAX
 #define METALCLAW_INSTANCES_MAX 8
@@ -138,6 +139,9 @@ static void release_bindings(struct mclw_instance *inst) {
                 break;
             case MCLW_BINDING_USB_INTERFACE:
                 mclw_hal_usb_close(b->usb);
+                break;
+            case MCLW_BINDING_WIRE:
+                mclw_hal_wire_close(b->wire);
                 break;
             default:
                 break;
@@ -277,6 +281,17 @@ static int resolve_binding(struct mclw_instance *inst, size_t index, const struc
             out->swd = mclw_hal_swd_open(req->pins[0], req->pins[1],
                 req->pin_count == 3 ? req->pins[2] : MCLW_PIN_NONE, inst, &err);
             if (out->swd == NULL) {
+                return err;
+            }
+            out->present = true;
+            return 0;
+        case MCLW_BINDING_WIRE:
+            if (desc->wire.engine == MCLW_WIRE_PINS ? req->pin_count > desc->wire.pins :
+                req->pin_count != desc->wire.pins) {
+                return -EINVAL;
+            }
+            out->wire = mclw_hal_wire_open(req->pins, req->pin_count, &desc->wire, inst, &err);
+            if (out->wire == NULL) {
                 return err;
             }
             out->present = true;
@@ -621,6 +636,15 @@ int mclw_binding_stats(struct mclw_instance *inst, size_t binding, struct mclw_s
             STAT("baud", mclw_hal_uart_baud(b->uart));
             break;
         }
+        case MCLW_BINDING_WIRE: {
+            struct mclw_wire_stats st;
+            mclw_hal_wire_stats(b->wire, &st);
+            STAT("words", st.words);
+            STAT("frames", st.frames);
+            STAT("errors", st.errors);
+            STAT("overruns", st.overruns);
+            break;
+        }
         default:
             return -ENOTSUP;
     }
@@ -670,6 +694,32 @@ const char *mclw_binding_kind_name(enum mclw_binding_kind kind) {
             return "usb_interface";
         case MCLW_BINDING_SPI_SINK:
             return "spi_sink";
+        case MCLW_BINDING_WIRE:
+            return "wire";
+    }
+    return "?";
+}
+
+const char *mclw_wire_engine_name(enum mclw_wire_engine engine) {
+    switch (engine) {
+        case MCLW_WIRE_NONE:
+            return "none";
+        case MCLW_WIRE_PULSE_BITS_IN:
+            return "pulse_bits_in";
+        case MCLW_WIRE_CLOCKED_IN:
+            return "clocked_in";
+        case MCLW_WIRE_LATCHED_IN:
+            return "latched_in";
+        case MCLW_WIRE_PINS:
+            return "pins";
+        case MCLW_WIRE_ONEWIRE:
+            return "onewire";
+        case MCLW_WIRE_RESPONDER:
+            return "responder";
+        case MCLW_WIRE_STEPS_OUT:
+            return "steps_out";
+        case MCLW_WIRE_ENVELOPE:
+            return "envelope";
     }
     return "?";
 }

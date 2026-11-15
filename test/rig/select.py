@@ -27,6 +27,8 @@ ENGINES = {
     "UART": ("core/ports/rp2/hal/uart.c", "core/ports/rp2/hal/uart_pio.c", "core/ports/rp2/hal/uart_internal.h",
              "core/include/metalclaw/hal/uart.h"),
     "GPIO": ("core/ports/rp2/hal/gpio.c", "core/include/metalclaw/hal/gpio.h"),
+    "WIRE": ("core/ports/rp2/hal/wire.c", "core/ports/rp2/hal/wire_programs.c", "core/ports/rp2/hal/wire_programs.h",
+             "core/include/metalclaw/hal/wire.h"),
 }
 # Every image's run resets and reads the DUT through the probe, so the probe
 # is in every image's path.

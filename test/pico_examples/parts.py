@@ -9,7 +9,7 @@
 import itertools
 from dataclasses import dataclass, field
 
-from test.pico_examples import displays
+from test.pico_examples import displays, lights
 
 WINDOWS = (range(0, 32), range(16, 48))
 
@@ -22,8 +22,13 @@ def i2c_pins(pins) -> bool:
     return (sda % 4, scl % 4) in ((0, 1), (2, 3))
 
 
+# A steps_out wire drives its pins as one PIO OUT group: consecutive GPIOs.
+def consecutive_pins(pins) -> bool:
+    return all(p == pins[0] + i for i, p in enumerate(pins))
+
+
 # Per binding name, what its pins must satisfy beyond one PIO window.
-RULES = {"i2c": i2c_pins}
+RULES = {"i2c": i2c_pins, "ab": consecutive_pins}
 
 
 class PinError(ValueError):
@@ -70,6 +75,11 @@ class Attach:
     # Properties set once attached: name -> value.
     properties: dict = field(default_factory=dict)
     checks: tuple = ()
+    # An open-drain part with no pull-up of its own: it works only on a
+    # bench whose lines have pull-ups (the carrier's 5.1 k), since a
+    # harness pin's internal pull-up (50-80 k) cannot outpull the DUT pad's
+    # pull-down, which gpio_init leaves on.
+    needs_line_pullups: bool = False
 
     def code(self, fixture: dict) -> str:
         args = []
@@ -275,5 +285,90 @@ PARTS: dict[str, tuple[Attach, ...]] = {
                checks=(Check("(part.programs, part.erases, part.lost, part.ignored)",
                              lambda v: v[0] >= 1 and v[1] >= 2 and v[2:] == (0, 0),
                              "the program erased, programmed and erased the first sector, nothing refused"),)),
+    ),
+    # Timed single-wire and clocked parts, behind the wire engines. Most of
+    # these programs use GP2 and GP3, which reach no harness pin on fixture
+    # 1 (they are its SWD lines), so they run on the carrier only.
+    # pio/ws2812/ws2812.c:31-36, 126: WS2812_PIN 2 (the pico boards define
+    # no PICO_DEFAULT_WS2812_PIN), 150 RGB pixels at 800 kHz.
+    "pio_ws2812": (
+        Attach("ws2812b", "strip", {"din": (2,)}, properties={"count": 150}, checks=(
+            Check("part.read_region('leds', 0, 450)", lights.ws2812_shows_a_random_frame,
+                  "a frame of 150 rand() pixels the 'Random data' pattern sent", 2.5),
+            Check("(part.frames > 10, part.bad_frames, part.length)", lambda v: v == (True, 0, 450),
+                  "frames of 450 bytes, none with a pulse out of the datasheet's windows", 2.5),
+        )),
+    ),
+    # pio/ws2812/ws2812_parallel.c:19-20, 188-203, 295-298: strips on GP2
+    # (RGB) and GP3 (RGBW), 64 pixels each, a frame of 256 values per strip.
+    "pio_ws2812_parallel": (
+        Attach("ws2812b", "strip0", {"din": (2,)}, properties={"count": 64, "channels": 3}, checks=(
+            Check("part.read_region('leds', 0, 192)", lambda v: lights.ws2812_parallel_shows_a_frame(v, 0),
+                  "strip 0 holding a frame the program dithered and sent", 2.5),
+            Check("(part.frames > 10, part.bad_frames, part.length)", lambda v: v == (True, 0, 256),
+                  "frames of 256 bytes, none spoiled", 2.5),
+        )),
+        Attach("ws2812b", "strip1", {"din": (3,)}, properties={"count": 64, "channels": 4}, checks=(
+            Check("part.read_region('leds', 0, 256)", lambda v: lights.ws2812_parallel_shows_a_frame(v, 1),
+                  "strip 1 holding a frame the program dithered and sent, W always 0", 2.5),
+            Check("(part.frames > 10, part.bad_frames, part.length)", lambda v: v == (True, 0, 256),
+                  "frames of 256 bytes, none spoiled", 2.5),
+        )),
+    ),
+    # pio/apa102/apa102.c:14-21: CLK on GP2, DIN on GP3, 150 LEDs at 5 MHz;
+    # spi=(clock, data).
+    "pio_apa102": (
+        Attach("apa102", "strip", {"spi": (2, 3)}, properties={"count": 150}, checks=(
+            Check("part.read_region('leds', 0, 600)", lights.apa102_shows_a_frame,
+                  "one step of the three sine waves, at global brightness 16", 2.0),
+            Check("(part.frames > 10, part.end_frames > 10)", lambda v: v == (True, True),
+                  "start and end frames around every update", 2.0),
+        )),
+    ),
+    # pio/onewire/onewire.c:21-22: the bus on GP15. 21.375 degC is 342
+    # sixteenths, exact at the default 12 bits.
+    "pio_onewire": (
+        Attach("ds18b20", "thermo", {"dq": (15,)}, properties={"temperature": 21375, "serial": 0xC0FFEE},
+               checks=(
+                   Check("(part.searches > 0, part.matches > 1, part.conversions > 1, "
+                         "part.scratchpad_reads > 1)", lambda v: v == (True, True, True, True),
+                         "a search that found the part, conversions, and its scratchpad read by its ROM", 4.0),
+               ), needs_line_pullups=True),
+    ),
+    # gpio/dht_sensor/dht.c:16: the sensor on GP15.
+    "dht": (
+        Attach("dht22", "sensor", {"data": (15,)}, properties={"humidity": 45600, "temperature": 23400},
+               checks=(Check("part.responses > 1", lambda v: v is True,
+                             "the program's start signals answered", 5.0),),
+               needs_line_pullups=True),
+    ),
+    # pio/quadrature_encoder/quadrature_encoder.c:41 and the substep
+    # program's :371: A on GP10, B on GP11. A thousand steps a second, back
+    # and forth over 2000.
+    "pio_quadrature_encoder": (
+        Attach("quadrature_encoder", "encoder", {"ab": (10, 11)}, properties={"travel": 2000, "rate": 1000},
+               checks=(Check("part.steps > 2000", lambda v: v is True, "the harness turned it", 3.0),)),
+    ),
+    "pio_quadrature_encoder_substep": (
+        Attach("quadrature_encoder", "encoder", {"ab": (10, 11)}, properties={"travel": 2000, "rate": 1000},
+               checks=(Check("part.steps > 2000", lambda v: v is True, "the harness turned it", 3.0),)),
+    ),
+    # pio/ir_nec/ir_loopback/ir_loopback.c:24-25: the IR LED on GP14, the
+    # receiver's output on GP15; ir=(led, out).
+    "pio_ir_loopback": (
+        Attach("tsop38238", "receiver", {"ir": (14, 15)}, checks=(
+            Check("(part.frames > 1, part.address)", lambda v: v == (True, 0),
+                  "NEC frames to address 0 through the IR path", 3.5),
+        )),
+    ),
+    # pio/hub75/hub75.c:16-22: R0 G0 B0 R1 G1 B1 on GP0-5, A-E on GP6-10,
+    # CLK GP11, STROBE (latch) GP12, OEn GP13; clock=(clk, latch, oe).
+    "pio_hub75": (
+        Attach("hub75", "panel", {"clock": (11, 12, 13), "upper": (0, 1, 2), "lower": (3, 4, 5),
+                                  "rows": (6, 7, 8, 9), "e": (10,)}, checks=(
+            Check("part.slots", lambda v: v == 256, "all 32 rows seen with their 8 enable times", 8.0),
+            Check("part.read_region('thumbnail', 0, 3072)", lights.hub75_shows_the_mountains,
+                  "every eighth column of the mountains, gamma-corrected, within 2 counts", 8.0),
+        )),
     ),
 }

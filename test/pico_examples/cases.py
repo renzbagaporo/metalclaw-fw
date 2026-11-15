@@ -13,7 +13,7 @@ import serial
 
 from test.pico_examples import pins
 from test.pico_examples.part_targets import PART_SPECS
-from test.pico_examples.parts import PARTS
+from test.pico_examples.parts import PARTS, PinError
 from test.pico_examples.pin_specs import PIN_SPECS
 from test.pico_examples.targets import SPECS
 
@@ -29,10 +29,18 @@ for instance in metalclaw.instances():
 
 
 # The program's external parts, attached on the harness before any case
-# restarts it, and gone once its cases are done.
+# restarts it, and gone once its cases are done. A program whose part this
+# bench cannot reach, or cannot pull up, does not run here.
 @pytest.fixture(scope="module")
 def parts(harness, example, fixture):
     attached = PARTS.get(example.target, ())
+    for part in attached:
+        if part.needs_line_pullups and not fixture["line_pullups"]:
+            pytest.skip(f"{example.target}'s {part.model} needs a pull-up on its line, and this bench has none")
+        try:
+            part.code(fixture)
+        except PinError as e:
+            pytest.skip(f"{example.target}'s {part.model} cannot be wired on this bench: {e}")
     for part in attached:
         harness.run(part.code(fixture))
     yield attached
@@ -40,8 +48,12 @@ def parts(harness, example, fixture):
         harness.run(f"import metalclaw\nfor i in metalclaw.instances():\n    if i.name == {part.name!r}: i.detach()\n")
 
 
+# Only for a program whose console is judged: one that prints nothing may
+# drive the console pins for something else (pio_hub75's R0 and G0).
 @pytest.fixture(scope="module")
 def console(harness, example, fixture, parts):
+    if example.target not in SPECS and example.target not in PART_SPECS:
+        pytest.skip(f"no completion criteria for {example.target} yet")
     uart = fixture["uart"]
     harness.run(DETACH + f"metalclaw.attach('console_bridge', {NAME!r}, uart={(uart['tx'], uart['rx'])})\n")
     harness.wait_interface(INTERFACE)
