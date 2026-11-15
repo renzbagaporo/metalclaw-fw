@@ -5,12 +5,17 @@
 
 #include "hardware/gpio.h"
 #include "hardware/i2c.h"
+#include "hardware/sync.h"
 #include "pico/i2c_slave.h"
 #include "metalclaw/hal/i2c_target.h"
 #include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/platform.h"
 
 #define I2C_TARGET_CLOCK_HZ 400000
+// A sink's captured bytes wait here for the worker's poll, which runs after
+// every interrupt the worker takes, each byte's included: at 1 MHz the
+// ring holds about 2.5 ms of traffic.
+#define I2C_SINK_RING 256u
 
 struct mclw_i2c_target {
     i2c_inst_t *i2c;
@@ -26,9 +31,19 @@ struct mclw_i2c_target {
     uint8_t selected;
     bool pointer_pending;
     struct mclw_i2c_target_stats stats;
+    // With a sink armed instead of an image: the interrupt writes entries
+    // at `head`, the worker's poll takes them from `tail`.
+    struct mclw_sink *sink;
+    bool sink_first;
+    bool sink_ended;
+    bool sink_open;
+    volatile uint32_t head;
+    volatile uint32_t tail;
+    uint16_t ring[I2C_SINK_RING];
 };
 
 static struct mclw_i2c_target targets[2];
+static bool poll_registered;
 
 static void handler(i2c_inst_t *i2c, i2c_slave_event_t event);
 
@@ -53,11 +68,45 @@ static i2c_inst_t *instance_for(uint8_t sda, uint8_t scl) {
     return ((sda / 2) & 1u) ? i2c1 : i2c0;
 }
 
+static void sink_event(struct mclw_i2c_target *t, i2c_inst_t *i2c, i2c_slave_event_t event) {
+    switch (event) {
+        case I2C_SLAVE_RECEIVE: {
+            uint8_t byte = i2c_read_byte_raw(i2c);
+            uint32_t head = t->head;
+
+            if (head - t->tail >= I2C_SINK_RING) {
+                t->stats.dropped++;
+            } else {
+                t->ring[head % I2C_SINK_RING] = (uint16_t)(byte | (t->sink_first ? MCLW_SINK_FIRST : 0u));
+                t->head = head + 1u;
+            }
+            t->sink_first = false;
+            t->sink_ended = false;
+            t->stats.bytes++;
+            break;
+        }
+        case I2C_SLAVE_REQUEST:
+            i2c_write_byte_raw(i2c, t->sink->read_byte);
+            t->stats.bytes++;
+            break;
+        case I2C_SLAVE_FINISH:
+            t->sink_first = true;
+            t->sink_ended = true;
+            t->stats.transactions++;
+            break;
+    }
+}
+
 static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
     struct mclw_i2c_target *t = &targets[i2c_hw_index(i2c)];
     uint32_t state = mclw_hal_critical_enter();
     struct mclw_regmap *image = t->image;
 
+    if (t->sink != NULL) {
+        sink_event(t, i2c, event);
+        mclw_hal_critical_exit(state);
+        return;
+    }
     switch (event) {
         case I2C_SLAVE_RECEIVE: {
             uint8_t byte = i2c_read_byte_raw(i2c);
@@ -85,6 +134,53 @@ static void handler(i2c_inst_t *i2c, i2c_slave_event_t event) {
             break;
     }
     mclw_hal_critical_exit(state);
+}
+
+// The worker's poll. The entries from tail to head are the interrupt's no
+// longer, so the model reads them in place; a window that closed after its
+// last entry was delivered is reported on its own.
+static void sink_deliver(struct mclw_i2c_target *t) {
+    for (;;) {
+        uint32_t state = mclw_hal_critical_enter();
+        struct mclw_sink *sink = t->sink;
+        uint32_t head = t->head;
+        uint32_t tail = t->tail;
+        bool ended = t->sink_ended;
+        mclw_hal_critical_exit(state);
+
+        if (sink == NULL) {
+            return;
+        }
+        uint32_t pending = head - tail;
+        if (pending == 0u) {
+            if (ended && t->sink_open) {
+                t->sink_open = false;
+                sink->on_bytes(sink, t->ring, 0, true, sink->ctx);
+            }
+            return;
+        }
+        uint32_t at = tail % I2C_SINK_RING;
+        uint32_t count = pending < I2C_SINK_RING - at ? pending : I2C_SINK_RING - at;
+        bool last = count == pending;
+
+        sink->on_bytes(sink, &t->ring[at], count, last && ended, sink->ctx);
+        t->sink_open = !(last && ended);
+        __dmb();
+        t->tail = tail + count;
+    }
+}
+
+static void poll_sinks(void *ctx) {
+    (void)ctx;
+    if (!mclw_hal_try_lock()) {
+        return;
+    }
+    for (size_t i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+        if (targets[i].owner != NULL && targets[i].sink != NULL) {
+            sink_deliver(&targets[i]);
+        }
+    }
+    mclw_hal_unlock();
 }
 
 struct mclw_i2c_target *mclw_hal_i2c_target_open(uint8_t sda, uint8_t scl, uint8_t address,
@@ -120,6 +216,8 @@ struct mclw_i2c_target *mclw_hal_i2c_target_open(uint8_t sda, uint8_t scl, uint8
     t->pointer_pending = true;
     t->stats.transactions = 0;
     t->stats.bytes = 0;
+    t->stats.dropped = 0;
+    t->sink = NULL;
 
     gpio_init(sda);
     gpio_init(scl);
@@ -144,6 +242,7 @@ void mclw_hal_i2c_target_close(struct mclw_i2c_target *t) {
     mclw_hal_pin_release(t->scl, t->owner);
     t->owner = NULL;
     t->image = NULL;
+    t->sink = NULL;
 }
 
 int mclw_hal_i2c_target_arm(struct mclw_i2c_target *t, struct mclw_regmap *image) {
@@ -151,6 +250,7 @@ int mclw_hal_i2c_target_arm(struct mclw_i2c_target *t, struct mclw_regmap *image
         return -EINVAL;
     }
     uint32_t state = mclw_hal_critical_enter();
+    t->sink = NULL;
     t->image = image;
     // Pointer value 0 is selected, as at a part's power-on (DS25095A
     // register 5-1); it takes effect only for an image with a pointer map.
@@ -159,6 +259,28 @@ int mclw_hal_i2c_target_arm(struct mclw_i2c_target *t, struct mclw_regmap *image
         t->pointer = mclw_regmap_bus_restart(image, t->selected, t->pointer);
     }
     t->pointer_pending = true;
+    mclw_hal_critical_exit(state);
+    return 0;
+}
+
+int mclw_hal_i2c_target_arm_sink(struct mclw_i2c_target *t, struct mclw_sink *sink) {
+    if (t == NULL || t->owner == NULL || sink == NULL || sink->on_bytes == NULL) {
+        return -EINVAL;
+    }
+    if (!poll_registered) {
+        if (mclw_hal_poll_register(poll_sinks, NULL) != 0) {
+            return -ENOSPC;
+        }
+        poll_registered = true;
+    }
+    uint32_t state = mclw_hal_critical_enter();
+    t->image = NULL;
+    t->head = 0;
+    t->tail = 0;
+    t->sink_first = true;
+    t->sink_ended = false;
+    t->sink_open = false;
+    t->sink = sink;
     mclw_hal_critical_exit(state);
     return 0;
 }

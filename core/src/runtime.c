@@ -570,6 +570,7 @@ int mclw_binding_stats(struct mclw_instance *inst, size_t binding, struct mclw_s
             mclw_hal_i2c_target_stats(b->i2c, &st);
             STAT("transactions", st.transactions);
             STAT("bytes", st.bytes);
+            STAT("dropped", st.dropped);
             break;
         }
         case MCLW_BINDING_SPI_TARGET: {

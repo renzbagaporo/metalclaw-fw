@@ -13,6 +13,11 @@
 // (DS25095A 4.1.1) retain their register pointer. Arming such an image
 // selects pointer value 0. Without a map the pointer is a byte address that
 // runs on from one transaction to the next.
+//
+// A sink (metalclaw/sink.h) is armed instead for a part with no register
+// pointer: every written byte, the first included, is captured with
+// MCLW_SINK_FIRST on the first of each transaction, and reads return the
+// sink's read_byte.
 
 #ifndef MCLW_HAL_I2C_TARGET_H
 #define MCLW_HAL_I2C_TARGET_H
@@ -20,12 +25,15 @@
 #include <stdint.h>
 
 #include "metalclaw/regmap.h"
+#include "metalclaw/sink.h"
 
 struct mclw_i2c_target;
 
 struct mclw_i2c_target_stats {
     uint32_t transactions;
     uint32_t bytes;
+    // Bytes a sink lost because the worker had not taken the ones before.
+    uint32_t dropped;
 };
 
 // Claims sda and scl for `owner` and configures the target at `address`.
@@ -37,6 +45,8 @@ void mclw_hal_i2c_target_close(struct mclw_i2c_target *t);
 // `image` must outlive the arm; it is read and written from interrupt
 // context. Arming replaces whatever was armed.
 int mclw_hal_i2c_target_arm(struct mclw_i2c_target *t, struct mclw_regmap *image);
+// The sink must outlive the arm; arming either kind replaces the other.
+int mclw_hal_i2c_target_arm_sink(struct mclw_i2c_target *t, struct mclw_sink *sink);
 void mclw_hal_i2c_target_disarm(struct mclw_i2c_target *t);
 
 void mclw_hal_i2c_target_stats(const struct mclw_i2c_target *t, struct mclw_i2c_target_stats *out);

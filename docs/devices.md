@@ -145,6 +145,7 @@ enabled on core 1, so MicroPython's atomic sections never delay one.
 | `time_advanced`, `poll` | the worker | the runtime lock |
 | `uart` `on_rx` | the worker | the runtime lock |
 | `command` `on_window` | the worker | the runtime lock |
+| `sink` `on_bytes` | the worker | the runtime lock |
 | `regmap` `on_write`, `stream` `on_frame` | an engine interrupt | the critical section |
 
 The runtime lock (`mclw_hal_lock`) is what lets a model touch its
@@ -205,6 +206,19 @@ makes all of that free of timing: the engine raises BUSY in hardware at
 every chip-select release and the model lowers it with
 `mclw_hal_spi_target_set_busy()` once its edits are published.
 
+`core/include/metalclaw/sink.h` is for parts that only listen and have no
+register map to serve: display controllers, LED drivers, a port expander.
+Their bytes are commands and data whose meaning depends on what came
+before, so the engine serves nothing and captures everything: each byte
+the host writes, flagged when it is the first of a window (after chip
+select fell, or after START and the address) and, on SPI, with the level
+of the part's data/command line as its last bit was clocked. The engine
+hands them to the sink's `on_bytes` on the worker under the runtime lock, a
+batch at a time, with whether the window they end has closed. The model
+decodes them there, so its state needs no critical section: the host reads
+it under the same lock. An I2C read of a sink returns the one byte the
+model leaves in `read_byte`.
+
 ## The HAL
 
 `core/include/metalclaw/hal/`. Ports implement it; nothing above it knows a
@@ -228,7 +242,10 @@ port exists.
   engine answers the bus from interrupt context without the model. The
   first byte the master writes is the register pointer; with the image's
   pointer map, each transaction starts again at the register it selected.
-  Counters: `transactions`, `bytes`.
+  Armed with a sink instead, it captures every written byte into a
+  256-entry ring from the interrupt, and the worker's poll delivers them.
+  Counters: `transactions`, `bytes`, `dropped` (sink bytes the worker had
+  no room for).
 - `spi_target.h`: an SPI target that serves a `regmap` (with its framing),
   a `stream` or a `command` image from hardware, in the mode the model
   asked for, with `set_mode` to change it. It publishes a clock ceiling per
