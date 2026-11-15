@@ -9,6 +9,7 @@ import pytest
 import serial
 
 from test.pico_examples import pins
+from test.pico_examples.part_targets import PART_SPECS
 from test.pico_examples.parts import PARTS
 from test.pico_examples.pin_specs import PIN_SPECS
 from test.pico_examples.targets import SPECS
@@ -62,7 +63,7 @@ def read_console(harness, port, spec) -> str:
 
 
 def test_the_example_completes(harness, example, console):
-    spec = SPECS.get(example.target)
+    spec = SPECS.get(example.target) or PART_SPECS.get(example.target)
     if spec is None:
         pytest.skip(f"no completion criteria for {example.target} yet")
     with serial.Serial(console, BAUD, timeout=0.1, exclusive=True) as port:
