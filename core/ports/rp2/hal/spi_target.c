@@ -1344,10 +1344,34 @@ static void __not_in_flash_func(stream_finalize)(struct mclw_spi_target *t) {
     }
 }
 
+// A window that began while the engine was still re-arming after the one
+// before: the state machine sat it out at its entry, waiting for chip select
+// to rise, and now waits for the next fall with the image armed as it was.
+// Nothing moved, so there is nothing to finalize or re-arm. A host that
+// polls a part without a BUSY line clocks such windows back to back, and
+// re-arming after each one would keep this core in the release interrupt
+// for as long as the host polls. With a BUSY line the model hears of every
+// window, since it lowers BUSY after each.
+static bool __not_in_flash_func(command_window_missed)(const struct mclw_spi_target *t) {
+    uint8_t pc = (uint8_t)(pio_sm_get_pc(SPI_PIO, t->sm) - t->bus->program_offset);
+
+    return t->image == SPI_IMAGE_COMMAND && t->busy_pin < 0 && pc < SPI_STREAM_ACTIVE_ENTRY &&
+        pio_sm_is_rx_fifo_empty(SPI_PIO, t->sm) &&
+        *(volatile uint8_t *)&command_block(t)->jump == SPI_COMMAND_NO_OPCODE;
+}
+
 static void __not_in_flash_func(finalize)(struct mclw_spi_target *t) {
     uint32_t state = mclw_hal_critical_enter();
 
     if (t->image == SPI_IMAGE_NONE || !t->window_open) {
+        mclw_hal_critical_exit(state);
+        return;
+    }
+    if (command_window_missed(t)) {
+        t->window_open = false;
+        t->stats.missed_windows++;
+        t->last_release_us = time_us_32();
+        t->released = true;
         mclw_hal_critical_exit(state);
         return;
     }

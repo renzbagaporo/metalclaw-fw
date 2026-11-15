@@ -41,6 +41,9 @@ struct mclw_spi_target_stats {
     // Windows served before a pending image rebuild had landed: for a
     // command image, windows that began while BUSY was high.
     uint32_t stale_windows;
+    // For a command image without a BUSY line: windows that began before the
+    // engine had re-armed after the previous one, and that it did not serve.
+    uint32_t missed_windows;
 };
 
 // Claims the four pins for `owner`. `mode` is SPI mode 0..3. The target
