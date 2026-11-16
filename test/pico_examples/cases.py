@@ -32,14 +32,13 @@ for instance in metalclaw.instances():
 
 
 # The program's external parts, attached on the harness before any case
-# restarts it, and gone once its cases are done; a part the bench already
-# provides (example.replaced_parts) is left out. A part on a DUT pin no
+# restarts it, and gone once its cases are done. A part on a DUT pin no
 # harness pin reaches on this bench (fixture 1's GP2, GP3 and GP28), or one
 # that needs a pull-up this bench's lines lack, leaves the program without
 # its outside world, so none of its cases can judge it there.
 @pytest.fixture(scope="module")
 def parts(harness, example, fixture):
-    attached = parts_for(example.target, example.metadata.get("board"), example.replaced_parts)
+    attached = parts_for(example.target, example.metadata.get("board"))
     for part in attached:
         if part.needs_line_pullups and not fixture["line_pullups"]:
             pytest.skip(f"{example.target}'s {part.model} needs a pull-up on its line, and this bench has none")
@@ -216,13 +215,6 @@ def test_the_example_enters_bootsel_on_a_double_reset(example, parts):
 def test_the_example_parts_saw_the_program(harness, example, parts):
     checks = [(part, check) for part in parts for check in part.checks]
     if not checks:
-        # A stand-in's pass is never a harness part's: what the part would
-        # have seen is not judged at all.
-        stood_in = [p.name for p in parts_for(example.target, example.metadata.get("board"))
-                    if p.name in example.replaced_parts and p.checks]
-        if stood_in:
-            pytest.skip(f"{example.target}'s part checks read the harness's {', '.join(stood_in)}, which an "
-                        f"emulator-only stand-in replaces in this session")
         pytest.skip(f"no part checks for {example.target}")
     example.restart()
     for part, check in checks:

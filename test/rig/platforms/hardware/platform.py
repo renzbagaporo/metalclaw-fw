@@ -603,10 +603,6 @@ def start_from_ram(link, elf: bytes, vectors: int) -> None:
 # its pins (test/pico_examples). One that loads nothing into flash runs from
 # SRAM, so a restart loads it again.
 class Example(Target):
-    # Parts the bench provides by other means, which the cases leave
-    # unattached: the emulator's stand-ins.
-    replaced_parts: frozenset[str] = frozenset()
-
     def __init__(self, harness: Harness, image: Path, toolchain_dir: str, recorder=None):
         metadata = example_metadata(image)
         super().__init__(harness, image, recorder, f"pico-examples/{metadata['target']}")

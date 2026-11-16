@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from test.pico_examples import pins
-from test.pico_examples.emulation import DEFAULT, Emulation, emulation_for
+from test.pico_examples.emulation import DEFAULT, EMULATOR_LIMITS, Emulation, emulation_for
 from test.pico_examples.parts import parts_for
 from test.pico_examples.usb_devices import UsbDevice, usb_device
 from test.rig import probe_telemetry
@@ -172,23 +172,23 @@ def image_emulation() -> Emulation:
     return emulation_for(example_metadata(image))
 
 
-# A session whose program runs with stand-ins inside the emulated DUT
-# reports every result under a name that says so, and as a property, so no
-# such pass is ever taken for one through the harness.
+# A session whose program runs with DUT pins unwired reports every result
+# under a name that says so, and as a property, so no such pass is ever
+# taken for one where the harness saw those pins.
 def pytest_generate_tests(metafunc):
     if "emulation" not in metafunc.fixturenames:
         return
     emulation = image_emulation()
-    if emulation.stand_ins:
-        metafunc.parametrize("emulation", [emulation], ids=[emulation.stand_in_label], indirect=True,
+    if emulation.unwired.pins:
+        metafunc.parametrize("emulation", [emulation], ids=[emulation.unwired.label], indirect=True,
                              scope="session")
 
 
 def pytest_collection_modifyitems(items):
     for item in items:
         emulation = getattr(getattr(item, "callspec", None), "params", {}).get("emulation")
-        if emulation is not None and emulation.stand_ins:
-            item.user_properties.append(("emulator_stand_ins", " ".join(s.label for s in emulation.stand_ins)))
+        if emulation is not None and emulation.unwired.pins:
+            item.user_properties.append(("emulator_unwired", emulation.unwired.label))
 
 
 def session_emulation(param: Emulation | None) -> Emulation:
@@ -346,31 +346,36 @@ def probe(harness: Harness, fixture: dict, pytestconfig):
 # The bench started with the image already in the DUT's flash; swd_probe's
 # cases download it through the probe. The DUT booted with the bench, before
 # the harness could hold any idle level, so it boots again once they are. A
-# program that needs what this Renode package's bench script does not take
-# is not judged on it; a part a stand-in replaces is not attached.
+# program that needs what this Renode package's bench script does not take,
+# or one in EMULATOR_LIMITS, is not judged on it.
 @pytest.fixture(scope="session")
 def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emulation, pytestconfig) -> Example:
     require_example_image(bench.dut_image)
+    skip_emulator_limit(example_metadata(bench.dut_image)["target"])
     e = Example(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"),
                 probe_telemetry.recorder(pytestconfig))
     if bench.settings.unmet:
         pytest.skip(f"{e.target} needs {', '.join(bench.settings.unmet)}, which {bench.layout.script} in this "
                     f"Renode package does not take")
-    e.replaced_parts = frozenset(s.replaces for s in emulation.stand_ins)
-    clashes = stand_in_clashes(e.target, e.metadata.get("board"), emulation)
+    clashes = unwired_clashes(e.target, e.metadata.get("board"), emulation)
     if clashes:
-        pytest.exit(f"{e.target}'s stand-ins share pins with harness parts: {', '.join(clashes)}", returncode=2)
-    hold_idle(harness, fixture, e.parts_dut_pins() | {p for s in emulation.stand_ins for p in s.pins})
+        pytest.exit(f"{e.target}'s unwired DUT pins are taken by harness parts: {', '.join(clashes)}",
+                    returncode=2)
+    hold_idle(harness, fixture, e.parts_dut_pins())
     e.restart()
     return e
 
 
-# The harness parts still attached that take a stand-in's pins: the
-# harness would then drive a pin the stand-in drives inside the DUT.
-def stand_in_clashes(target: str, board: str | None, emulation: Emulation) -> list[str]:
-    taken = {p for s in emulation.stand_ins for p in s.pins}
-    attached = parts_for(target, board, {s.replaces for s in emulation.stand_ins})
-    return [f"{part.name} on GP{sorted(taken & set(part.dut_pins()))}" for part in attached
+def skip_emulator_limit(target: str) -> None:
+    if target in EMULATOR_LIMITS:
+        pytest.skip(f"{target} is not judged in the emulator: {EMULATOR_LIMITS[target]}")
+
+
+# The program's harness parts that take an unwired DUT pin, which would
+# then see nothing of it.
+def unwired_clashes(target: str, board: str | None, emulation: Emulation) -> list[str]:
+    taken = set(emulation.unwired.pins)
+    return [f"{part.name} on GP{sorted(taken & set(part.dut_pins()))}" for part in parts_for(target, board)
             if taken & set(part.dut_pins())]
 
 

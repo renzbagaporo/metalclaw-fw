@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from test.pico_examples.emulation import EMULATION, I2C_STAND_INS, Emulation, FlashStandIn, StandIn
+from test.pico_examples.emulation import EMULATION, Emulation, Unwired
 from test.rig.platforms.emulator import bench
 
 
@@ -267,7 +267,7 @@ def test_an_instance_refuses_to_start_when_its_own_port_is_taken(tmp_path, monke
     assert b.process is None
 
 
-# ---- per-session variables and stand-ins ------------------------------------
+# ---- per-session variables and unwired pins ---------------------------------
 
 SCRIPT = '''$usbip_port?=3240
 $quantum?="0.0001"
@@ -359,16 +359,6 @@ def test_the_environment_quantum_overrides_the_programs(tmp_path):
     assert dict(s.variables)["quantum"] == '"0.0000012"'
 
 
-def test_a_stand_in_is_wired_inside_the_dut_after_the_bench_script(tmp_path):
-    s = settings(Emulation(stand_ins=(StandIn(4, 6, "sda"),)), carrier_script(tmp_path))
-    assert s.commands == ('emulation CreateDigitalWire "jumper_gp4_gp6" false', 'mach set "pico"',
-                          "jumper_gp4_gp6 Connect gpio 4", "jumper_gp4_gp6 Connect gpio 6")
-    run = commands(dut_machine="pico", settings=s)
-    include = run.index("include @/renode/bench.resc")
-    assert run[include + 1:include + 5] == list(s.commands)
-    assert run[include + 5:] == ['mach set "pico"', "xipMemory LoadBinary @/w/dut_flash.bin", "start"]
-
-
 def test_variables_are_set_before_the_bench_script_is_included(tmp_path):
     s = settings(Emulation(quantum="0.000001", wire_latency_us=3, i2c0_wiring="wires"), carrier_script(tmp_path))
     run = commands(dut_machine="pico", settings=s)
@@ -379,51 +369,13 @@ def test_variables_are_set_before_the_bench_script_is_included(tmp_path):
 
 def test_a_starting_bench_sets_its_programs_needs_and_notes_them(tmp_path, monkeypatch):
     def emulated(b):
-        b.emulation = I2C_STAND_INS
-    run, _ = launch(tmp_path, monkeypatch, "metalclaw_pico_rp2", emulated)
-    assert 'emulation CreateDigitalWire "jumper_gp5_gp7" false' in run
+        b.emulation = Emulation(i2c0_wiring="wires", unwired=Unwired((0, 1)))
+    launch(tmp_path, monkeypatch, "metalclaw_pico_rp2", emulated)
     log = (tmp_path / "work" / "renode.log").read_text()
-    assert "rig: emulator-only stand-ins jumper_gp4_gp6 jumper_gp5_gp7\n" in log
+    assert "rig: DUT pins unwired GP0 GP1\n" in log
     # The empty test script declares nothing.
     assert ("rig: scripts/multi-node/metalclaw_carrier.resc does not take $i2c0_wiring wires "
             "(metalclaw_carrier_i2c0_wires.resc)\n") in log
-
-
-def test_a_flash_stand_in_is_loaded_into_the_dut_after_the_bench_script(tmp_path):
-    s = settings(EMULATION["pio_spi_flash"], carrier_script(tmp_path))
-    assert s.commands == (
-        'mach set "pico"',
-        'machine LoadPlatformDescriptionFromString "spiFlash: SPI.RP2_PinSPIFlash @ none { gpio: gpio; '
-        'csPin: 17; sckPin: 18; mosiPin: 19; misoPin: 16 }"')
-    assert s.unmet == () and s.variables == ()
-    run = commands(dut_machine="pico", settings=s)
-    include = run.index("include @/renode/bench.resc")
-    assert run[include + 1:] == [*s.commands, 'mach set "pico"', "xipMemory LoadBinary @/w/dut_flash.bin", "start"]
-
-
-def test_a_package_without_a_stand_ins_renode_type_leaves_it_unmet(tmp_path):
-    flash = Emulation(stand_ins=(FlashStandIn(17, 18, 19, 16, "flash"), StandIn(2, 5, "clock")))
-    s = bench.bench_settings(flash, carrier_script(tmp_path), SCRIPT, "pico", None, lambda name: False)
-    assert s.unmet == ("RP2_PinSPIFlash (pin_spi_flash_gp17)",)
-    # A wire needs nothing beyond the bench scripts' own.
-    assert s.commands[0] == 'emulation CreateDigitalWire "jumper_gp2_gp5" false'
-
-
-def test_a_package_has_a_type_its_infrastructure_assembly_names(tmp_path):
-    assert not bench.package_has_type(tmp_path, "RP2_PinSPIFlash")
-    (tmp_path / "Infrastructure.dll").write_bytes(b"MZ\x00RP2_GPIOBank0\x00")
-    assert not bench.package_has_type(tmp_path, "RP2_PinSPIFlash")
-    (tmp_path / "Infrastructure.dll").write_bytes(b"MZ\x00RP2_PinSPIFlash\x00")
-    assert bench.package_has_type(tmp_path, "RP2_PinSPIFlash")
-
-
-def test_a_starting_bench_labels_a_flash_stand_in_in_its_log(tmp_path, monkeypatch):
-    def emulated(b):
-        b.emulation = EMULATION["pio_spi_flash"]
-        (b.renode_dir / "Infrastructure.dll").write_bytes(b"RP2_PinSPIFlash")
-    run, _ = launch(tmp_path, monkeypatch, "metalclaw_pico_rp2", emulated)
-    assert any("SPI.RP2_PinSPIFlash" in command for command in run)
-    assert "rig: emulator-only stand-ins pin_spi_flash_gp17\n" in (tmp_path / "work" / "renode.log").read_text()
 
 
 FIXTURE_SCRIPT = """mach create "pico1"
@@ -445,8 +397,24 @@ def test_the_wires_on_each_dut_pin_come_from_the_bench_script():
     assert bench.dut_pin_wires(FIXTURE_SCRIPT, "pico1") == {1: ("uart0_dut_tx",), 0: ("uart0_harness_tx",)}
 
 
-def test_an_unwired_stand_in_disposes_of_the_duts_wires_on_its_pins(tmp_path):
+def test_unwired_pins_dispose_of_the_duts_wires_on_them_after_the_bench_script(tmp_path):
     script = tmp_path / "metalclaw_fixture.resc"
     script.write_text(FIXTURE_SCRIPT)
     s = bench.bench_settings(EMULATION["hello_pwm"], script, FIXTURE_SCRIPT, "pico2")
     assert s.commands == ("uart0_dut_tx Dispose", "uart0_harness_tx Dispose") and s.unmet == ()
+    run = commands(dut_machine="pico2", settings=s)
+    include = run.index("include @/renode/bench.resc")
+    assert run[include + 1:] == [*s.commands, 'mach set "pico2"', "xipMemory LoadBinary @/w/dut_flash.bin", "start"]
+
+
+def test_a_program_without_unwired_pins_disposes_of_nothing(tmp_path):
+    script = tmp_path / "metalclaw_fixture.resc"
+    script.write_text(FIXTURE_SCRIPT)
+    assert bench.bench_settings(EMULATION["gps_uart"], script, FIXTURE_SCRIPT, "pico2").commands == ()
+
+
+def test_a_starting_bench_without_unwired_pins_notes_none(tmp_path, monkeypatch):
+    def emulated(b):
+        b.emulation = Emulation(i2c0_wiring="wires")
+    launch(tmp_path, monkeypatch, "metalclaw_pico_rp2", emulated)
+    assert "unwired" not in (tmp_path / "work" / "renode.log").read_text()

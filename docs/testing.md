@@ -242,24 +242,35 @@ a script beside the bench script, `<script>_i2c0_bus.resc` and
 DHT parts that answer within tens of microseconds, run at a 1 µs quantum
 with 3 µs wires; a program that takes DUT GP4 or GP5 as GPIO, PIO or UART
 gets the pin-level I2C0 wires as well, the only wiring that reaches the
-carrier's two harness branches of each. Where the harness cannot keep up,
-an emulator-only stand-in inside the emulated DUT takes the harness part's
-place and the part is not attached: zero-latency wires for the open-drain
-I2C pair of `slave_mem_i2c` and for `pio_clocked_input`'s 21 MHz SPI
-jumpers, and Renode's `RP2_PinSPIFlash` on the DUT's own GP16-19 for
-`pio_spi_flash`, whose PIO controller samples MISO on its own clock edges.
-A program judged inside the DUT whose pins would flood the wires between
-the boards has them unwired: the bench script's wires on those DUT pins
-are disposed of before the emulation starts (`hello_pwm`'s 31 MHz PWM on
-GP0 and GP1, `[stand-in-unwired_gp0_gp1]`). No harness part a session still attaches may take a stand-in's pins.
-Every result of such a session carries the stand-ins in its test name
-(`[stand-in-jumper_gp4_gp6+jumper_gp5_gp7]`, `[stand-in-pin_spi_flash_gp17]`)
-and in an `emulator_stand_ins` property, so it is never taken for a pass
-through the harness; part checks that read a replaced harness part skip. A
-variable the package's bench script does not declare, a wiring script it
-does not ship, or a stand-in type its `Infrastructure.dll` lacks, is left
-out and named in `renode.log`, and the program's cases skip.
-`METALCLAW_RENODE_QUANTUM` takes the place of the program's quantum.
+carrier's two harness branches of each. A program judged inside the DUT
+whose pins would flood the wires between the boards has them unwired
+(`Unwired`): the bench script's wires on those DUT pins are disposed of
+before the emulation starts, so what the DUT drives there reaches nothing
+(`hello_pwm`'s 31 MHz PWM on GP0 and GP1). Every result of such a session
+carries the unwired pins in its test name (`[unwired_gp0_gp1]`) and in an
+`emulator_unwired` property, so it is never taken for one where the harness
+saw those pins, and no harness part of the program may take them. A
+variable the package's bench script does not declare, or a wiring script it
+does not ship, is left out and named in `renode.log`, and the program's
+cases skip. `METALCLAW_RENODE_QUANTUM` takes the place of the program's
+quantum.
+
+The emulator keeps Metalclaw in the loop: the harness runs its firmware on
+its own emulated board, joined to the emulated DUT only by the bench
+script's wires, and no Renode model inside the DUT takes the place of a
+harness part. A program whose timing those wires cannot carry is listed in
+`EMULATOR_LIMITS` in `test/pico_examples/emulation.py` with the reason, and
+the emulator platform's `example` fixture skips its cases with that reason
+before it attaches a part or restarts the program; the hardware platform
+does not read the list. Each wire delivers an edge 300 µs after its sender
+drove it, 3 µs at best at the relayed programs' quantum, so a harness that
+must answer within less than a round trip falls behind: the open-drain I2C
+join of `slave_mem_i2c` and `slave_mem_i2c_burst`, the 21 MHz SPI jumpers of
+`pio_clocked_input`, `pio_spi_flash`'s PIO controller, which samples MISO on
+its own clock edges and so gets a harness flash's answer a round trip late,
+and `spi_slave`, whose MISO the harness's controller samples a round trip
+late and reads as ff. Each entry waits on a Renode change that puts the
+harness's pins in the DUT's time domain.
 
 The bench script exports the DUT's own USB too, as USB/IP bus `1-1` on a
 server of its own at `$dut_usbip_port`: Renode's server takes one

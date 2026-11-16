@@ -422,24 +422,14 @@ def dut_pin_wires(script_text: str, dut_machine: str) -> dict[int, tuple[str, ..
     return wires
 
 
-# Whether the Renode package in `renode_dir` has a peripheral type: its name
-# is in the metadata of the assembly the RP2 models live in.
-def package_has_type(renode_dir: Path, name: str) -> bool:
-    try:
-        return name.encode() in (renode_dir / "Infrastructure.dll").read_bytes()
-    except OSError:
-        return False
-
-
 # What a program's Emulation (test/pico_examples/emulation.py) sets on the
-# bench `script`. A variable the script does not declare, an I2C0 wiring
-# whose script is not in the package, or a stand-in whose Renode type
-# `has_type` says the package lacks, is left out and named in `unmet`. A
+# bench `script`. A variable the script does not declare, or an I2C0 wiring
+# whose script is not in the package, is left out and named in `unmet`. A
 # wire latency also sets the DUT's SPI input delay, the round trip, where the
 # script has one. `quantum` (METALCLAW_RENODE_QUANTUM) overrides the
 # program's.
 def bench_settings(emulation: Emulation, script: Path, script_text: str, dut_machine: str,
-                   quantum: str | None = None, has_type=lambda name: True) -> Settings:
+                   quantum: str | None = None) -> Settings:
     declared = script_variables(script_text)
     variables, unmet = [], []
 
@@ -476,14 +466,8 @@ def bench_settings(emulation: Emulation, script: Path, script_text: str, dut_mac
         elif wiring != "bus":
             # The scripts' own I2C0 is the byte-level bus.
             unmet.append(f"$i2c0_wiring {wiring} ({wiring_script.name})")
-    commands = []
-    dut_wires = dut_pin_wires(script_text, dut_machine)
-    for s in emulation.stand_ins:
-        if s.renode_type is not None and not has_type(s.renode_type):
-            unmet.append(f"{s.renode_type} ({s.label})")
-            continue
-        commands += s.monitor_commands(dut_machine, dut_wires)
-    return Settings(tuple(variables), tuple(commands), tuple(unmet))
+    commands = emulation.unwired.monitor_commands(dut_pin_wires(script_text, dut_machine))
+    return Settings(tuple(variables), commands, tuple(unmet))
 
 
 # The monitor commands that bring the bench up. The DUT image goes straight
@@ -672,8 +656,7 @@ class Bench:
         harness_rom = self._rom(layout.harness_chip, "harness_rom.bin")
         dut_rom = self._rom(layout.dut_chip, "dut_rom.bin")
         self.settings = bench_settings(self.emulation, script, script_text, layout.dut_machine,
-                                       os.environ.get("METALCLAW_RENODE_QUANTUM"),
-                                       lambda name: package_has_type(self.renode_dir, name))
+                                       os.environ.get("METALCLAW_RENODE_QUANTUM"))
         self.log = (self.work / "renode.log").open("w")
         self._note_settings()
         chip_id = None if layout.chip_id_variable is None else (layout.chip_id_variable, self.serial)
@@ -697,8 +680,8 @@ class Bench:
         s = self.settings
         if s.variables:
             self.log.write("rig: bench variables " + " ".join(f"${n}={v}" for n, v in s.variables) + "\n")
-        if self.emulation.stand_ins:
-            self.log.write("rig: emulator-only stand-ins " + " ".join(x.label for x in self.emulation.stand_ins)
+        if self.emulation.unwired.pins:
+            self.log.write("rig: DUT pins unwired " + " ".join(f"GP{p}" for p in self.emulation.unwired.pins)
                            + "\n")
         if s.unmet:
             self.log.write(f"rig: {self.layout.script} does not take " + ", ".join(s.unmet) + "\n")

@@ -21,7 +21,8 @@ HARDWARE_HAZARDS: dict[str, str] = {
 # pico-examples programs one bench cannot judge although the program is
 # fine, and why: by target, the harness boards (the fixture's MicroPython
 # board) and the DUT builds (example.json "board") it holds on. The other
-# bench, and the emulator, still judge them.
+# bench still judges them, as does the emulator unless EMULATOR_LIMITS
+# (emulation.py) names them.
 BENCH_LIMITS: dict[str, tuple[tuple[str, ...], tuple[str, ...], str]] = {
     # pio/spi/spi_flash.c, Pico 2 build: the program raises chip select
     # after Write Enable and after the erase and lowers it in the very next
