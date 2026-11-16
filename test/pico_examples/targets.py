@@ -5,7 +5,10 @@
 # pico-examples tree (example.json beside the ELF names it).
 
 import re
+import struct
 from dataclasses import dataclass, field, replace
+
+from test.pico_examples.lights import newlib_rand
 
 # The SDK's panic() and assert() paths, and a fault the example would print.
 FORBIDDEN = (r"\*\*\* PANIC \*\*\*", r"assertion \".*\" failed", r"HardFault")
@@ -148,6 +151,138 @@ def _wake_cycles(asleep: str, runs: int) -> tuple[str, ...]:
     return tuple(lines)
 
 
+# Whole lines, each but the first from the start of a line, so a value is
+# never matched by the tail of another.
+def _lines(*lines: str) -> tuple[str, ...]:
+    return tuple(("" if i == 0 else "(?m)^") + re.escape(line) + NL for i, line in enumerate(lines))
+
+
+# pio/addition/addition.c:29-34: ten pairs of newlib rand() % 100 (seeded 1
+# at reset, lights.newlib_rand), added by the PIO program, which computes
+# x + y as ~(~x - y) (addition.pio).
+def _pio_additions() -> tuple[str, ...]:
+    r = newlib_rand()
+    pairs = [(next(r) % 100, next(r) % 100) for _ in range(10)]
+    return _lines("Doing some random additions:", *(f"{a} + {b} = {a + b}" for a, b in pairs))
+
+
+def _s32(value: int) -> int:
+    value &= 0xFFFFFFFF
+    return value - (1 << 32) if value & 0x80000000 else value
+
+
+# An interpolator lane's shift, mask and sign extension (RP2350 datasheet
+# 3.1.10.1; RP2040 2.3.1.6.1 is the same), and blend mode's x0 + alpha (x1 -
+# x0) with alpha the lane 1 value's low 8 bits over 256, as a 40-bit
+# product signed or not by lane 1's SIGNED (3.1.10.2).
+def _lane(accum: int, shift: int = 0, lsb: int = 0, msb: int = 31, signed: bool = False) -> int:
+    value = ((accum & 0xFFFFFFFF) >> shift) & (((1 << (msb + 1)) - 1) & ~((1 << lsb) - 1))
+    if signed and value >> msb & 1:
+        value |= ~((1 << (msb + 1)) - 1) & 0xFFFFFFFF
+    return value
+
+
+def _blend(base0: int, base1: int, alpha: int, signed: bool) -> int:
+    if signed:
+        return (_s32(base0) * (256 - alpha) + _s32(base1) * alpha) >> 8
+    return ((base0 & 0xFFFFFFFF) * (256 - alpha) + (base1 & 0xFFFFFFFF) * alpha) >> 8 & 0xFFFFFFFF
+
+
+# interp/hello_interp/hello_interp.c:11-291, every value as the datasheet's
+# lane and mode rules give it; RP2350 datasheet 3.1.10 prints the same
+# output for each section.
+def _hello_interp() -> tuple[str, ...]:
+    out = ["Interpolator example", "9 times table:"]
+    accum = 0
+    for _ in range(10):  # :18-22, POP0 writes RESULT0 back to ACCUM0
+        accum += 9
+        out.append(f"{accum}")
+    out += ["Masking:", "ACCUM0 = 1234abcd"]  # :27-45
+    out += [f"Nibble {i}: {_lane(0x1234ABCD, 0, 4 * i, 4 * i + 3):08x}" for i in range(8)]
+    out.append("Masking with sign extension:")
+    out += [f"Nibble {i}: {_lane(0x1234ABCD, 0, 4 * i, 4 * i + 3, True):08x}" for i in range(8)]
+    out.append("Lane result crossover:")  # :48-65, each POP1 swaps the results
+    a0, a1 = 123, 456
+    for _ in range(10):
+        r0, r1 = a0 + 1, a1
+        out.append(f"PEEK0, POP1: {r0}, {r1}")
+        a0, a1 = r1, r0
+    alphas = [255 * i // 6 for i in range(7)]
+    out.append("Simple blend 1:")  # :68-87
+    out += [f"{_blend(500, 1000, a, False)}" for a in alphas]
+    out += ["Simple blend 2:", "signed:"]  # :89-121
+    out += [f"{_blend(-1000, 1000, a, True)}" for a in alphas]
+    out.append("unsigned:")
+    out += [f"0x{_blend(-1000, 1000, a, False):08x}" for a in alphas]
+    # :124-145, BASE_1AND0 sign-extended into each base by lane 1's SIGNED.
+    out += ["Simple blend 3:", f"0x{_blend(0x5000, 0x3000, 128, False):08x}",
+            f"0x{_blend(0xF000, 0xE000, 128, False):08x}",
+            f"0x{_blend(-0x1000, -0x2000, 128, True) & 0xFFFFFFFF:08x}"]
+    out.append("Clamp:")  # :193-211, lane 0 clamped to BASE0..BASE1
+    out += [f"{i}\t{min(max(_s32(_lane(i, 2, 0, 29, True)), 0), 255)}" for i in range(-1024, 1025, 256)]
+    out.append("Linear interpolation:")  # :147-191, 12 fractional bits
+    samples = (0, 10, -20, -1000, 500)
+    for i in range(16):
+        accum = 1024 * i
+        first = _lane(accum, 11, 1, 20) // 2
+        alpha = _lane(accum, 4, 0, 31, True) & 0xFF
+        pair = samples[first], samples[first + 1]
+        out.append(f"{_blend(*pair, alpha, True)}\t({100 * alpha // 0xFF}% between {pair[0]} and {pair[1]})")
+    out.append("Affine Texture mapping (with texture wrap):")  # :213-272
+    for i in range(12):
+        u, v = i * (65536 // 2), i * (65536 // 3)
+        texel = _lane(u, 16, 0, 1) + _lane(v, 14, 2, 3)
+        out.append(f"0x{texel // 4 * 0x10 + texel % 4:02x}")
+    return _lines(*out)
+
+
+def _f32(value: float) -> float:
+    return struct.unpack("f", struct.pack("f", value))[0]
+
+
+# dcp/hello_dcp/dcp_examples.S:62-102 dcp_iirx, order 2: each float product
+# exact in double (dcp_fxprod), b terms added and a terms subtracted in
+# double, the sum rounded to float; coefficients b2, a2, b1, a1, b0
+# (hello_dcp.c:54).
+def _dcp_iir(count: int = 20) -> list[float]:
+    b2, a2, b1, a1, b0 = map(_f32, (0.3070432, 0.3139685, 0.6140864, 0.06406406, 0.3070432))
+    delay = [0.0] * 4
+    out = []
+    for t in range(count):
+        x = 1.0 if t == 0 else 0.0
+        acc = delay[0] * b2 - delay[1] * a2
+        delay[0], delay[1] = delay[2], delay[3]
+        acc = acc + delay[0] * b1
+        acc = acc - delay[1] * a1
+        y = _f32(acc + x * b0)
+        delay[2], delay[3] = x, y
+        out.append(y)
+    return out
+
+
+def _complex(*values: complex) -> str:
+    return ",".join("%g%+gj" % (v.real, v.imag) for v in values)
+
+
+# dcp/hello_dcp/hello_dcp.c:27-109 with dcp_examples.S's butterflies:
+# x+y, x-y (:148-156); x+y, w(x-y) (:158-195); x+wy, x-wy (:197-234);
+# (w+y)+(x+z), (w+y)-(x+z), (w-y)-j(x-z), (w-y)+j(x-z) (:236-254), all exact
+# in double. (1+2^-20)(1-2^-20) as floats is 1-2^-40, so the extended dot
+# product is 29-2^-40, printed with %.17g.
+def _hello_dcp() -> tuple[str, ...]:
+    x, y, w = 2 + 3j, 5 + 7j, 1.5 + 2.5j
+    a, b, c, d = 2 + 3j, 5 + 7j, 11 + 17j, 41 + 43j
+    dot = _f32(1 + 2 ** -20) * _f32(1 - 2 ** -20) + 10.0 + 18.0
+    return _lines(
+        "Hello, DCP!", "(1,2,3).(4,5,6)=32", "(1+pow(2,-20),2,3).(1-pow(2,-20),5,6)=%.17g" % dot,
+        "IIR filter impulse response:", *("y[%2d]=%g" % (t, v) for t, v in enumerate(_dcp_iir())),
+        f"Radix-2 butterfly of (2+3j,5+7j)=({_complex(x + y, x - y)})",
+        f"Radix-2 DIF butterfly of (2+3j,5+7j) with twiddle factor (1.5+2.5j)=({_complex(x + y, w * (x - y))})",
+        f"Radix-2 DIT butterfly of (2+3j,5+7j) with twiddle factor (1.5+2.5j)=({_complex(x + w * y, x - w * y)})",
+        f"Radix-4 butterfly of (2+3j,5+7j,11+17j,41+43j)=("
+        f"{_complex((a + c) + (b + d), (a + c) - (b + d), (a - c) - 1j * (b - d), (a - c) + 1j * (b - d))})")
+
+
 SPECS: dict[str, Spec] = {
     # adc/dma_capture/dma_capture.c:71-107: "Arming DMA", sleep_ms(1000),
     # "Starting capture", "Capture finished", then 1000 samples as
@@ -245,15 +380,9 @@ SPECS: dict[str, Spec] = {
     ),
     # dcp/hello_dcp/hello_dcp.c:27-109: (1,2,3).(4,5,6) is 32, and the
     # extended dot product is exactly 29 - 2^-40; then twenty IIR samples and
-    # four butterflies.
+    # four butterflies, each value as _hello_dcp computes it.
     "hello_dcp": Spec(
-        console=(r"Hello, DCP!\r?\n", r"\(1,2,3\)\.\(4,5,6\)=32\r?\n",
-                 r"\(1\+pow\(2,-20\),2,3\)\.\(1-pow\(2,-20\),5,6\)=28\.999999999999091\r?\n",
-                 r"IIR filter impulse response:\r?\n", rf"(?:y\[[ \d]\d\]={NUM}\r?\n){{20}}",
-                 r"Radix-2 butterfly of \(2\+3j,5\+7j\)=\([^)]*\)\r?\n",
-                 r"Radix-2 DIF butterfly of \(2\+3j,5\+7j\) with twiddle factor \(1\.5\+2\.5j\)=\([^)]*\)\r?\n",
-                 r"Radix-2 DIT butterfly of \(2\+3j,5\+7j\) with twiddle factor \(1\.5\+2\.5j\)=\([^)]*\)\r?\n",
-                 r"Radix-4 butterfly of \(2\+3j,5\+7j,11\+17j,41\+43j\)=\([^)]*\)\r?\n"),
+        console=_hello_dcp(),
         seconds=3.0,
         source="dcp/hello_dcp/hello_dcp.c",
     ),
@@ -376,16 +505,10 @@ SPECS: dict[str, Spec] = {
         seconds=3.0,
         source="i2c/bus_scan/bus_scan.c",
     ),
-    # interp/hello_interp/hello_interp.c:11-23, 275-291: the 9 times table
-    # (9..90), each section header in call order, and the twelve texture
-    # samples.
+    # interp/hello_interp/hello_interp.c:275-291: every section in call
+    # order, each line as _hello_interp computes it.
     "hello_interp": Spec(
-        console=(r"Interpolator example\r?\n",
-                 r"9 times table:\r?\n" + "".join(rf"{9 * n}\r?\n" for n in range(1, 11)),
-                 r"Masking:\r?\n", r"Masking with sign extension:\r?\n", r"Lane result crossover:\r?\n",
-                 r"Simple blend 1:\r?\n", r"Simple blend 2:\r?\n", r"signed:\r?\n", r"unsigned:\r?\n",
-                 r"Simple blend 3:\r?\n", r"Clamp:\r?\n", r"Linear interpolation:\r?\n",
-                 r"Affine Texture mapping \(with texture wrap\):\r?\n", r"(?:0x[0-9a-f]{2}\r?\n){12}"),
+        console=_hello_interp(),
         seconds=3.0,
         source="interp/hello_interp/hello_interp.c",
     ),
@@ -429,10 +552,15 @@ SPECS: dict[str, Spec] = {
         forbidden=forbid(r"that's not right"),
         source="multicore/hello_multicore/multicore.c",
     ),
-    # multicore/multicore_doorbell/multicore_doorbell.c:19-79: core 1 counts
-    # 100000 doorbells, exits, rings back; core 0 prints the count.
+    # multicore/multicore_doorbell/multicore_doorbell.c:19-79: core 0 rings
+    # the counter doorbell 100000 times (:62-65) while core 1's IRQ counts
+    # the times it finds it set, so the count is timing, between 1 (the
+    # doorbell stays set until the handler clears it, :21-24) and 100000;
+    # the percentage is count * 100 / 100000 in integers (:77), count / 1000.
     "multicore_doorbell": Spec(
-        console=(r"core1 is exiting\r?\n", r"Final doorbell irq count \d+/100000 \(\d+%\)\r?\n"),
+        console=(r"core1 is exiting\r?\n",
+                 r"Final doorbell irq count (?:([1-9]\d?)\d{3}/100000 \(\1%\)|[1-9]\d{0,2}/100000 \(0%\)"
+                 r"|100000/100000 \(100%\))\r?\n"),
         seconds=3.0,
         source="multicore/multicore_doorbell/multicore_doorbell.c",
     ),
@@ -474,7 +602,7 @@ SPECS: dict[str, Spec] = {
     ),
     # pio/addition/addition.c:21-35: ten rand() % 100 pairs added by PIO.
     "pio_addition": Spec(
-        console=(r"Doing some random additions:\r?\n", *(r"\d{1,2} \+ \d{1,2} = \d{1,3}\r?\n",) * 10),
+        console=_pio_additions(),
         seconds=3.0,
         source="pio/addition/addition.c",
     ),
