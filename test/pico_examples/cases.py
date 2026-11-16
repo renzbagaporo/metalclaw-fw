@@ -139,12 +139,16 @@ def test_the_example_completes(harness, example, fixture, console, record_proper
     if spec is None:
         pytest.skip(f"no completion criteria for {example.target} yet")
     board = example.metadata.get("board")
-    spec = spec.for_board(board)
-    if spec is None:
-        pytest.skip(f"{example.target}'s console cannot judge its {board} build")
-    spec = spec.for_bench(fixture["line_pullups"], fixture.get("analog_pins", ()))
+    judged = spec.for_board(board)
+    if judged is None:
+        pytest.skip(spec.why_not(example.target, board))
+    spec = judged.for_bench(fixture["line_pullups"], fixture.get("analog_pins", ()))
     if not spec.console and spec.usb_console:
         pytest.skip(f"{example.target} prints only on its own USB console")
+    # An empty read shows nothing: a program that never ran prints nothing
+    # too.
+    if not spec.console:
+        pytest.skip(f"{example.target} prints nothing on its console; its parts or pins judge it")
     with serial.Serial(console, BAUD, timeout=0.1, exclusive=True) as port:
         port.reset_input_buffer()
         example.restart()
@@ -268,10 +272,10 @@ def test_the_example_completes_on_its_usb_console(harness, example, fixture, dut
     if spec is None or not spec.usb_console:
         pytest.skip(f"no USB console criteria for {example.target}")
     board = example.metadata.get("board")
-    spec = spec.for_board(board)
-    if spec is None:
-        pytest.skip(f"{example.target}'s console cannot judge its {board} build")
-    spec = spec.for_bench(fixture["line_pullups"], fixture.get("analog_pins", ()))
+    judged = spec.for_board(board)
+    if judged is None:
+        pytest.skip(spec.why_not(example.target, board))
+    spec = judged.for_bench(fixture["line_pullups"], fixture.get("analog_pins", ()))
     assert dut_usb.ttys, f"{example.target} presents no CDC ACM function on {dut_usb.device}"
     inputs = tuple((pattern, (name, data)) for pattern, name, data in spec.usb_input)
     # Opening a CDC function raises its DTR, which stdio_usb waits for: a

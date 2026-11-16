@@ -24,6 +24,36 @@ def _flash(*banner: str) -> tuple[str, ...]:
             r"Erase again:" + NL, *erased)
 
 
+# Any of these integers, whole.
+def _one_of(values) -> str:
+    return "(?:" + "|".join(str(v) for v in sorted(values, key=lambda v: -len(str(v)))) + r")(?!\d)"
+
+
+def _c_div(a: int, b: int) -> int:
+    q = abs(a) // abs(b)
+    return q if (a >= 0) == (b > 0) else -q
+
+
+# The speeds quadrature_encoder_substep.c prints for steps 1 ms apart in
+# `direction`: 64 substeps over 999, 1000 or 1001 us (C's truncating
+# division, then an arithmetic shift).
+def _substep_speeds(direction: int) -> range:
+    speeds = [(_c_div(direction * 64 << 20, us) * 62500) >> 16 for us in (999, 1000, 1001)]
+    return range(min(speeds), max(speeds) + 1)
+
+
+# The pico2 build cannot count that: quadrature_encoder_substep.pio's init
+# writes EXECCTRL's low bits as 0x12, RP2040's STATUS_SEL RXLEVEL with N 2.
+# On RP2350 those bits are STATUS_SEL TXLEVEL with N 18, a reserved level,
+# and on fixture 1's Pico 2 the state machine takes its push path every
+# pass: RX FIFO full (FSTAT 0x0f000e01) and stalled on autopush, so it
+# samples the pins only as the program drains it, about one step a line at
+# 1000 steps/s, speed 2543.
+SUBSTEP_PICO2 = ("quadrature_encoder_substep.pio writes EXECCTRL STATUS_SEL as RP2040's RXLEVEL, which is "
+                 "RP2350's reserved TXLEVEL 18, so its state machine stalls on autopush and samples the pins only "
+                 "as the program drains it")
+
+
 PART_SPECS: dict[str, Spec] = {
     # bmp280_i2c.c:223 prints the greeting (its spelling), then from 243 on
     # every 500 ms printf("Pressure = %.3f kPa\n", pressure / 1000.f) and
@@ -226,7 +256,8 @@ PART_SPECS: dict[str, Spec] = {
         source="i2c/pa1010d_i2c/pa1010d_i2c.c",
     ),
     # uart/lcd_uart/lcd_uart.c prints nothing, and faults in lcd_init as
-    # built (parts.py); its parts checks judge it.
+    # built (parts.py); its parts checks judge it, and its console case
+    # skips, an empty read showing nothing.
     "lcd_uart": Spec(
         console=(),
         seconds=2.0,
@@ -287,14 +318,20 @@ PART_SPECS: dict[str, Spec] = {
     # gpio/dht_sensor/dht.c:36-40: a reading every 2 s and more. 45.6 %RH and
     # 23.4 degC are 456 and 234 tenths; 23.4 * 9 / 5 + 32 is 74.12 in float.
     # The program calls a bit 1 when its high lasted more than 16 passes of
-    # a sleep_us(1) loop. On the carrier's Pico, at 125 MHz, a pass takes
-    # about 1.1 us (72 passes over the AM2302's 80 us high), so a 0 (26-28 us,
-    # datasheet section 6) counts about 24: the decoded bytes read ff ff ff
-    # ff ff and every reading is "Bad data". A 0 short enough to read as one
-    # would be out of the datasheet, so the pico build's console is not
-    # judged; its start signals still are (parts.py).
+    # a sleep_us(1) loop (:57-71). On the carrier's Pico, at 125 MHz, a pass
+    # takes about 1.1 us (72 passes over the AM2302's 80 us high), so a 0
+    # (26-28 us, datasheet section 6) counts about 24: the decoded bytes
+    # read ff ff ff ff ff, whose sum fails the check (:77), and every
+    # reading is "Bad data" (:89-91). That is also all a run with no sensor
+    # prints (no transitions, j < 40), and the reading printed after it is
+    # an uninitialised struct (:34-38), so nothing on the pico build's
+    # console shows the program read the part; a 0 short enough to read as
+    # one would be out of the datasheet. Its start signals are judged
+    # (parts.py).
     "dht": Spec(
         boards=("pico2",),
+        other_boards=("at 125 MHz a pass of its sleep_us(1) loop is about 1.1 us, so a datasheet 0 bit counts over "
+                      "16 and reads as 1, and every reading is the 'Bad data' a run without a sensor prints too"),
         console=(r"Humidity = 45\.6%, Temperature = 23\.4C \(74\.1F\)" + NL,) * 2,
         seconds=6.0,
         forbidden=forbid(r"Bad data"),
@@ -314,21 +351,19 @@ PART_SPECS: dict[str, Spec] = {
         source="pio/quadrature_encoder/quadrature_encoder.c",
     ),
     # quadrature_encoder_substep.c:374, 400-414: a line every 10 ms or so
-    # while it moves. Steps exactly 1 ms apart are 64 substeps each, so the
-    # speed estimate is 64000 substeps/s, give or take the DUT's 1 us
-    # timestamps (63935..64063), negative the other way.
-    # The pico2 build cannot count that: quadrature_encoder_substep.pio's
-    # init writes EXECCTRL's low bits as 0x12, RP2040's STATUS_SEL RXLEVEL
-    # with N 2. On RP2350 those bits are STATUS_SEL TXLEVEL with N 18, a
-    # reserved level, and on fixture 1's Pico 2 the state machine takes its
-    # push path every pass: RX FIFO full (FSTAT 0x0f000e01) and stalled on
-    # autopush, so it samples the pins only as the program drains it, about
-    # one step a line at 1000 steps/s, speed 2543.
+    # while it moves. Steps exactly 1 ms apart are 64 substeps each
+    # (calibration 64, 128, 192, :395), and the speed it prints is
+    # (dpos << 20) / dus (:126-129) times 62500 >> 16 (:250). Each
+    # transition time is the read's microsecond less whole microseconds of
+    # PIO loop (:95-114), off by under 1 us either way, so dus between two
+    # transitions k ms apart is 1000k - 1 .. 1000k + 1; k = 1, through the
+    # step-boundary clamps (:232-246), bounds it widest (_substep_speeds).
     "pio_quadrature_encoder_substep": Spec(
         boards=("pico",),
+        other_boards=SUBSTEP_PICO2,
         console=(r"Hello from quadrature encoder substep" + NL,
-                 *(r"pos: -?\d+ +speed: 6[34]\d{3} +raw_steps: -?\d+ *" + NL,) * 3,
-                 *(r"pos: -?\d+ +speed: -6[34]\d{3} +raw_steps: -?\d+ *" + NL,) * 3),
+                 *(rf"pos: -?\d+ +speed: {_one_of(_substep_speeds(1))} +raw_steps: -?\d+ *" + NL,) * 3,
+                 *(rf"pos: -?\d+ +speed: {_one_of(_substep_speeds(-1))} +raw_steps: -?\d+ *" + NL,) * 3),
         seconds=6.0,
         source="pio/quadrature_encoder_substep/quadrature_encoder_substep.c",
     ),

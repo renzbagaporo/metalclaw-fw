@@ -26,8 +26,10 @@ class Spec:
     notes: str = ""
     extra: dict = field(default_factory=dict)
     # The boards (example.json "board") whose build this Spec can judge;
-    # empty for every board it builds for.
+    # empty for every board it builds for. `other_boards` says why the
+    # builds it leaves out cannot be judged.
     boards: tuple[str, ...] = ()
+    other_boards: str = ""
     # Fields that differ in one board's build, by board: {"pico": {...}}.
     per_board: dict = field(default_factory=dict)
     # Fields that differ on a bench whose lines have pull-ups (the carrier's
@@ -61,7 +63,12 @@ class Spec:
         # The criteria for this board's build, or None where they cannot judge it.
         if self.boards and board not in self.boards:
             return None
-        return replace(self, boards=(), per_board={}, **self.per_board.get(board, {}))
+        return replace(self, boards=(), other_boards="", per_board={}, **self.per_board.get(board, {}))
+
+    # Why `board`'s build is not judged, for the skip.
+    def why_not(self, target: str, board: str | None) -> str:
+        return f"{target}'s console cannot judge its {board} build" + (
+            f": {self.other_boards}" if self.other_boards else "")
 
     def for_bench(self, line_pullups: bool, analog_pins=()) -> "Spec":
         spec = self

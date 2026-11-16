@@ -386,14 +386,14 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     ),
     # pio/quadrature_encoder/quadrature_encoder.c:41 and the substep
     # program's :371: A on GP10, B on GP11. A thousand steps a second, back
-    # and forth over 2000.
+    # and forth over 2000. The encoder only drives the DUT's pins and sees
+    # nothing the program does, so it has no checks: the counts the
+    # program prints judge it (part_targets.py).
     "pio_quadrature_encoder": (
-        Attach("quadrature_encoder", "encoder", {"ab": (10, 11)}, properties={"travel": 2000, "rate": 1000},
-               checks=(Check("part.steps > 2000", lambda v: v is True, "the harness turned it", 3.0),)),
+        Attach("quadrature_encoder", "encoder", {"ab": (10, 11)}, properties={"travel": 2000, "rate": 1000}),
     ),
     "pio_quadrature_encoder_substep": (
-        Attach("quadrature_encoder", "encoder", {"ab": (10, 11)}, properties={"travel": 2000, "rate": 1000},
-               checks=(Check("part.steps > 2000", lambda v: v is True, "the harness turned it", 3.0),)),
+        Attach("quadrature_encoder", "encoder", {"ab": (10, 11)}, properties={"travel": 2000, "rate": 1000}),
     ),
     # pio/ir_nec/ir_loopback/ir_loopback.c:24-25: the IR LED on GP14, the
     # receiver's output on GP15; ir=(led, out).

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
 import re
+import types
 from pathlib import Path
 
 import pytest
@@ -175,3 +176,47 @@ def test_the_pio_bus_scan_part_takes_i2c_pins_on_the_carrier_only():
         part.code(FIXTURE)
     (part,) = PARTS["i2c_bus_scan"]
     assert "i2c=(4, 5, 24)" in part.code(FIXTURE) and "i2c=(12, 13, 24)" in part.code(METALCLAW_PICO_RP2_FIXTURE)
+
+
+def console_case(target, board):
+    from test.pico_examples import cases
+    example = types.SimpleNamespace(target=target, metadata={"board": board},
+                                    restart=lambda: pytest.fail("restarted"))
+    cases.test_the_example_completes(None, example, {"line_pullups": True}, None)
+
+
+def test_a_console_with_nothing_to_match_skips_rather_than_passes():
+    assert PART_SPECS["lcd_uart"].console == () and not PART_SPECS["lcd_uart"].usb_console
+    with pytest.raises(pytest.skip.Exception, match="lcd_uart prints nothing on its console"):
+        console_case("lcd_uart", "pico")
+
+
+def test_a_build_a_console_cannot_judge_skips_with_the_reason():
+    from test.pico_examples.part_targets import SUBSTEP_PICO2
+    with pytest.raises(pytest.skip.Exception) as skipped:
+        console_case("pio_quadrature_encoder_substep", "pico2")
+    assert str(skipped.value) == f"pio_quadrature_encoder_substep's console cannot judge its pico2 build: {SUBSTEP_PICO2}"
+    with pytest.raises(pytest.skip.Exception, match=r"dht's console cannot judge its pico build: at 125 MHz"):
+        console_case("dht", "pico")
+    assert PART_SPECS["dht"].for_board("pico2").other_boards == ""
+
+
+# The encoder drives the DUT's pins and sees nothing of the program: what
+# the program prints judges it, and the part has no checks to pass.
+def test_the_encoders_are_judged_by_their_programs_counts_alone():
+    for target in ("pio_quadrature_encoder", "pio_quadrature_encoder_substep"):
+        assert all(not part.checks for part in PARTS[target]), target
+        assert PART_SPECS[target].console, target
+
+
+def test_the_substep_speed_is_what_64_substeps_over_1_ms_give_within_1_us():
+    spec = PART_SPECS["pio_quadrature_encoder_substep"].for_board("pico")
+    line = "pos: 123        speed: {:<10d}  raw_steps: 2          \n"
+    head = "Hello from quadrature encoder substep\n"
+
+    def judged(forward, back):
+        return not spec.match(head + line.format(forward) * 3 + line.format(back) * 3)[0]
+    # 64 << 20 over 1001, 1000 and 999 us, times 62500 >> 16.
+    assert judged(63935, -63936) and judged(63999, -64000) and judged(64064, -64065)
+    assert not judged(63934, -64000) and not judged(64065, -64000)
+    assert not judged(64000, -63935) and not judged(64000, -64066) and not judged(63000, -63000)
