@@ -545,5 +545,14 @@ def parts_for(target: str, board: str | None) -> tuple[Attach, ...]:
 
 
 # The DUT pins they take.
+# DUT pins a program drives by itself, with no part on them, from its first
+# instruction on: no idle level may hold their nets either.
+PROGRAM_OUTPUTS: dict[str, tuple[int, ...]] = {
+    # adc/dma_capture/dma_capture.c:119-126: core 1 drives a 5-bit resistor DAC on
+    # GP6-GP10 (DAC_PIN_BASE 6) with PIO0 from boot.
+    "adc_dma_capture": (6, 7, 8, 9, 10),
+}
+
+
 def parts_dut_pins(target: str, board: str | None) -> set[int]:
-    return {pin for part in parts_for(target, board) for pin in part.dut_pins()}
+    return {pin for part in parts_for(target, board) for pin in part.dut_pins()} | set(PROGRAM_OUTPUTS.get(target, ()))

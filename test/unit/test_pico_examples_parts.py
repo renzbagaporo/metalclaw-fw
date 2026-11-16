@@ -258,3 +258,10 @@ def test_lcd_uart_counts_the_bytes_of_the_judged_run_only():
     # One run: 0xFE 0x42, then its fault; a part attached mid-run must not
     # turn an earlier run's lone byte into a failure, or two runs into a pass.
     assert count.test(2) and not count.test(1) and not count.test(3) and not count.test(4)
+
+
+def test_no_idle_level_holds_a_pin_the_program_drives_with_no_part_on_it():
+    from test.pico_examples.parts import PROGRAM_OUTPUTS, parts_dut_pins
+    assert PROGRAM_OUTPUTS["adc_dma_capture"] == (6, 7, 8, 9, 10)
+    assert {6, 7, 8, 9, 10} <= parts_dut_pins("adc_dma_capture", "pico")
+    assert not {6, 7, 8, 9, 10} & parts_dut_pins("blink", "pico")

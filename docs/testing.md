@@ -146,7 +146,9 @@ look active (an unattached sx126x would read busy and hold the DUT's driver
 in its boot); elsewhere `idle` is empty. For a pico-examples program a
 level yields to every net the program's parts take, which the program may
 drive itself from its first instruction (`pio_hub75` drives GP10, GPIO22's
-net, as its E line). A case reads `fixture["line_pullups"]`
+net, as its E line), and to every pin a program drives with no part on it
+(`PROGRAM_OUTPUTS` in `test/pico_examples/parts.py`: `adc_dma_capture`'s
+resistor DAC on GP6-GP10). A case reads `fixture["line_pullups"]`
 where a line's undriven level matters.
 
 `METALCLAW_DUT_DEVICE` picks which device's DUT image to flash, default
