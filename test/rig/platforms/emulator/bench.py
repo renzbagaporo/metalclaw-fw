@@ -424,13 +424,14 @@ def _seconds(value: str, what: str) -> Decimal:
 
 
 # The bench script's wires on each pin of the DUT: every `<wire> Connect
-# <prefix>gpio <pin>` while `mach set "<dut_machine>"` is in force.
+# <prefix>gpio <pin>` while `<dut_machine>` is the current machine, which
+# `mach create` and `mach set` both make it.
 def dut_pin_wires(script_text: str, dut_machine: str, dut_prefix: str = "") -> dict[int, tuple[str, ...]]:
     wires: dict[int, tuple[str, ...]] = {}
     machine = None
     for line in script_text.splitlines():
         line = line.strip()
-        if m := re.fullmatch(r'mach set "([^"]+)"', line):
+        if m := re.fullmatch(r'mach (?:set|create) "([^"]+)"', line):
             machine = m.group(1)
         elif machine == dut_machine and (m := re.fullmatch(rf"(\w+) Connect {re.escape(dut_prefix)}gpio (\d+)", line)):
             wires[int(m.group(2))] = wires.get(int(m.group(2)), ()) + (m.group(1),)

@@ -482,3 +482,8 @@ def test_a_one_machine_bench_drops_the_settings_that_tune_delayed_wires(tmp_path
 def test_one_machine_stretches_the_host_waits_on_emulated_usb():
     assert platform.host_slowdown(bench.LAYOUTS["rpi_pi_pico"]) == 1
     assert platform.host_slowdown(bench.ONE_MACHINE_LAYOUTS["rpi_pi_pico"]) == platform.ONE_MACHINE_HOST_SLOWDOWN == 10
+
+
+def test_a_bench_finds_the_duts_wires_in_the_machine_it_created():
+    script = 'mach create "bench"\ngp0 Connect d_gpio 0\ngp0 Connect h_gpio 1\n'
+    assert bench.dut_pin_wires(script, "bench", "d_") == {0: ("gp0",)}
