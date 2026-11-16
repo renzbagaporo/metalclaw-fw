@@ -23,7 +23,7 @@ from test.rig.platforms.hardware.platform import FIXTURE, METALCLAW_PICO_RP2_FIX
 FIXTURES = (FIXTURE, METALCLAW_PICO_RP2_FIXTURE)
 CARRIER_ONLY = {"hello_gpio_irq", "pio_uart_rx", "pio_uart_rx_intr", "pio_manchester_encoding",
                 "pio_differential_manchester", "pwm_measure_duty_cycle", "pio_clocked_input",
-                "pio_ws2812", "pio_ws2812_parallel", "pio_apa102", "pio_hub75"}
+                "pio_ws2812", "pio_ws2812_parallel", "pio_apa102", "pio_hub75", "pio_i2c_bus_scan"}
 
 
 def spec(target):

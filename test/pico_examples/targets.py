@@ -110,8 +110,16 @@ def _freertos(banner: str) -> "Spec":
     )
 
 
-def _bus_scan(title: str) -> tuple[str, ...]:
-    rows = tuple(rf"{r}0 (?:[.@]  ){{15}}[.@]\r?\n" for r in range(8))
+# The address of the part parts.py puts on a bus scan's bus.
+BUS_SCAN_ADDRESS = 0x18
+
+
+def _bus_scan(title: str, found: int = BUS_SCAN_ADDRESS) -> tuple[str, ...]:
+    # Eight rows of sixteen, "@" where an address answered, "." elsewhere
+    # and at every reserved one (0x00-0x07, 0x78-0x7f), which the programs
+    # never probe.
+    rows = tuple(f"{r}0 " + "  ".join("@" if 16 * r + c == found else r"\." for c in range(16)) + NL
+                 for r in range(8))
     return (title + NL, r"   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F\r?\n", *rows, r"Done\." + NL)
 
 
@@ -360,7 +368,9 @@ SPECS: dict[str, Spec] = {
     "hello_freertos_static_allocation": _freertos(r"Starting FreeRTOS SMP on both cores:\r?\n"),
     "hello_freertos_two_cores": _freertos(r"Starting FreeRTOS SMP on both cores:\r?\n"),
     # i2c/bus_scan/bus_scan.c:33-76: the header, eight rows of '.' or '@'
-    # for addresses 0x00-0x7f, then "Done.".
+    # for addresses 0x00-0x7f, then "Done.". A 1-byte read (:68) is
+    # answered by the one part parts.py attaches, at 0x18, and by nothing
+    # else on the bus.
     "i2c_bus_scan": Spec(
         console=_bus_scan(r"I2C Bus Scan"),
         seconds=3.0,
@@ -468,7 +478,9 @@ SPECS: dict[str, Spec] = {
         seconds=3.0,
         source="pio/addition/addition.c",
     ),
-    # pio/i2c/i2c_bus_scan.c:13-42: as i2c_bus_scan, by a PIO I2C master.
+    # pio/i2c/i2c_bus_scan.c:13-42: as i2c_bus_scan, by a PIO I2C master
+    # on GP2 and GP3 (:6-7) with 0-byte reads (:35), the same part on its
+    # bus.
     "pio_i2c_bus_scan": Spec(
         console=_bus_scan(r"PIO I2C Bus Scan"),
         seconds=3.0,

@@ -139,7 +139,16 @@ UNPROVISIONED: dict[str, str] = {
                         f"does not hold, and {_NO_KEY}",
 }
 
-EMULATOR_LIMITS: dict[str, str] = {**WIRE_LIMITS, **UNPROVISIONED}
+# pio/i2c/i2c_bus_scan.c:6-7, 35: a PIO I2C controller on GP2 and GP3,
+# which reach the harness only as pin-level wires. Renode's RP2 I2C models
+# the harness's I2C target at byte level only (RP2_I2C.cs: "SDA/SCL pin
+# levels are not modeled"), so the part on that bus cannot answer it.
+MODEL_LIMITS: dict[str, str] = {
+    "pio_i2c_bus_scan": "Renode's RP2 I2C peripheral does not model SDA and SCL levels, so the harness's I2C target "
+                        "cannot answer a PIO controller on the pin-level wires of GP2 and GP3",
+}
+
+EMULATOR_LIMITS: dict[str, str] = {**WIRE_LIMITS, **UNPROVISIONED, **MODEL_LIMITS}
 
 
 # For a DUT image's example.json, or None for a rig image.

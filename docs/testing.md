@@ -270,7 +270,10 @@ join of `slave_mem_i2c` and `slave_mem_i2c_burst`, the 21 MHz SPI jumpers of
 its own clock edges and so gets a harness flash's answer a round trip late,
 and `spi_slave`, whose MISO the harness's controller samples a round trip
 late and reads as ff. Each entry waits on a Renode change that puts the
-harness's pins in the DUT's time domain.
+harness's pins in the DUT's time domain. `pio_i2c_bus_scan` is listed too:
+its PIO I2C controller on GP2 and GP3 reaches the harness only over
+pin-level wires, and Renode's RP2 I2C peripheral, which serves the
+harness's I2C target, does not model SDA and SCL levels.
 
 The hardware platform never runs the programs in `HARDWARE_HAZARDS`
 (`test/pico_examples/hazards.py`): `hello_otp` writes OTP for good, and

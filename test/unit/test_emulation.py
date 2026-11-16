@@ -89,6 +89,13 @@ def test_every_hardware_hazard_is_judged_or_explained_in_the_emulator():
     assert SPECS["hello_otp"].source == REGISTER_SPECS["hello_otp"].source == "otp/hello_otp/hello_otp.c"
 
 
+def test_the_pio_bus_scan_waits_on_a_pin_level_i2c_model():
+    assert set(emu.MODEL_LIMITS) == {"pio_i2c_bus_scan"}
+    assert EMULATOR_LIMITS["pio_i2c_bus_scan"] == emu.MODEL_LIMITS["pio_i2c_bus_scan"]
+    assert {2, 3} <= {p for part in PARTS["pio_i2c_bus_scan"] for p in part.dut_pins()}
+    assert "i2c_bus_scan" not in EMULATOR_LIMITS
+
+
 def test_a_program_the_emulator_cannot_judge_needs_nothing_of_it():
     assert not set(EMULATOR_LIMITS) & set(EMULATION)
     for target in EMULATOR_LIMITS:

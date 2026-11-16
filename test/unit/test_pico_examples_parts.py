@@ -147,3 +147,31 @@ def test_the_duty_cycle_jumper_drives_one_branch_of_gp5_on_the_carrier():
     pins = jumper._pins(METALCLAW_PICO_RP2_FIXTURE)
     assert pins == {"source": (6,), "sink": (10,)}
     assert METALCLAW_PICO_RP2_FIXTURE["dut_pins"][5] == (10, 13)
+
+
+# i2c/bus_scan/bus_scan.c:56-71 and pio/i2c/i2c_bus_scan.c:25-40: "@" for
+# an address that answered, "." for one that did not or is reserved.
+def scan(title, answering):
+    rows = "".join(f"{r}0 " + "  ".join("@" if 16 * r + c in answering else "." for c in range(16)) + "\n"
+                   for r in range(8))
+    return f"\n{title}\n   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F\n{rows}Done.\n"
+
+
+@pytest.mark.parametrize("target, title", (("i2c_bus_scan", "I2C Bus Scan"), ("pio_i2c_bus_scan", "PIO I2C Bus Scan")))
+def test_a_bus_scan_finds_its_part_and_nothing_else(target, title):
+    (part,) = PARTS[target]
+    address = part.bindings["i2c"][2]
+    spec = SPECS[target]
+    assert spec.match(scan(title, {address})) == ([], [])
+    assert spec.match(scan(title, set()))[0]
+    assert spec.match(scan(title, {address, 0x76}))[0]
+    assert spec.match(scan(title, {address + 1}))[0]
+
+
+def test_the_pio_bus_scan_part_takes_i2c_pins_on_the_carrier_only():
+    (part,) = PARTS["pio_i2c_bus_scan"]
+    assert "i2c=(6, 7, 24)" in part.code(METALCLAW_PICO_RP2_FIXTURE)
+    with pytest.raises(PinError):
+        part.code(FIXTURE)
+    (part,) = PARTS["i2c_bus_scan"]
+    assert "i2c=(4, 5, 24)" in part.code(FIXTURE) and "i2c=(12, 13, 24)" in part.code(METALCLAW_PICO_RP2_FIXTURE)

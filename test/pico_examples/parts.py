@@ -187,6 +187,11 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     # mpl3115a2_i2c.c:28-29: 0x60, INT1 on GP16.
     "mpl3115a2_i2c": _i2c_part("mpl3115a2", 0x60, {"pressure": 95000, "altitude": 321500, "temperature": 21625},
                            int1=16),
+    # i2c/bus_scan/bus_scan.c:40-46 on i2c_default's GP4 and GP5, and
+    # pio/i2c/i2c_bus_scan.c:6-7 on GP2 and GP3: an MCP9808 at the one
+    # address their scans must find (targets.BUS_SCAN_ADDRESS).
+    "i2c_bus_scan": (Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}),),
+    "pio_i2c_bus_scan": (Attach("mcp9808", "thermo", {"i2c": (2, 3, 0x18)}, {"i2c": 2}),),
     # Displays: what a check reads is the controller's memory and the
     # settings the program sent, judged by test/pico_examples/displays.py.
     # i2c/ssd1306_i2c/ssd1306_i2c.c:41-44, 330-376: 0x3C, a 128 x 32 panel. The
