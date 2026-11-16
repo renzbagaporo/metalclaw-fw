@@ -10,6 +10,7 @@ from decimal import Decimal
 import pytest
 
 from test.pico_examples import emulation as emu
+from test.rig.platforms.emulator.bench import LAYOUTS, ONE_MACHINE_LAYOUTS
 from test.pico_examples.emulation import EMULATION, EMULATOR_LIMITS, Emulation, Unwired, emulation_for
 from test.pico_examples.part_targets import PART_SPECS
 from test.pico_examples.parts import JUMPERS, PARTS
@@ -109,7 +110,7 @@ def test_the_emulator_example_fixture_skips_a_limited_program_before_anything_el
         raise Reached
     monkeypatch.setattr(platform, "Example", reached)
     monkeypatch.setattr(platform, "hold_idle", reached)
-    bench = types.SimpleNamespace(dut_image=limited_image(tmp_path, target),
+    bench = types.SimpleNamespace(dut_image=limited_image(tmp_path, target), layout=LAYOUTS["rpi_pi_pico"],
                                   settings=types.SimpleNamespace(unmet=()))
     with pytest.raises(pytest.skip.Exception) as skipped:
         fixture_function(platform.example)(bench, Untouchable(), None, {}, emu.DEFAULT, CONFIG)
@@ -121,7 +122,18 @@ def test_the_emulator_example_fixture_goes_on_with_a_program_it_can_judge(tmp_pa
         raise Reached
     monkeypatch.setenv("METALCLAW_ARM_TOOLCHAIN_DIR", str(tmp_path))
     monkeypatch.setattr(platform, "Example", reached)
-    bench = types.SimpleNamespace(dut_image=limited_image(tmp_path, "spi_master"))
+    bench = types.SimpleNamespace(dut_image=limited_image(tmp_path, "spi_master"), layout=LAYOUTS["rpi_pi_pico"])
+    with pytest.raises(Reached):
+        fixture_function(platform.example)(bench, Untouchable(), None, {}, emu.DEFAULT, CONFIG)
+
+
+@pytest.mark.parametrize("target", sorted(EMULATOR_LIMITS))
+def test_a_one_machine_bench_judges_the_programs_the_delayed_wires_cannot(tmp_path, monkeypatch, target):
+    def reached(*args, **kwargs):
+        raise Reached
+    monkeypatch.setenv("METALCLAW_ARM_TOOLCHAIN_DIR", str(tmp_path))
+    monkeypatch.setattr(platform, "Example", reached)
+    bench = types.SimpleNamespace(dut_image=limited_image(tmp_path, target), layout=ONE_MACHINE_LAYOUTS["rpi_pi_pico"])
     with pytest.raises(Reached):
         fixture_function(platform.example)(bench, Untouchable(), None, {}, emu.DEFAULT, CONFIG)
 

@@ -17,6 +17,7 @@ from test.pico_examples.usb_devices import UsbDevice, usb_device
 from test.rig import probe_telemetry
 from test.rig.platforms.emulator.bench import (
     LAYOUTS,
+    ONE_MACHINE_LAYOUTS,
     Bench,
     BenchError,
     Layout,
@@ -132,12 +133,21 @@ def harness_board() -> str:
     return os.environ.get(HARNESS_BOARD_ENV, HARNESS_BOARD)
 
 
+# "one_machine" puts both chips in one Renode machine (bench.py
+# ONE_MACHINE_LAYOUTS); unset, each is a machine of its own.
+LAYOUT_ENV = "METALCLAW_EMULATOR_LAYOUT"
+
+
 def layout() -> Layout:
     board = harness_board()
-    if board not in LAYOUTS:
-        pytest.exit(f"no emulated bench for harness board {board!r}; {HARNESS_BOARD_ENV} is one of "
-                    f"{', '.join(sorted(LAYOUTS))}", returncode=2)
-    return LAYOUTS[board]
+    kind = os.environ.get(LAYOUT_ENV, "")
+    layouts = {"": LAYOUTS, "one_machine": ONE_MACHINE_LAYOUTS}.get(kind)
+    if layouts is None:
+        pytest.exit(f"invalid {LAYOUT_ENV} {kind!r}; expected one_machine or unset", returncode=2)
+    if board not in layouts:
+        pytest.exit(f"no emulated bench for harness board {board!r}{' in one machine' if kind else ''}; "
+                    f"{HARNESS_BOARD_ENV} is one of {', '.join(sorted(layouts))}", returncode=2)
+    return layouts[board]
 
 
 # The bench script fixes the emulated harness's serial, per instance;
@@ -351,7 +361,7 @@ def probe(harness: Harness, fixture: dict, pytestconfig):
 @pytest.fixture(scope="session")
 def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emulation, pytestconfig) -> Example:
     require_example_image(bench.dut_image)
-    skip_emulator_limit(example_metadata(bench.dut_image)["target"])
+    skip_emulator_limit(example_metadata(bench.dut_image)["target"], bench.layout)
     e = Example(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"),
                 probe_telemetry.recorder(pytestconfig))
     if bench.settings.unmet:
@@ -366,8 +376,10 @@ def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emu
     return e
 
 
-def skip_emulator_limit(target: str) -> None:
-    if target in EMULATOR_LIMITS:
+# The limits come from the delayed wires between two machines; a bench with
+# both chips in one machine has none.
+def skip_emulator_limit(target: str, bench_layout: Layout) -> None:
+    if not bench_layout.dut_prefix and target in EMULATOR_LIMITS:
         pytest.skip(f"{target} is not judged in the emulator: {EMULATOR_LIMITS[target]}")
 
 

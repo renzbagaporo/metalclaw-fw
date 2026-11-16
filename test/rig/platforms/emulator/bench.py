@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -40,6 +40,10 @@ class Layout:
     # The bench script variable that sets the harness's chip ID, and with it
     # its USB serial, when the script has one.
     chip_id_variable: str | None = None
+    # What the DUT's peripherals are called in `dut_machine`: "" when it is
+    # a machine of its own, "d_" when both chips share one (each chip's
+    # peripherals carry their prefix, its cores their own cluster).
+    dut_prefix: str = ""
 
 
 # By the harness's MicroPython board.
@@ -52,6 +56,17 @@ LAYOUTS = {
     # The RP2350 reports its OTP chip ID, which the bench script sets.
     "metalclaw_pico_rp2": Layout("scripts/multi-node/metalclaw_carrier.resc", "rp2350", "rp2040", "pico",
                                  "00000000C0FFEE01", "harness_chip_id"),
+}
+
+# The same benches with both chips in one Renode machine, "bench": the
+# harness's and the DUT's peripherals on one clock, their pins joined by
+# wires with no latency, each chip's cores and bus registrations in a
+# cluster of its own. Chosen with METALCLAW_EMULATOR_LAYOUT=one_machine.
+ONE_MACHINE_LAYOUTS = {
+    "rpi_pi_pico": Layout("scripts/multi-node/metalclaw_fixture_one_machine.resc", "rp2040", "rp2350", "bench",
+                          "0123456789ABCDEF", dut_prefix="d_"),
+    "metalclaw_pico_rp2": Layout("scripts/multi-node/metalclaw_carrier_one_machine.resc", "rp2350", "rp2040",
+                                 "bench", "00000000C0FFEE01", "harness_chip_id", dut_prefix="d_"),
 }
 
 # Each chip's boot ROM, by its file in the ROM directory. The RP2040's is the
@@ -408,16 +423,16 @@ def _seconds(value: str, what: str) -> Decimal:
     return seconds
 
 
-# The bench script's wires on each pin of the DUT's machine: every
-# `<wire> Connect gpio <pin>` while `mach set "<dut_machine>"` is in force.
-def dut_pin_wires(script_text: str, dut_machine: str) -> dict[int, tuple[str, ...]]:
+# The bench script's wires on each pin of the DUT: every `<wire> Connect
+# <prefix>gpio <pin>` while `mach set "<dut_machine>"` is in force.
+def dut_pin_wires(script_text: str, dut_machine: str, dut_prefix: str = "") -> dict[int, tuple[str, ...]]:
     wires: dict[int, tuple[str, ...]] = {}
     machine = None
     for line in script_text.splitlines():
         line = line.strip()
         if m := re.fullmatch(r'mach set "([^"]+)"', line):
             machine = m.group(1)
-        elif machine == dut_machine and (m := re.fullmatch(r"(\w+) Connect gpio (\d+)", line)):
+        elif machine == dut_machine and (m := re.fullmatch(rf"(\w+) Connect {re.escape(dut_prefix)}gpio (\d+)", line)):
             wires[int(m.group(2))] = wires.get(int(m.group(2)), ()) + (m.group(1),)
     return wires
 
@@ -429,7 +444,15 @@ def dut_pin_wires(script_text: str, dut_machine: str) -> dict[int, tuple[str, ..
 # script has one. `quantum` (METALCLAW_RENODE_QUANTUM) overrides the
 # program's.
 def bench_settings(emulation: Emulation, script: Path, script_text: str, dut_machine: str,
-                   quantum: str | None = None) -> Settings:
+                   quantum: str | None = None, dut_prefix: str = "") -> Settings:
+    # A program's quantum and wire latency tune the delayed wires between two
+    # machines; with both chips in one machine (a DUT prefix) every GPIO is a
+    # plain wire on one clock, at the script's own quantum, and they do not
+    # apply. I2C0 still crosses as the script's byte-level bus unless the
+    # program asks for pin wires (*_one_machine_i2c0_{bus,wires}.resc):
+    # Renode's I2C controllers talk I2C only at byte level.
+    if dut_prefix:
+        emulation = replace(emulation, quantum=None, wire_latency_us=None)
     declared = script_variables(script_text)
     variables, unmet = [], []
 
@@ -466,7 +489,7 @@ def bench_settings(emulation: Emulation, script: Path, script_text: str, dut_mac
         elif wiring != "bus":
             # The scripts' own I2C0 is the byte-level bus.
             unmet.append(f"$i2c0_wiring {wiring} ({wiring_script.name})")
-    commands = emulation.unwired.monitor_commands(dut_pin_wires(script_text, dut_machine))
+    commands = emulation.unwired.monitor_commands(dut_pin_wires(script_text, dut_machine, dut_prefix))
     return Settings(tuple(variables), commands, tuple(unmet))
 
 
@@ -475,7 +498,8 @@ def bench_settings(emulation: Emulation, script: Path, script_text: str, dut_mac
 # through the emulated probe takes 20-30 minutes of host time.
 def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_rom: Path, dut_flash_bin: Path,
                      dut_machine: str, settings: Settings | None = None, usbip_port: int | None = None,
-                     chip_id: tuple[str, str] | None = None, dut_usbip_port: int | None = None) -> list[str]:
+                     chip_id: tuple[str, str] | None = None, dut_usbip_port: int | None = None,
+                     dut_prefix: str = "") -> list[str]:
     settings = settings or Settings()
     commands = [
         f"$harness_rom=@{harness_rom}",
@@ -496,7 +520,7 @@ def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_r
         f"include @{script}",
         *settings.commands,
         f'mach set "{dut_machine}"',
-        f"xipMemory LoadBinary @{dut_flash_bin}",
+        f"{dut_prefix}xipMemory LoadBinary @{dut_flash_bin}",
         "start",
     ]
 
@@ -656,12 +680,12 @@ class Bench:
         harness_rom = self._rom(layout.harness_chip, "harness_rom.bin")
         dut_rom = self._rom(layout.dut_chip, "dut_rom.bin")
         self.settings = bench_settings(self.emulation, script, script_text, layout.dut_machine,
-                                       os.environ.get("METALCLAW_RENODE_QUANTUM"))
+                                       os.environ.get("METALCLAW_RENODE_QUANTUM"), layout.dut_prefix)
         self.log = (self.work / "renode.log").open("w")
         self._note_settings()
         chip_id = None if layout.chip_id_variable is None else (layout.chip_id_variable, self.serial)
         commands = monitor_commands(script, harness_rom, payload, dut_rom, flash_bin, layout.dut_machine,
-                                    self.settings, usbip_port, chip_id, dut_usbip_port)
+                                    self.settings, usbip_port, chip_id, dut_usbip_port, layout.dut_prefix)
         argv = renode_argv(self.renode_dir / "renode", monitor_port, commands)
         self._hold_exits()
         self.process = subprocess.Popen(argv, cwd=self.renode_dir, stdout=self.log, stderr=subprocess.STDOUT,

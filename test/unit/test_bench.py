@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from test.pico_examples.emulation import EMULATION, Emulation, Unwired
-from test.rig.platforms.emulator import bench
+from test.rig.platforms.emulator import bench, platform
 
 
 def bench_files(root, board="rpi_pi_pico"):
@@ -418,3 +418,62 @@ def test_a_starting_bench_without_unwired_pins_notes_none(tmp_path, monkeypatch)
         b.emulation = Emulation(i2c0_wiring="wires")
     launch(tmp_path, monkeypatch, "metalclaw_pico_rp2", emulated)
     assert "unwired" not in (tmp_path / "work" / "renode.log").read_text()
+
+
+ONE_MACHINE_SCRIPT = """mach create "bench"
+machine LoadPlatformDescription @platforms/boards/metalclaw_fixture_one_machine.repl
+emulation CreateDigitalWire "uart0_dut_tx" false
+mach set "bench"
+uart0_dut_tx Connect d_gpio 0
+uart0_dut_tx Connect h_gpio 1
+emulation CreateDigitalWire "gp7" true
+gp7 Connect h_gpio 7
+gp7 Connect d_gpio 7
+"""
+
+
+def test_a_one_machine_bench_finds_the_duts_wires_by_its_prefixed_gpio():
+    assert bench.dut_pin_wires(ONE_MACHINE_SCRIPT, "bench", "d_") == {0: ("uart0_dut_tx",), 7: ("gp7",)}
+    # Without the prefix the harness's and the DUT's banks would be confused.
+    assert bench.dut_pin_wires(ONE_MACHINE_SCRIPT, "bench") == {}
+
+
+def test_a_one_machine_bench_loads_the_duts_flash_into_its_prefixed_xip(tmp_path):
+    layout = bench.ONE_MACHINE_LAYOUTS["rpi_pi_pico"]
+    assert (layout.script, layout.dut_machine, layout.dut_prefix) == (
+        "scripts/multi-node/metalclaw_fixture_one_machine.resc", "bench", "d_")
+    commands = bench.monitor_commands(tmp_path / "s.resc", tmp_path / "h.bin", tmp_path / "hf.bin",
+                                      tmp_path / "d.bin", tmp_path / "df.bin", layout.dut_machine,
+                                      dut_prefix=layout.dut_prefix)
+    assert commands[-3:] == ['mach set "bench"', f"d_xipMemory LoadBinary @{tmp_path / 'df.bin'}", "start"]
+
+
+def test_the_layout_is_chosen_by_metalclaw_emulator_layout(monkeypatch):
+    monkeypatch.setenv("METALCLAW_HARNESS_BOARD", "rpi_pi_pico")
+    monkeypatch.delenv("METALCLAW_EMULATOR_LAYOUT", raising=False)
+    assert platform.layout() is bench.LAYOUTS["rpi_pi_pico"]
+    monkeypatch.setenv("METALCLAW_EMULATOR_LAYOUT", "one_machine")
+    assert platform.layout() is bench.ONE_MACHINE_LAYOUTS["rpi_pi_pico"]
+    monkeypatch.setenv("METALCLAW_HARNESS_BOARD", "metalclaw_pico_rp2")
+    assert platform.layout() is bench.ONE_MACHINE_LAYOUTS["metalclaw_pico_rp2"]
+    monkeypatch.setenv("METALCLAW_HARNESS_BOARD", "nope")
+    with pytest.raises(pytest.exit.Exception, match="in one machine"):
+        platform.layout()
+    monkeypatch.setenv("METALCLAW_EMULATOR_LAYOUT", "bogus")
+    with pytest.raises(pytest.exit.Exception, match="invalid METALCLAW_EMULATOR_LAYOUT"):
+        platform.layout()
+
+
+def test_a_one_machine_bench_drops_the_settings_that_tune_delayed_wires(tmp_path):
+    from test.pico_examples.emulation import RELAYED_ON_GP4_GP5
+    script = tmp_path / "metalclaw_carrier_one_machine.resc"
+    script.write_text('$quantum?="0.00001"\n$usbip_port?=3240\n$i2c0_wiring?=@x\n')
+    wires = tmp_path / "metalclaw_carrier_one_machine_i2c0_wires.resc"
+    wires.write_text("")
+    s = bench.bench_settings(RELAYED_ON_GP4_GP5, script, script.read_text(), "bench", dut_prefix="d_")
+    # The quantum and wire latency are left out; the I2C0 pin wires the
+    # program asks for still come from the one-machine wires script.
+    assert s.variables == (("i2c0_wiring", f"@{wires}"),) and s.unmet == ()
+    # A quantum the session asks for still applies.
+    s = bench.bench_settings(RELAYED_ON_GP4_GP5, script, script.read_text(), "bench", "0.00001", dut_prefix="d_")
+    assert s.variables == (("quantum", '"0.00001"'), ("i2c0_wiring", f"@{wires}"))
