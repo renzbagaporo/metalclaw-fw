@@ -134,7 +134,7 @@ def read_console(harness, port, spec, patterns=None, inputs=None, ports=None) ->
     return got.decode(errors="replace")
 
 
-def test_the_example_completes(harness, example, fixture, console):
+def test_the_example_completes(harness, example, fixture, console, record_property):
     spec = SPECS.get(example.target) or PART_SPECS.get(example.target)
     if spec is None:
         pytest.skip(f"no completion criteria for {example.target} yet")
@@ -150,6 +150,10 @@ def test_the_example_completes(harness, example, fixture, console):
         example.restart()
         text = read_console(harness, port, spec)
     missing, forbidden = spec.match(text)
+    if missing or forbidden:
+        # The whole console, for the junit report: the assertion keeps only
+        # its end.
+        record_property("console", text)
     assert not forbidden, f"{example.target} printed {forbidden}:\n{text[-2000:]}"
     assert not missing, (f"{example.target} never printed {missing} within {max(spec.seconds, MIN_SECONDS)} s:"
                          f"\n{text[-2000:]}")
