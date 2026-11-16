@@ -407,8 +407,6 @@ def script_variables(text: str) -> dict[str, str]:
 class Settings:
     # (name, value) set before the bench script is included.
     variables: tuple[tuple[str, str], ...] = ()
-    # Monitor commands after it, before the DUT's flash is loaded.
-    commands: tuple[str, ...] = ()
     # What the program needs that this bench script does not take.
     unmet: tuple[str, ...] = ()
 
@@ -421,21 +419,6 @@ def _seconds(value: str, what: str) -> Decimal:
     if not seconds.is_finite() or seconds <= 0:
         raise BenchError(f"invalid {what} {value!r}; expected positive seconds")
     return seconds
-
-
-# The bench script's wires on each pin of the DUT: every `<wire> Connect
-# <prefix>gpio <pin>` while `<dut_machine>` is the current machine, which
-# `mach create` and `mach set` both make it.
-def dut_pin_wires(script_text: str, dut_machine: str, dut_prefix: str = "") -> dict[int, tuple[str, ...]]:
-    wires: dict[int, tuple[str, ...]] = {}
-    machine = None
-    for line in script_text.splitlines():
-        line = line.strip()
-        if m := re.fullmatch(r'mach (?:set|create) "([^"]+)"', line):
-            machine = m.group(1)
-        elif machine == dut_machine and (m := re.fullmatch(rf"(\w+) Connect {re.escape(dut_prefix)}gpio (\d+)", line)):
-            wires[int(m.group(2))] = wires.get(int(m.group(2)), ()) + (m.group(1),)
-    return wires
 
 
 # What a program's Emulation (test/pico_examples/emulation.py) sets on the
@@ -490,8 +473,7 @@ def bench_settings(emulation: Emulation, script: Path, script_text: str, dut_mac
         elif wiring != "bus":
             # The scripts' own I2C0 is the byte-level bus.
             unmet.append(f"$i2c0_wiring {wiring} ({wiring_script.name})")
-    commands = emulation.unwired.monitor_commands(dut_pin_wires(script_text, dut_machine, dut_prefix))
-    return Settings(tuple(variables), commands, tuple(unmet))
+    return Settings(tuple(variables), tuple(unmet))
 
 
 # The monitor commands that bring the bench up. The DUT image goes straight
@@ -519,7 +501,6 @@ def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_r
     # address translation puts at 0x10000000.
     return commands + [
         f"include @{script}",
-        *settings.commands,
         f'mach set "{dut_machine}"',
         f"{dut_prefix}xipMemory LoadBinary @{dut_flash_bin}",
         "start",
@@ -705,9 +686,6 @@ class Bench:
         s = self.settings
         if s.variables:
             self.log.write("rig: bench variables " + " ".join(f"${n}={v}" for n, v in s.variables) + "\n")
-        if self.emulation.unwired.pins:
-            self.log.write("rig: DUT pins unwired " + " ".join(f"GP{p}" for p in self.emulation.unwired.pins)
-                           + "\n")
         if s.unmet:
             self.log.write(f"rig: {self.layout.script} does not take " + ", ".join(s.unmet) + "\n")
         self.log.flush()

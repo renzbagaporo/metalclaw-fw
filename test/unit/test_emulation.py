@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # What the pico-examples programs need of the emulated bench, the programs
-# it cannot judge, and how the emulator platform applies both and reports
-# unwired pins.
+# it cannot judge, and how the emulator platform applies both.
 
 import json
 import types
@@ -11,7 +10,7 @@ import pytest
 
 from test.pico_examples import emulation as emu
 from test.rig.platforms.emulator.bench import LAYOUTS, ONE_MACHINE_LAYOUTS
-from test.pico_examples.emulation import EMULATION, EMULATOR_LIMITS, Emulation, Unwired, emulation_for
+from test.pico_examples.emulation import EMULATION, EMULATOR_LIMITS, Emulation, emulation_for
 from test.pico_examples.part_targets import PART_SPECS
 from test.pico_examples.parts import JUMPERS, PARTS
 from test.pico_examples.targets import SPECS
@@ -52,7 +51,6 @@ def test_the_1_wire_and_dht_parts_answer_over_relay_wires():
 def test_a_program_without_needs_and_a_rig_image_get_the_defaults():
     assert emulation_for({"target": "hello_serial"}) is emu.DEFAULT
     assert emulation_for(None) is emu.DEFAULT
-    assert emu.DEFAULT.unwired == Unwired() and emu.DEFAULT.unwired.label == ""
 
 
 # ---- emulator limits -------------------------------------------------------
@@ -174,87 +172,14 @@ def test_the_hardware_example_fixture_ignores_the_emulator_limits(tmp_path, monk
         fixture_function(hardware.example)(harness, None, {}, CONFIG)
 
 
-# ---- unwired pins ------------------------------------------------------------
-
-
-def test_hello_pwm_runs_with_gp0_and_gp1_unwired_and_says_so():
-    e = EMULATION["hello_pwm"]
-    assert e.unwired == Unwired((0, 1))
-    assert e.unwired.label == "unwired_gp0_gp1"
-    # Fixture 1's crossed UART0 pair reaches both pins on both wires.
-    wires = {0: ("uart0_dut_tx", "uart0_harness_tx"), 1: ("uart0_harness_tx", "uart0_dut_tx"), 2: ("gp2",)}
-    assert e.unwired.monitor_commands(wires) == ("uart0_dut_tx Dispose", "uart0_harness_tx Dispose")
-    assert e.unwired.monitor_commands({0: ("gp0",), 1: ("gp1",)}) == ("gp0 Dispose", "gp1 Dispose")
-    assert Unwired().monitor_commands(wires) == ()
-
-
-def test_no_harness_part_takes_an_unwired_pin():
-    for target, e in EMULATION.items():
-        for board in ("pico", "pico2"):
-            assert platform.unwired_clashes(target, board, e) == [], (target, board)
-
-
-def test_an_unwired_clash_names_the_part_and_its_pins():
-    assert platform.unwired_clashes("pio_clocked_input", "pico", Emulation(unwired=Unwired((0, 1)))) == []
-    e = Emulation(unwired=Unwired((2, 4)))
-    assert platform.unwired_clashes("pio_clocked_input", "pico", e) == ["clock on GP[2]", "data on GP[4]"]
-
-
-class Metafunc:
-    def __init__(self, fixturenames):
-        self.fixturenames = fixturenames
-        self.calls = []
-
-    def parametrize(self, *args, **kwargs):
-        self.calls.append((args, kwargs))
-
-
-UNWIRED = EMULATION["hello_pwm"]
-
-
-def test_a_session_with_unwired_pins_names_every_result_after_them(monkeypatch):
-    monkeypatch.setattr(platform, "image_emulation", lambda: UNWIRED)
-    m = Metafunc(["harness", "emulation", "example"])
-    platform.pytest_generate_tests(m)
-    ((args, kwargs),) = m.calls
-    assert args == ("emulation", [UNWIRED])
-    assert kwargs == {"ids": ["unwired_gp0_gp1"], "indirect": True, "scope": "session"}
-
-
-def test_a_session_without_unwired_pins_keeps_its_names(monkeypatch):
-    monkeypatch.setattr(platform, "image_emulation", lambda: Emulation(quantum="0.000001", wire_latency_us=3))
-    m = Metafunc(["emulation"])
-    platform.pytest_generate_tests(m)
-    assert m.calls == []
-    monkeypatch.setattr(platform, "image_emulation", lambda: UNWIRED)
-    m = Metafunc(["harness"])
-    platform.pytest_generate_tests(m)
-    assert m.calls == []
-
-
-def test_a_result_with_unwired_pins_carries_them_as_a_property():
-    unwired = types.SimpleNamespace(callspec=types.SimpleNamespace(params={"emulation": UNWIRED}),
-                                    user_properties=[])
-    plain = types.SimpleNamespace(user_properties=[])
-    platform.pytest_collection_modifyitems([unwired, plain])
-    assert unwired.user_properties == [("emulator_unwired", "unwired_gp0_gp1")]
-    assert plain.user_properties == []
-
-
 def test_the_session_emulation_comes_from_the_dut_images_program(tmp_path, monkeypatch):
-    monkeypatch.setenv("METALCLAW_DUT_IMAGE", str(limited_image(tmp_path, "hello_pwm", "pico2", "rp2350")))
-    assert platform.image_emulation() is EMULATION["hello_pwm"]
+    monkeypatch.setenv("METALCLAW_DUT_IMAGE", str(limited_image(tmp_path, "gps_uart", "pico2", "rp2350")))
+    assert platform.image_emulation() is EMULATION["gps_uart"]
 
 
 def test_no_dut_image_gives_the_defaults(tmp_path, monkeypatch):
     monkeypatch.setenv("METALCLAW_DUT_IMAGE", str(tmp_path / "missing.elf"))
     assert platform.image_emulation() is emu.DEFAULT
-
-
-def test_the_emulation_fixture_takes_the_parametrized_value(monkeypatch):
-    monkeypatch.setattr(platform, "image_emulation", lambda: emu.DEFAULT)
-    assert platform.session_emulation(UNWIRED) is UNWIRED
-    assert platform.session_emulation(None) is emu.DEFAULT
 
 
 def test_gps_uart_takes_the_pin_level_wires_on_gp4_and_gp5():

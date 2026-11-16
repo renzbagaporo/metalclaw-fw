@@ -254,17 +254,9 @@ a script beside the bench script, `<script>_i2c0_bus.resc` and
 DHT parts that answer within tens of microseconds, run at a 1 µs quantum
 with 3 µs wires; a program that takes DUT GP4 or GP5 as GPIO, PIO or UART
 gets the pin-level I2C0 wires as well, the only wiring that reaches the
-carrier's two harness branches of each. A program judged inside the DUT
-whose pins would flood the wires between the boards has them unwired
-(`Unwired`): the bench script's wires on those DUT pins are disposed of
-before the emulation starts, so what the DUT drives there reaches nothing
-(`hello_pwm`'s 31 MHz PWM on GP0 and GP1). Every result of such a session
-carries the unwired pins in its test name (`[unwired_gp0_gp1]`) and in an
-`emulator_unwired` property, so it is never taken for one where the harness
-saw those pins, and no harness part of the program may take them. A
-variable the package's bench script does not declare, or a wiring script it
-does not ship, is left out and named in `renode.log`, and the program's
-cases skip. `METALCLAW_RENODE_QUANTUM` takes the place of the program's
+carrier's two harness branches of each. A variable the package's bench
+script does not declare, or a wiring script it does not ship, is left out
+and named in `renode.log`, and the program's cases skip. `METALCLAW_RENODE_QUANTUM` takes the place of the program's
 quantum.
 
 The emulator keeps Metalclaw in the loop: the harness runs its firmware on
@@ -289,9 +281,18 @@ only, are the open-drain I2C joins of `slave_mem_i2c`,
 `pio_clocked_input`, `pio_spi_flash`'s PIO controller, which samples MISO on
 its own clock edges and so gets a harness flash's answer a round trip late,
 and `spi_slave`, whose MISO the harness's controller samples a round trip
-late and reads as ff. On either layout, `hstx_spi_lcd` is skipped for the
-emulator's speed: about six million HSTX register accesses per virtual
-second run the bench about 100 times slower than real time.
+late and reads as ff. On either layout, `SPEED_LIMITS` skips the programs
+that run the bench too far behind real time for the harness to finish
+setting up: `hstx_spi_lcd` (about six million HSTX register accesses per
+virtual second, about 100 times slower), `hello_pwm` (a PWM slice at
+clk_sys / 4 on GP0 and GP1, about 1,600 times slower) and `pio_hub75` (the
+PIO's changes on the panel's 14 pins, about 1,100 times slower). The
+emulator pays for each compare match, wrap and pin change whether or not
+anything is wired to the pin. `CORE_ORDER_LIMITS` skips
+`multicore_doorbell`: core 1 reads its non-volatile exit flag once before
+spinning, and only silicon's back-to-back doorbell interrupts hold it off
+until the flag is set; the emulated cores, on separate host threads, do not
+interleave that tightly.
 
 The hardware platform never runs the programs in `HARDWARE_HAZARDS`
 (`test/pico_examples/hazards.py`): `hello_otp` writes OTP for good, and

@@ -10,26 +10,6 @@ from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
-class Unwired:
-    # DUT pins left with no wire to the harness: the bench script's wires on
-    # them are disposed of before the emulation starts, so what the DUT
-    # drives there reaches nothing. For a program judged inside the DUT
-    # whose pins would otherwise flood the wires between the boards.
-    pins: tuple[int, ...] = ()
-
-    # What a result reached with them is labelled with.
-    @property
-    def label(self) -> str:
-        return "unwired_" + "_".join(f"gp{p}" for p in self.pins) if self.pins else ""
-
-    # Monitor commands after the bench script, given the script's wires on
-    # each DUT pin.
-    def monitor_commands(self, dut_wires: dict) -> tuple[str, ...]:
-        wires = dict.fromkeys(w for p in self.pins for w in dut_wires.get(p, ()))
-        return tuple(f"{w} Dispose" for w in wires)
-
-
-@dataclass(frozen=True)
 class Emulation:
     # The bench's synchronisation quantum in seconds, as Renode takes it.
     quantum: str | None = None
@@ -39,7 +19,6 @@ class Emulation:
     # I2C0 between the boards: "bus", byte level (the scripts' default), or
     # "wires", pin-level delayed wires (with the carrier's 5.1 k pull-ups).
     i2c0_wiring: str | None = None
-    unwired: Unwired = Unwired()
 
 
 DEFAULT = Emulation()
@@ -66,13 +45,6 @@ GP4_GP5_WIRES = Emulation(i2c0_wiring="wires")
 # sees CS and the program reads 0; the pin-level I2C0 wires carry them.
 MPU9250_SPI_WIRES = GP4_GP5_WIRES
 
-# pwm/hello_pwm/hello_pwm.c:16-29: slice 0 on GP0 and GP1 at clk_sys / 4,
-# about 31 MHz, which the wires between the boards cannot carry: the
-# harness never re-enumerates with its probe once they flood (3 of 3
-# sessions, both benches). The program is judged by its registers over
-# SWD, inside the DUT, so its pins reach nothing in the emulator.
-HELLO_PWM_UNWIRED = Emulation(unwired=Unwired((0, 1)))
-
 # i2c/slave_mem_i2c/slave_mem_i2c.c and pio/i2c/i2c_bus_scan.c: I2C carried
 # on its pins, the DUT's I2C0 target and I2C1 controller joined by the
 # harness's open-drain jumpers on GP4-7, and a PIO controller on GP2 and GP3
@@ -93,7 +65,6 @@ EMULATION: dict[str, Emulation] = {
     "dht": RELAYED,
     "gps_uart": GP4_GP5_WIRES,
     "mpu9250_spi": MPU9250_SPI_WIRES,
-    "hello_pwm": HELLO_PWM_UNWIRED,
     "slave_mem_i2c": I2C_PIN_WIRES,
     "slave_mem_i2c_burst": I2C_PIN_WIRES,
     "pio_i2c_bus_scan": I2C_PIN_WIRES,
@@ -157,19 +128,40 @@ UNPROVISIONED: dict[str, str] = {
                         f"does not hold, and {_NO_KEY}",
 }
 
-# hstx/spi_lcd/hstx_spi_lcd.c: one HSTX FIFO word per pixel byte, about six
-# million register accesses per virtual second, so the emulated bench runs
-# about 100 times slower than real time and the harness does not finish
-# setting up within the rig's deadlines. The program itself runs correctly.
+# Programs whose emulation runs so far behind real time that the harness
+# does not finish setting up within the rig's deadlines. Each program runs
+# correctly; the emulator pays for every event it makes.
 SPEED_LIMITS: dict[str, str] = {
+    # hstx/spi_lcd/hstx_spi_lcd.c: one HSTX FIFO word per pixel byte.
     "hstx_spi_lcd": "emulator speed: about 100 times slower than real time, from about six million HSTX register "
                     "accesses per virtual second",
+    # pwm/hello_pwm/hello_pwm.c:16-29: slice 0 at clk_sys / 4 with TOP 3 on
+    # GP0 and GP1, a compare match or wrap every few cycles, each a clock
+    # event and a pad change whether or not anything is wired to the pad.
+    "hello_pwm": "emulator speed: about 1,600 times slower than real time, from tens of millions of PWM compare and "
+                 "wrap events per virtual second on GP0 and GP1",
+    # pio/hub75/hub75.c:16-22: the PIO clocks the panel's data and control on 14
+    # pins from boot.
+    "pio_hub75": "emulator speed: about 1,100 times slower than real time, from the PIO's pin changes on the panel's "
+                 "14 pins",
 }
 
-EMULATOR_LIMITS: dict[str, str] = {**WIRE_LIMITS, **UNPROVISIONED, **SPEED_LIMITS}
+# multicore/multicore_doorbell/multicore_doorbell.c:16, 33-42: core 1 enables the
+# doorbell interrupt, then waits on exit_core0, which is not volatile, so GCC
+# 14 loads it once before a `b .`. On silicon core 0 rings every few cycles,
+# and the interrupts tail-chain until the exit doorbell's handler has set the
+# flag, so that one load reads 1. The emulated cores run on separate host
+# threads, so core 1 returns between rings, reads 0 and spins for good.
+CORE_ORDER_LIMITS: dict[str, str] = {
+    "multicore_doorbell": "core 1 reads the non-volatile exit_core0 once before spinning, and only silicon's "
+                          "back-to-back doorbell interrupts hold it off until the flag is set; the emulated cores "
+                          "do not interleave that tightly",
+}
+
+EMULATOR_LIMITS: dict[str, str] = {**WIRE_LIMITS, **UNPROVISIONED, **SPEED_LIMITS, **CORE_ORDER_LIMITS}
 # What still applies with both chips in one machine, where no delayed wire
 # lies between the harness and the DUT.
-ONE_MACHINE_LIMITS: dict[str, str] = {**UNPROVISIONED, **SPEED_LIMITS}
+ONE_MACHINE_LIMITS: dict[str, str] = {**UNPROVISIONED, **SPEED_LIMITS, **CORE_ORDER_LIMITS}
 
 
 # For a DUT image's example.json, or None for a rig image.
