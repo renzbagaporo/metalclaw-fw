@@ -214,7 +214,7 @@ def pin_actions(spec, chip, port):
     return sorted(actions, key=lambda a: a[0])
 
 
-def test_the_example_drives_its_pins(example, parts, console):
+def test_the_example_drives_its_pins(example, parts, console, record_property):
     spec = PIN_SPECS.get(example.target)
     if spec is None:
         pytest.skip(f"no pin criteria for {example.target}")
@@ -232,7 +232,17 @@ def test_the_example_drives_its_pins(example, parts, console):
                 with example.memory.link() as link:
                     pins.bootsel(link, chip, False)
     problems = [p for check in spec.toggles for p in check.check(samples)]
+    if problems:
+        # Each watched pin's changes, in seconds into the watch, for the
+        # junit report: the message names only the intervals that failed.
+        for pin in watched:
+            record_property(f"pin_GP{pin}_changes",
+                            " ".join(f"{t:.6f}:{level}" for t, level in pins.edges(samples, pin)[:PIN_CHANGES_KEPT]))
     assert not problems, f"{example.target}: {problems} ({len(samples)} samples over {spec.seconds} s)"
+
+
+# How many of each pin's changes a failed pin check records.
+PIN_CHANGES_KEPT = 64
 
 
 # A program linked with pico_bootsel_via_double_reset: one reset on RUN

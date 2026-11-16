@@ -318,9 +318,12 @@ PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("lcd_backpack", "lcd", {"uart": (9, 8)}, {}, {},
                # Counted from just after the judged restart: the part is
                # attached while an earlier run may be between its two bytes.
-               checks=(Check("part.stats('uart')['bytes_rx'] - lcd_rx_at_restart", lambda v: v == 2,
+               # The frame errors since then show a byte the line garbled.
+               checks=(Check("(part.stats('uart')['bytes_rx'] - lcd_at_restart['bytes_rx'], "
+                             "part.stats('uart')['frame_errors'] - lcd_at_restart['frame_errors'])",
+                             lambda v: v[0] == 2,
                              "the run sent 0xFE 0x42 and nothing after its fault", 5.0,
-                             setup="lcd_rx_at_restart = part.stats('uart')['bytes_rx']"),
+                             setup="lcd_at_restart = part.stats('uart')"),
                        Check("(part.contrast, part.brightness, part.columns, part.rows)",
                              lambda v: tuple(v) == (200, 255, 16, 2), "no setting changed from the factory state", 5.0),
                        Check("bytes(part.read_region('splash', 0, 16)) + bytes(part.read_region('splash', 20, 16))",

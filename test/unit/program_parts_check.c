@@ -739,6 +739,7 @@ static void lcd_uart_program(void) {
     uart_write(display_on, sizeof(display_on));
     sleep_ms(100);
     printf("stats.uart.bytes_rx = %u\n", (unsigned)uart.received);
+    printf("stats.uart.frame_errors = 0\n");
 }
 
 // spi/mpu9250_spi/mpu9250_spi.c:63-109, 111-152.

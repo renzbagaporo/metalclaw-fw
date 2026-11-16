@@ -253,11 +253,12 @@ def test_lcd_uart_counts_the_bytes_of_the_judged_run_only():
     from test.pico_examples.parts import PARTS
     (lcd,) = PARTS["lcd_uart"]
     count = lcd.checks[0]
-    assert count.setup == "lcd_rx_at_restart = part.stats('uart')['bytes_rx']"
-    assert count.expression == "part.stats('uart')['bytes_rx'] - lcd_rx_at_restart"
+    assert count.setup == "lcd_at_restart = part.stats('uart')"
+    assert count.expression == ("(part.stats('uart')['bytes_rx'] - lcd_at_restart['bytes_rx'], "
+                                "part.stats('uart')['frame_errors'] - lcd_at_restart['frame_errors'])")
     # One run: 0xFE 0x42, then its fault; a part attached mid-run must not
     # turn an earlier run's lone byte into a failure, or two runs into a pass.
-    assert count.test(2) and not count.test(1) and not count.test(3) and not count.test(4)
+    assert count.test((2, 0)) and not count.test((1, 1)) and not count.test((3, 0)) and not count.test((4, 0))
 
 
 def test_no_idle_level_holds_a_pin_the_program_drives_with_no_part_on_it():
