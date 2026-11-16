@@ -9,7 +9,6 @@ import types
 import pytest
 
 from test.pico_examples import cases
-from test.pico_examples.hazards import HARDWARE_HAZARDS
 from test.pico_examples.pin_specs import REGISTER_SPECS, Register
 
 
@@ -47,8 +46,25 @@ def test_hello_pwm_sets_slice_0_as_its_source_does():
         assert (r["PWM CH0_CSR.EN"].address, r["PWM CH0_TOP"].address) == (pwm, pwm + 0x10)
         assert r["PWM CH0_CC B 3, A 1"].expected == 0x00030001
         assert (r["GP0 FUNCSEL PWM"].address, r["GP1 FUNCSEL PWM"].address) == (io + 0x04, io + 0x0C)
-    # GP1 is the DUT's console RX: the bench never runs it.
-    assert "hello_pwm" in HARDWARE_HAZARDS
+
+
+# hello_pwm drives GP0 and GP1, fixture "uart"'s pins, which nothing on the
+# harness drives in its session: it has no console, pin or part criteria,
+# so the console bridge is never attached, and no idle level lands there.
+def test_nothing_on_the_harness_drives_hello_pwms_pins():
+    from test.pico_examples.part_targets import PART_SPECS
+    from test.pico_examples.parts import parts_for
+    from test.pico_examples.pin_specs import PIN_SPECS
+    from test.pico_examples.targets import SPECS
+    from test.rig.platforms.hardware.platform import FIXTURES, idle_levels
+    assert not any("hello_pwm" in specs for specs in (SPECS, PART_SPECS, PIN_SPECS))
+    assert parts_for("hello_pwm", "pico") == parts_for("hello_pwm", "pico2") == ()
+    for fixture in FIXTURES.values():
+        console = {h for d in (0, 1) for h in fixture["dut_pins"][d]}
+        assert not console & set(idle_levels({**fixture, "idle": fixture.get("idle", {})}))
+    fixture_function = getattr(cases.console, "_get_wrapped_function", lambda: cases.console.__wrapped__)()
+    with pytest.raises(pytest.skip.Exception, match="no completion criteria for hello_pwm"):
+        next(fixture_function(None, types.SimpleNamespace(target="hello_pwm"), {}, ()))
 
 
 def test_pio_squarewave_runs_its_loop_at_two_and_a_half():

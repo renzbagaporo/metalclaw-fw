@@ -161,8 +161,6 @@ def test_hello_pwm_runs_with_gp0_and_gp1_unwired_and_says_so():
     assert e.unwired.monitor_commands(wires) == ("uart0_dut_tx Dispose", "uart0_harness_tx Dispose")
     assert e.unwired.monitor_commands({0: ("gp0",), 1: ("gp1",)}) == ("gp0 Dispose", "gp1 Dispose")
     assert Unwired().monitor_commands(wires) == ()
-    from test.pico_examples.hazards import HARDWARE_HAZARDS
-    assert "hello_pwm" in HARDWARE_HAZARDS
 
 
 def test_no_harness_part_takes_an_unwired_pin():
