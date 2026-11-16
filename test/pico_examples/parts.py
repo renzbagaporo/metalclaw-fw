@@ -316,8 +316,11 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     # lets about 2.5 s pass before lcd_init.
     "lcd_uart": (
         Attach("lcd_backpack", "lcd", {"uart": (9, 8)}, {}, {},
-               checks=(Check("part.stats('uart')['bytes_rx']", lambda v: v >= 2 and v % 2 == 0,
-                             "each run of the program sent 0xFE 0x42 and nothing after its fault", 5.0),
+               # Counted from just after the judged restart: the part is
+               # attached while an earlier run may be between its two bytes.
+               checks=(Check("part.stats('uart')['bytes_rx'] - lcd_rx_at_restart", lambda v: v == 2,
+                             "the run sent 0xFE 0x42 and nothing after its fault", 5.0,
+                             setup="lcd_rx_at_restart = part.stats('uart')['bytes_rx']"),
                        Check("(part.contrast, part.brightness, part.columns, part.rows)",
                              lambda v: tuple(v) == (200, 255, 16, 2), "no setting changed from the factory state", 5.0),
                        Check("bytes(part.read_region('splash', 0, 16)) + bytes(part.read_region('splash', 20, 16))",

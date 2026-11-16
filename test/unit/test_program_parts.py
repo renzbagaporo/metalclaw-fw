@@ -10,6 +10,8 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+import types
+
 import pytest
 
 from test.pico_examples.part_targets import PART_SPECS
@@ -70,8 +72,15 @@ def test_the_program_prints_what_its_spec_expects(check, target):
 @pytest.mark.parametrize("target", TARGETS)
 def test_the_part_passes_the_rigs_checks(check, target):
     _, attach, part = run_program(check, target)
+    # The rig runs a check's setup on the part just after the restart; here
+    # that is the part before the program's one run, whose counters were 0.
+    at_restart = types.SimpleNamespace(stats=lambda binding: {k: 0 for k in part.stats(binding)})
     for c in attach.checks:
-        value = eval(c.expression, {}, {"part": part})
+        scope = {"part": at_restart}
+        if c.setup:
+            exec(c.setup, {}, scope)
+        scope["part"] = part
+        value = eval(c.expression, {}, scope)
         assert c.test(value), (c.description, value)
 
 

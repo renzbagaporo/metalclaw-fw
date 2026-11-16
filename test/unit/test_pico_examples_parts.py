@@ -247,3 +247,14 @@ def test_pcf8523_i2cs_time_is_read_back_from_the_part():
     assert not check.test(((0, 0, 0, 0, 0, 0, 1), False, True))
     assert not check.test(((0, 0, 0, 0, 0, 0, 1), True, False))
     assert not check.test(((0, 0, 0, 0, 0, 0, 0), False, False))
+
+
+def test_lcd_uart_counts_the_bytes_of_the_judged_run_only():
+    from test.pico_examples.parts import PARTS
+    (lcd,) = PARTS["lcd_uart"]
+    count = lcd.checks[0]
+    assert count.setup == "lcd_rx_at_restart = part.stats('uart')['bytes_rx']"
+    assert count.expression == "part.stats('uart')['bytes_rx'] - lcd_rx_at_restart"
+    # One run: 0xFE 0x42, then its fault; a part attached mid-run must not
+    # turn an earlier run's lone byte into a failure, or two runs into a pass.
+    assert count.test(2) and not count.test(1) and not count.test(3) and not count.test(4)
