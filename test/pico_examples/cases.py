@@ -114,23 +114,44 @@ class Typist:
 
 # Until `patterns` (the Spec's console unless given) all matched, or the
 # Spec's time is up; `inputs` (its own unless given) are typed as they come
-# due.
-def read_console(harness, port, spec, patterns=None, inputs=None, ports=None) -> str:
+# due. With `arrivals`, when each chunk came in on the bench's clock, for
+# Spec.timing: (characters read by then, a reading taken before a read that
+# found nothing ahead of the chunk, the first reading after it). A chunk
+# that a read returns came in after any earlier read that found nothing
+# had returned, and before the next clock reading; the bridge's own delay
+# is taken as the same for every line.
+def read_console(harness, port, spec, patterns=None, inputs=None, ports=None, arrivals=None) -> str:
     got = bytearray()
-    deadline = harness.clock() + max(spec.seconds, MIN_SECONDS)
+    last = harness.clock()
+    deadline = last + max(spec.seconds, MIN_SECONDS)
+    quiet, pending = last, []
     checked = time.monotonic()
     typist = Typist(port, spec.input if inputs is None else inputs, harness, ports)
+
+    def clock():
+        nonlocal last, pending
+        last = harness.clock()
+        if arrivals is not None:
+            arrivals.extend((end, lo, last) for end, lo in pending)
+        pending = []
+        return last
     while True:
+        before = last
         chunk = port.read(4096)
         got += chunk
         if chunk:
+            pending.append((len(got.decode(errors="replace")), quiet))
             typist(got.decode(errors="replace"))
+        else:
+            quiet = before
         if chunk and not spec.match(got.decode(errors="replace"), patterns)[0]:
             break
         if not chunk or time.monotonic() - checked >= CLOCK_EVERY_S:
             checked = time.monotonic()
-            if harness.clock() >= deadline:
+            if clock() >= deadline:
                 break
+    if pending:
+        clock()
     return got.decode(errors="replace")
 
 
@@ -149,10 +170,11 @@ def test_the_example_completes(harness, example, fixture, console, record_proper
     # too.
     if not spec.console:
         pytest.skip(f"{example.target} prints nothing on its console; its parts or pins judge it")
+    arrivals = []
     with serial.Serial(console, BAUD, timeout=0.1, exclusive=True) as port:
         port.reset_input_buffer()
         example.restart()
-        text = read_console(harness, port, spec)
+        text = read_console(harness, port, spec, arrivals=arrivals)
     missing, forbidden = spec.match(text)
     if missing or forbidden:
         # The whole console, for the junit report: the assertion keeps only
@@ -161,6 +183,8 @@ def test_the_example_completes(harness, example, fixture, console, record_proper
     assert not forbidden, f"{example.target} printed {forbidden}:\n{text[-2000:]}"
     assert not missing, (f"{example.target} never printed {missing} within {max(spec.seconds, MIN_SECONDS)} s:"
                          f"\n{text[-2000:]}")
+    late = spec.timing(text, arrivals)
+    assert not late, f"{example.target}: {late}:\n{text[-2000:]}"
 
 
 # What a PinSpec does to the DUT while its pins are watched: bytes on the

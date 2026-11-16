@@ -58,6 +58,10 @@ class Spec:
     # (fixture "analog_pins").
     analog_pins: tuple[int, ...] = ()
     without_analog: dict = field(default_factory=dict)
+    # (i, j, least, most): bench seconds the program takes from printing
+    # what console pattern i matched to printing what pattern j matched,
+    # for a program whose source prints them a set time apart (every()).
+    intervals: tuple[tuple[int, int, float, float], ...] = ()
 
     def for_board(self, board: str | None) -> "Spec | None":
         # The criteria for this board's build, or None where they cannot judge it.
@@ -81,15 +85,43 @@ class Spec:
     def match(self, text: str, patterns: tuple[str, ...] | None = None) -> tuple[list[str], list[str]]:
         # The expected patterns (`console` unless given) not found in order,
         # and the forbidden ones found.
-        missing, at = [], 0
-        for pattern in self.console if patterns is None else patterns:
-            m = re.compile(pattern).search(text, at)
-            if m is None:
-                missing.append(pattern)
-            else:
-                at = m.end()
+        patterns = self.console if patterns is None else patterns
+        missing = [p for p, end in zip(patterns, self.match_ends(text, patterns)) if end is None]
         found = [p for p in self.forbidden if re.search(p, text)]
         return missing, found
+
+    def match_ends(self, text: str, patterns: tuple[str, ...] | None = None) -> list[int | None]:
+        # Where each pattern's match ends in `text`, None where it has none.
+        ends, at = [], 0
+        for pattern in self.console if patterns is None else patterns:
+            m = re.compile(pattern).search(text, at)
+            ends.append(None if m is None else m.end())
+            if m is not None:
+                at = m.end()
+        return ends
+
+    def timing(self, text: str, arrivals) -> list[str]:
+        # The intervals that every length `arrivals` allows puts outside
+        # their bounds. `arrivals` holds (end, earliest, latest): the text
+        # up to `end` had come in by `latest` bench seconds, and what came
+        # after the previous entry not before `earliest`.
+        def window(end):
+            return next(((lo, hi) for e, lo, hi in arrivals if e >= end), None)
+        problems, ends = [], self.match_ends(text)
+        for i, j, least, most in self.intervals:
+            if ends[i] is None or ends[j] is None or window(ends[j]) is None:
+                continue
+            (lo_i, hi_i), (lo_j, hi_j) = window(ends[i]), window(ends[j])
+            if hi_j - lo_i < least or lo_j - hi_i > most:
+                problems.append(f"patterns {i} to {j} came {lo_j - hi_i:.2f}..{hi_j - lo_i:.2f} s apart, "
+                                f"not {least}..{most} s")
+        return problems
+
+
+# Consecutive patterns first..first + count - 1 printed `period` to
+# `period` + `slack` seconds apart.
+def every(period: float, slack: float, count: int, first: int = 0) -> tuple[tuple[int, int, float, float], ...]:
+    return tuple((k, k + 1, period, period + slack) for k in range(first, first + count - 1))
 
 
 NL = r"\r?\n"
@@ -301,18 +333,22 @@ SPECS: dict[str, Spec] = {
         source="adc/dma_capture/dma_capture.c",
     ),
     # adc/hello_adc/hello_adc.c:14-29: the banner, then GP26's raw value and
-    # voltage every 500 ms, forever.
+    # voltage every 500 ms, forever; the printf waits for the UART's
+    # 32-byte FIFO to take the line's last few bytes, under 1 ms at 115200.
     "hello_adc": Spec(
         console=(r"ADC Example, measuring GPIO26\r?\n",
                  *(rf"Raw value: 0x[0-9a-f]{{3}}, voltage: {NUM} V\r?\n",) * 3),
         seconds=3.0,
+        intervals=every(0.5, 0.001, 3, first=1),
         source="adc/hello_adc/hello_adc.c",
     ),
     # adc/onboard_temperature/onboard_temperature.c:49-60: "Onboard
-    # temperature = %.02f C" every 10 + 990 ms, forever.
+    # temperature = %.02f C" every 10 + 990 ms, forever; the line fits the
+    # UART's FIFO, and the ADC read takes microseconds.
     "onboard_temperature": Spec(
         console=(rf"Onboard temperature = -?\d+\.\d{{2}} C\r?\n",) * 3,
         seconds=5.0,
+        intervals=every(1.0, 0.001, 3),
         source="adc/onboard_temperature/onboard_temperature.c",
     ),
     # adc/read_vsys/read_vsys.c:36-68: the first pass always prints the power
@@ -647,10 +683,12 @@ SPECS: dict[str, Spec] = {
         source="pio/spi/spi_loopback.c",
     ),
     # pio/uart_tx/uart_tx.c:13-43: a PIO UART on GP0, the console line, at
-    # 115200 sends "Hello, world! (from PIO!)\r\n" every second.
+    # 115200 sends "Hello, world! (from PIO!)\r\n" every second: the puts
+    # waits for the PIO's FIFO to take all 27 characters, 2.3 ms at most.
     "pio_uart_tx": Spec(
         console=(r"Hello, world! \(from PIO!\)\r?\n",) * 3,
         seconds=4.0,
+        intervals=every(1.0, 0.003, 3),
         source="pio/uart_tx/uart_tx.c",
     ),
     # reset/hello_reset/hello_reset.c:12-30.
@@ -772,10 +810,11 @@ SPECS: dict[str, Spec] = {
         source="timer/periodic_sampler/periodic_sampler.c",
     ),
     # timer/timer_lowlevel/timer_lowlevel.c:34-73: the hardware alarm IRQ
-    # every 2 s, forever.
+    # every 2 s, forever, each armed 2 s after the last fired (:55-59, 67-72).
     "timer_lowlevel": Spec(
         console=(r"Timer lowlevel!\r?\n", *(r"Alarm IRQ fired\r?\n",) * 3),
         seconds=12.0,
+        intervals=every(2.0, 0.001, 3, first=1),
         source="timer/timer_lowlevel/timer_lowlevel.c",
     ),
     # uart/hello_uart/hello_uart.c:22-43: uart0 on GP0/GP1 written directly.
@@ -839,11 +878,13 @@ SPECS: dict[str, Spec] = {
         seconds=3.0,
         source="pio/hello_pio/hello.c",
     ),
-    # hello_world/serial/hello_serial.c: stdio_init_all(), then
-    # printf("Hello, world!\n") every second, forever.
+    # hello_world/serial/hello_serial.c:10-16: stdio_init_all(), then
+    # printf("Hello, world!\n"), which the UART's FIFO takes at once, and
+    # sleep_ms(1000), forever.
     "hello_serial": Spec(
         console=(r"Hello, world!\r?\n",) * 3,
         seconds=4.0,
+        intervals=every(1.0, 0.001, 3),
         source="hello_world/serial/hello_serial.c",
     ),
     # hello_world/usb/hello_usb.c:10-16 and CMakeLists.txt:9-11: the same

@@ -169,3 +169,55 @@ def test_multicore_doorbell_prints_a_count_and_its_own_percentage():
             [], []), count
     for count, percent in ((0, 0), (54321, 5), (100001, 100), (999, 1)):
         assert spec.match(f"core1 is exiting\nFinal doorbell irq count {count}/100000 ({percent}%)\n")[0], count
+
+
+class Bench:
+    # A console on which `lines` come at their bench times; a read waits up
+    # to 0.1 s for them, a clock reading takes `round_trip`.
+    def __init__(self, lines, round_trip=0.02):
+        self.now, self.lines, self.round_trip = 0.0, list(lines), round_trip
+
+    def clock(self):
+        self.now += self.round_trip / 2
+        t = self.now
+        self.now += self.round_trip / 2
+        return t
+
+    def read(self, size):
+        due = [text for t, text in self.lines if t <= self.now + 0.1]
+        if due:
+            at = max(t for t, text in self.lines if t <= self.now + 0.1)
+            self.now = max(self.now, at)
+            self.lines = [(t, text) for t, text in self.lines if t > self.now]
+            return "".join(due).encode()
+        self.now += 0.1
+        return b""
+
+
+def timed(target, times, line="Hello, world!\n"):
+    from test.pico_examples import cases
+    spec = SPECS[target]
+    bench = Bench([(t, line) for t in times])
+    arrivals = []
+    text = cases.read_console(bench, bench, spec, arrivals=arrivals)
+    assert spec.match(text) == ([], []), text
+    return spec.timing(text, arrivals)
+
+
+def test_a_program_that_prints_every_second_is_timed_by_the_bench_clock():
+    assert SPECS["hello_serial"].intervals == ((0, 1, 1.0, 1.001), (1, 2, 1.0, 1.001))
+    assert timed("hello_serial", (0.3, 1.3, 2.3)) == []
+    assert timed("hello_serial", (0.3, 1.31, 2.31)) == []
+    assert timed("hello_serial", (0.3, 0.6, 0.9))
+    assert timed("hello_serial", (0.3, 2.3, 4.3))
+
+
+def test_a_spec_without_intervals_is_not_timed():
+    assert SPECS["hello_reset"].intervals == () and SPECS["hello_reset"].timing("Hello, reset!\n", []) == []
+
+
+def test_every_interval_names_two_console_patterns_in_order():
+    from test.pico_examples.part_targets import PART_SPECS
+    for target, spec in {**SPECS, **PART_SPECS}.items():
+        for i, j, least, most in spec.intervals:
+            assert 0 <= i < j < len(spec.console) and 0 < least <= most, target
