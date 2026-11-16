@@ -228,3 +228,8 @@ def test_gps_uart_takes_the_pin_level_wires_on_gp4_and_gp5():
     assert EMULATION["gps_uart"] == Emulation(i2c0_wiring="wires")
     (gps,) = PARTS["gps_uart"]
     assert gps.bindings["uart"] == (5, 4)
+
+
+def test_mpu9250_spi_gets_pin_level_wires_on_gp4_and_gp5():
+    # Its MISO and CS are GP4 and GP5 (mpu9250_spi.c:43-46).
+    assert EMULATION["mpu9250_spi"] == Emulation(i2c0_wiring="wires")

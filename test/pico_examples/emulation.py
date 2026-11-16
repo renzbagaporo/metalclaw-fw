@@ -61,6 +61,11 @@ RELAYED_ON_GP4_GP5 = replace(RELAYED, i2c0_wiring="wires")
 # baud takes the default 300 us wires as they are.
 GP4_GP5_WIRES = Emulation(i2c0_wiring="wires")
 
+# spi/mpu9250_spi/mpu9250_spi.c:43-46: SPI0 with MISO on GP4 and CS on GP5,
+# which the default byte-level I2C0 bus leaves unwired, so the part never
+# sees CS and the program reads 0; the pin-level I2C0 wires carry them.
+MPU9250_SPI_WIRES = GP4_GP5_WIRES
+
 # pwm/hello_pwm/hello_pwm.c:16-29: slice 0 on GP0 and GP1 at clk_sys / 4,
 # about 31 MHz, which the wires between the boards cannot carry: the
 # harness never re-enumerates with its probe once they flood (3 of 3
@@ -78,6 +83,7 @@ EMULATION: dict[str, Emulation] = {
     "pio_onewire": RELAYED,
     "dht": RELAYED,
     "gps_uart": GP4_GP5_WIRES,
+    "mpu9250_spi": MPU9250_SPI_WIRES,
     "hello_pwm": HELLO_PWM_UNWIRED,
 }
 
