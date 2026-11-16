@@ -66,3 +66,16 @@ def test_edge_bounds_hold_each_change_between_two_samples():
     for (lo, hi), (t, _) in zip(pins.edge_bounds(samples, 25), pins.edges(samples, 25)):
         assert lo < hi == t
         assert int(hi / 0.25) != int(lo / 0.25) or lo * 1e6 % 250_000 == 0
+
+
+def test_a_claim_before_the_first_toggle_is_judged_only_when_asked():
+    # pio_blink on a pulled-up line: the claim drives GP6 low 7.4 ms in, the
+    # first toggle comes 2.4 ms later, then 0.5 s halves.
+    times = [0.0074, 0.0098, 0.5098, 1.0098, 1.5098]
+    samples, level = [pins.Sample(0, 1 << 6, 1 << 6)], 1
+    for t in times:
+        level ^= 1
+        samples.append(pins.Sample(round(t * 1e6), level << 6, 1 << 6))
+    samples.append(pins.Sample(2_000_000, level << 6, 1 << 6))
+    assert any("intervals outside" in p for p in pins.Toggle(6, 4, (0.45, 0.55)).check(samples))
+    assert pins.Toggle(6, 4, (0.45, 0.55), judged_from=1).check(samples) == []

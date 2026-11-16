@@ -248,13 +248,14 @@ PIN_CHANGES_KEPT = 64
 # A program linked with pico_bootsel_via_double_reset: one reset on RUN
 # starts it as usual, two within its window enter the USB bootloader. The
 # probe drives RUN (the fixture's swd nreset) with its own timing.
-def test_the_example_enters_bootsel_on_a_double_reset(example, parts):
+def test_the_example_enters_bootsel_on_a_double_reset(harness, example, parts):
     spec = BOOTSEL_SPECS.get(example.target)
     if spec is None:
         pytest.skip(f"no double-reset criteria for {example.target}")
     chip = example.metadata["chip"]
     try:
         for resets, expect_bootsel in ((1, False), (2, True)):
+            harness.sleep(spec.settle_s)
             example.reset_by_run(resets, spec.low_s, spec.gap_s)
             samples = pins.watch(example.memory, chip, spec.seconds, (spec.led,))
             with example.memory.link() as link:

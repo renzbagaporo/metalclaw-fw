@@ -133,11 +133,13 @@ class Toggle:
     # A pin the program drives and toggles: at least `edges` changes, each
     # interval between them within `period` (min, max) seconds. With
     # `until`, all of that up to that many seconds into the watch, and no
-    # change after it.
+    # change after it. The intervals before change `judged_from` are not
+    # judged: a program that claims the pin before it starts toggling it.
     pin: int
     edges: int
     period: tuple[float, float]
     until: float | None = None
+    judged_from: int = 0
 
     def check(self, samples) -> list[str]:
         problems = []
@@ -153,7 +155,7 @@ class Toggle:
             problems.append(f"GP{self.pin} changed {len(seen)} times, expected at least {self.edges}")
         # An interval fails only if every length its edges' bounds allow is
         # outside `period`.
-        bounds = edge_bounds(samples, self.pin)
+        bounds = edge_bounds(samples, self.pin)[self.judged_from:]
         bad = [round(b[1] - a[1], 4) for a, b in zip(bounds, bounds[1:])
                if b[0] - a[1] > self.period[1] or b[1] - a[0] < self.period[0]]
         if bad:

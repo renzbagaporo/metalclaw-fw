@@ -35,13 +35,16 @@ class PinSpec:
 class BootselSpec:
     # Resets on RUN: held low `low_s`, `gap_s` between them. After one, the
     # program blinks `led` at least `edges` times in `seconds`; after two
-    # the bootrom presents USB and the LED stops.
+    # the bootrom presents USB and the LED stops. Each step's first reset
+    # comes `settle_s` of bench time after the last start, past the window
+    # in which it would count as the second.
     led: int
     low_s: float
     gap_s: float
     seconds: float
     edges: int
     source: str = ""
+    settle_s: float = 0.3
 
 
 def half(seconds: float) -> tuple[float, float]:
@@ -97,8 +100,11 @@ PIN_SPECS: dict[str, PinSpec] = {
                                 "low_power/low_power_dormant/low_power_clksrc.c"),
     # pio/pio_blink/blink.c:30-57, 118-142: PIO square waves for 60 s, GP3 at
     # 4 Hz, GP4 3 Hz, GP5 2 Hz, GP6 1 Hz. The watcher reads the DUT's own
-    # pins, so GP3 counts on fixture 1 too.
-    "pio_blink": PinSpec(4.0, tuple(Toggle(pin, toggles(4.0, h), half(h)) for pin, h in
+    # pins, so GP3 counts on fixture 1 too. blink_pin_forever (:156-165)
+    # claims each pin as a PIO output driven low, prints, then pushes the
+    # count: on the carrier's pulled-up lines the claim is a change a printf
+    # before the first toggle, so each pin is judged from its second change.
+    "pio_blink": PinSpec(4.0, tuple(Toggle(pin, toggles(4.0, h), half(h), judged_from=1) for pin, h in
                                     ((3, 1 / 8), (4, 1 / 6), (5, 1 / 4), (6, 1 / 2))), "pio/pio_blink/blink.c"),
     # picoboard/blinky/blinky.c:11, 42-77: "Hello world" in Morse on the
     # LED at DOT_PERIOD_MS 100, then 1 s off; the whole message takes about
@@ -135,6 +141,8 @@ BOOTSEL_SPECS: dict[str, BootselSpec] = {
     # with ACTIVITY_LED 25 (CMakeLists.txt). The second reset comes 100 ms
     # after the first is let go: past the boot to that check, inside its
     # window. One reset is followed by the 250 ms blink (hello_double_tap.c:20-25).
+    # Each step waits 300 ms first: a reset within 200 ms of the start
+    # before it is that start's second.
     "hello_double_tap": BootselSpec(LED, 0.01, 0.1, 2.0, toggles(2.0, 0.25, 0.2),
                                     "system/hello_double_tap/hello_double_tap.c"),
 }

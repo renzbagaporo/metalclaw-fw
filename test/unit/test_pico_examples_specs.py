@@ -221,3 +221,10 @@ def test_every_interval_names_two_console_patterns_in_order():
     for target, spec in {**SPECS, **PART_SPECS}.items():
         for i, j, least, most in spec.intervals:
             assert 0 <= i < j < len(spec.console) and 0 < least <= most, target
+
+
+def test_a_double_reset_step_starts_past_the_programs_window():
+    from test.pico_examples.pin_specs import BOOTSEL_SPECS
+    # PICO_BOOTSEL_VIA_DOUBLE_RESET_TIMEOUT_MS is 200: a reset sooner after
+    # the start before it is that start's second.
+    assert BOOTSEL_SPECS["hello_double_tap"].settle_s > 0.2 > BOOTSEL_SPECS["hello_double_tap"].gap_s
