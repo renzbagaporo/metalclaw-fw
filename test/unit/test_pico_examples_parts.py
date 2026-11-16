@@ -182,7 +182,7 @@ def console_case(target, board):
     from test.pico_examples import cases
     example = types.SimpleNamespace(target=target, metadata={"board": board},
                                     restart=lambda: pytest.fail("restarted"))
-    cases.test_the_example_completes(None, example, {"line_pullups": True}, None)
+    cases.test_the_example_completes(None, example, {"line_pullups": True}, None, lambda *a: None)
 
 
 def test_a_console_with_nothing_to_match_skips_rather_than_passes():

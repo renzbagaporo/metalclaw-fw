@@ -97,10 +97,6 @@ EMULATION: dict[str, Emulation] = {
 _WIRES = "the delayed wires between the boards (300 us; 3 us at best with RELAYED)"
 _PENDING = "pending a Renode change that puts the harness's pins in the DUT's time domain"
 WIRE_LIMITS: dict[str, str] = {
-    # i2c/slave_mem_i2c: the DUT's I2C0 target and I2C1 controller, joined
-    # by the harness's open-drain jumpers (parts.py _i2c_jumpers).
-    **dict.fromkeys(("slave_mem_i2c", "slave_mem_i2c_burst"),
-                    f"{_WIRES} cannot carry the harness's open-drain I2C join; {_PENDING}"),
     # pio/clocked_input/clocked_input.c:23-30, 37: SPI0 at clk_sys / 6, half
     # periods of about 24 ns, from GP2 and GP3 into the PIO's GP5 and GP4.
     "pio_clocked_input": f"{_WIRES} cannot carry the 21 MHz SPI jumpers; {_PENDING}",
@@ -143,12 +139,31 @@ UNPROVISIONED: dict[str, str] = {
 # which reach the harness only as pin-level wires. Renode's RP2 I2C models
 # the harness's I2C target at byte level only (RP2_I2C.cs: "SDA/SCL pin
 # levels are not modeled"), so the part on that bus cannot answer it.
+# i2c/slave_mem_i2c: the DUT's I2C0 target and I2C1 controller, joined by
+# the harness's open-drain jumpers following and driving SDA and SCL
+# (parts.py _i2c_jumpers), which needs the two controllers' pin levels.
+_NO_PINS = "Renode's RP2 I2C peripheral does not model SDA and SCL levels"
 MODEL_LIMITS: dict[str, str] = {
-    "pio_i2c_bus_scan": "Renode's RP2 I2C peripheral does not model SDA and SCL levels, so the harness's I2C target "
-                        "cannot answer a PIO controller on the pin-level wires of GP2 and GP3",
+    "pio_i2c_bus_scan": f"{_NO_PINS}, so the harness's I2C target cannot answer a PIO controller on the pin-level "
+                        f"wires of GP2 and GP3",
+    **dict.fromkeys(("slave_mem_i2c", "slave_mem_i2c_burst"),
+                    f"{_NO_PINS}, so the harness's open-drain jumpers have no levels of the DUT's two controllers "
+                    f"to join"),
 }
 
-EMULATOR_LIMITS: dict[str, str] = {**WIRE_LIMITS, **UNPROVISIONED, **MODEL_LIMITS}
+# hstx/spi_lcd/hstx_spi_lcd.c: one HSTX FIFO word per pixel byte, about six
+# million register accesses per virtual second, so the emulated bench runs
+# about 100 times slower than real time and the harness does not finish
+# setting up within the rig's deadlines. The program itself runs correctly.
+SPEED_LIMITS: dict[str, str] = {
+    "hstx_spi_lcd": "emulator speed: about 100 times slower than real time, from about six million HSTX register "
+                    "accesses per virtual second",
+}
+
+EMULATOR_LIMITS: dict[str, str] = {**WIRE_LIMITS, **UNPROVISIONED, **MODEL_LIMITS, **SPEED_LIMITS}
+# What still applies with both chips in one machine, where no delayed wire
+# lies between the harness and the DUT.
+ONE_MACHINE_LIMITS: dict[str, str] = {**UNPROVISIONED, **MODEL_LIMITS, **SPEED_LIMITS}
 
 
 # For a DUT image's example.json, or None for a rig image.

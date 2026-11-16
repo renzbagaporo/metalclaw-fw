@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from test.pico_examples import pins
-from test.pico_examples.emulation import DEFAULT, EMULATOR_LIMITS, Emulation, emulation_for
+from test.pico_examples.emulation import DEFAULT, EMULATOR_LIMITS, ONE_MACHINE_LIMITS, Emulation, emulation_for
 from test.pico_examples.parts import parts_for
 from test.pico_examples.usb_devices import UsbDevice, usb_device
 from test.rig import probe_telemetry
@@ -376,11 +376,12 @@ def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emu
     return e
 
 
-# The limits come from the delayed wires between two machines; a bench with
-# both chips in one machine has none.
+# A bench with both chips in one machine has no delayed wires between them,
+# so only the limits that do not come from those apply to it.
 def skip_emulator_limit(target: str, bench_layout: Layout) -> None:
-    if not bench_layout.dut_prefix and target in EMULATOR_LIMITS:
-        pytest.skip(f"{target} is not judged in the emulator: {EMULATOR_LIMITS[target]}")
+    limits = ONE_MACHINE_LIMITS if bench_layout.dut_prefix else EMULATOR_LIMITS
+    if target in limits:
+        pytest.skip(f"{target} is not judged in the emulator: {limits[target]}")
 
 
 # The program's harness parts that take an unwired DUT pin, which would
