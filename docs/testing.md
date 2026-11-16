@@ -272,6 +272,20 @@ and `spi_slave`, whose MISO the harness's controller samples a round trip
 late and reads as ff. Each entry waits on a Renode change that puts the
 harness's pins in the DUT's time domain.
 
+The hardware platform never runs the programs in `HARDWARE_HAZARDS`
+(`test/pico_examples/hazards.py`): `hello_otp` writes OTP for good, and
+the encrypted programs need a signing key and secure boot burnt into it.
+The emulator judges `hello_otp`. Its bench boots the DUT before any case
+listens, and that first run writes rows 0x400 and 0x410 of the blank OTP,
+so every run a case sees finds them programmed, prints so and returns
+(`hello_otp.c:23-40`); `test_the_example_sets_its_registers` reads the rows
+over SWD and compares them with what one complete run leaves. The
+encrypted programs (`hello_encrypted`, `hello_encrypted_mbedtls`,
+`enc_bootloader`, `hello_serial_enc`) decrypt themselves, or each other,
+with an AES key `picotool otp load` puts in OTP, and the bootloader pair
+needs both images in flash; the emulated DUT's OTP is blank and a session
+flashes one image, so they are in `EMULATOR_LIMITS` with that reason.
+
 The bench script exports the DUT's own USB too, as USB/IP bus `1-1` on a
 server of its own at `$dut_usbip_port`: Renode's server takes one
 connection at a time, and the harness's import holds its server's for the

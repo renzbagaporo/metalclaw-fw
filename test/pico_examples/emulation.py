@@ -88,15 +88,15 @@ EMULATION: dict[str, Emulation] = {
 }
 
 # Programs the emulator cannot judge with Metalclaw in the loop, and why;
-# the emulator platform skips each with its reason. The wires between the
-# emulated boards deliver an edge a fixed latency after its sender drove
-# it, so a program whose timing needs the harness within less than a round
-# trip of them fails there for want of the emulator, not of the harness.
-# Each waits on a Renode change that puts the harness's pins in the DUT's
-# time domain.
+# the emulator platform skips each with its reason (EMULATOR_LIMITS). The
+# wires between the emulated boards deliver an edge a fixed latency after
+# its sender drove it, so a program whose timing needs the harness within
+# less than a round trip of them fails there for want of the emulator, not
+# of the harness. Each waits on a Renode change that puts the harness's
+# pins in the DUT's time domain.
 _WIRES = "the delayed wires between the boards (300 us; 3 us at best with RELAYED)"
 _PENDING = "pending a Renode change that puts the harness's pins in the DUT's time domain"
-EMULATOR_LIMITS: dict[str, str] = {
+WIRE_LIMITS: dict[str, str] = {
     # i2c/slave_mem_i2c: the DUT's I2C0 target and I2C1 controller, joined
     # by the harness's open-drain jumpers (parts.py _i2c_jumpers).
     **dict.fromkeys(("slave_mem_i2c", "slave_mem_i2c_burst"),
@@ -113,6 +113,33 @@ EMULATOR_LIMITS: dict[str, str] = {
     "spi_slave": f"the harness's controller samples the DUT's MISO a round trip of {_WIRES} late and reads ff; "
                  f"{_PENDING}",
 }
+
+# Programs that cannot complete without OTP keys, and a second image, that
+# the emulated bench does not provision: its DUT's OTP starts blank, and a
+# session flashes the one image it judges. Each decrypts with the AES key
+# and IV salt `picotool otp load otp.json` writes, from the OTP pages the
+# build names (encrypted/hello_encrypted/README.md,
+# bootloaders/encrypted/README.md).
+_NO_KEY = "the emulated DUT's OTP is blank, so the AES key and IV salt `picotool otp load otp.json` writes are missing"
+UNPROVISIONED: dict[str, str] = {
+    # encrypted/hello_encrypted/CMakeLists.txt:72-90, 118-138: no_flash
+    # images that pico_encrypt_binary wraps in a stage that decrypts them
+    # with the key from OTP before hello_encrypted.c:44-51 runs.
+    "hello_encrypted": f"decrypts itself before main with a key from OTP, and {_NO_KEY}",
+    "hello_encrypted_mbedtls": f"decrypts itself before main with a key from OTP page 29, and {_NO_KEY}",
+    # bootloaders/encrypted/enc_bootloader.c:157-247: finds the encrypted
+    # image in its partition (enc-pt.json), decrypts it with the key from
+    # OTP page 29 and chains into it.
+    "enc_bootloader": f"decrypts and chains into hello_serial_enc, which a session that flashes enc_bootloader does "
+                      f"not hold, and {_NO_KEY}",
+    # bootloaders/encrypted/CMakeLists.txt:66-89: encrypted for
+    # enc_bootloader to decrypt into SRAM (README.md: load the bootloader
+    # first, then this image).
+    "hello_serial_enc": f"runs only as decrypted by enc_bootloader, which a session that flashes hello_serial_enc "
+                        f"does not hold, and {_NO_KEY}",
+}
+
+EMULATOR_LIMITS: dict[str, str] = {**WIRE_LIMITS, **UNPROVISIONED}
 
 
 # For a DUT image's example.json, or None for a rig image.

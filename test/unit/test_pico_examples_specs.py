@@ -111,3 +111,18 @@ def test_the_hardware_example_fixture_skips_a_bench_limit_before_flashing(tmp_pa
     function = getattr(example, "_get_wrapped_function", lambda: example.__wrapped__)()
     with pytest.raises(pytest.skip.Exception, match="pio_spi_flash's pico2 build holds chip select high"):
         function(harness, None, {}, None)
+
+
+# otp/hello_otp/hello_otp.c on blank rows (:42-185), as the bench's boot run
+# prints it, and on the rows that run leaves, as every later run does.
+HELLO_OTP_FIRST = ("ECC Write succeeded\nECC Data read is \"Hello from OTP\"\nRaw overwrite of ECC data succeeded\n"
+                   "Raw Write succeeded\nOTP Software Lock Done\nLocked read failed as expected\n")
+HELLO_OTP_LATER = ("ERROR: This example requires empty OTP rows to run - change the ecc_row and raw_row variables to an "
+                   "empty row and recompile\n")
+
+
+def test_hello_otp_is_judged_on_the_run_after_the_one_that_wrote_its_rows():
+    spec = SPECS["hello_otp"]
+    assert spec.match(HELLO_OTP_LATER) == ([], [])
+    assert spec.match(HELLO_OTP_FIRST)[0] and spec.match(HELLO_OTP_FIRST)[1]
+    assert spec.match("ERROR: Initial ECC Row Read failed with error -4\n" + HELLO_OTP_LATER)[1]

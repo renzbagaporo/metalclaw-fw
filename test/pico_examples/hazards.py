@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # pico-examples programs that harm a real bench, and why. The hardware
-# platform never runs them; the emulator runs them all.
+# platform never runs them. The emulator judges hello_otp; the encrypted
+# programs need OTP keys its bench does not provision, and it skips them
+# for that (emulation.EMULATOR_LIMITS).
 
 HARDWARE_HAZARDS: dict[str, str] = {
     # otp/hello_otp/hello_otp.c writes OTP rows 0x400 and 0x410: permanent,

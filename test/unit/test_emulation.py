@@ -59,9 +59,9 @@ def test_a_program_without_needs_and_a_rig_image_get_the_defaults():
 
 
 def test_the_emulator_limits_name_the_programs_whose_timing_the_wires_cannot_carry():
-    assert set(EMULATOR_LIMITS) == {"slave_mem_i2c", "slave_mem_i2c_burst", "pio_clocked_input", "pio_spi_flash",
+    assert set(emu.WIRE_LIMITS) == {"slave_mem_i2c", "slave_mem_i2c_burst", "pio_clocked_input", "pio_spi_flash",
                                     "spi_slave"}
-    for target, reason in EMULATOR_LIMITS.items():
+    for target, reason in emu.WIRE_LIMITS.items():
         assert target in PARTS and target in set(SPECS) | set(PART_SPECS), target
         assert "(300 us; 3 us at best with RELAYED)" in reason, target
         assert reason.endswith("; pending a Renode change that puts the harness's pins in the DUT's time domain")
@@ -72,6 +72,21 @@ def test_the_emulator_limits_name_the_programs_whose_timing_the_wires_cannot_car
         EMULATOR_LIMITS["pio_spi_flash"])
     assert "samples the DUT's MISO a round trip" in EMULATOR_LIMITS["spi_slave"]
     assert "reads ff" in EMULATOR_LIMITS["spi_slave"]
+
+
+# The OTP programs never run on a bench (hazards.py). hello_otp is judged in
+# the emulator; the encrypted ones say what the emulated bench lacks.
+def test_every_hardware_hazard_is_judged_or_explained_in_the_emulator():
+    from test.pico_examples.hazards import HARDWARE_HAZARDS
+    from test.pico_examples.pin_specs import REGISTER_SPECS
+    assert set(emu.UNPROVISIONED) == {"hello_encrypted", "hello_encrypted_mbedtls", "enc_bootloader",
+                                      "hello_serial_enc"}
+    assert set(emu.UNPROVISIONED) <= set(HARDWARE_HAZARDS) <= set(EMULATOR_LIMITS) | {"hello_otp"}
+    for target, reason in emu.UNPROVISIONED.items():
+        assert EMULATOR_LIMITS[target] == reason and "OTP is blank" in reason, target
+        assert target not in SPECS and target not in PART_SPECS, target
+    assert "hello_otp" not in EMULATOR_LIMITS
+    assert SPECS["hello_otp"].source == REGISTER_SPECS["hello_otp"].source == "otp/hello_otp/hello_otp.c"
 
 
 def test_a_program_the_emulator_cannot_judge_needs_nothing_of_it():

@@ -119,11 +119,12 @@ BOOTSEL_SPECS: dict[str, BootselSpec] = {
 }
 
 
-# DUT registers that show a program set up what its pins then do, for
-# programs whose pin edges are too fast for a watch over SWD: each word read
-# once the program has run `after` bench seconds from a restart, masked,
-# must be `expected` or one of the values in it. Addresses and fields are
-# the pico-sdk 2.3.0 hardware_regs headers' (src/<chip>/hardware_regs).
+# DUT words that show what a program set up or left, read over SWD: the
+# registers behind pin edges too fast for a watch, or OTP rows a program
+# wrote. Each word read once the program has run `after` bench seconds from
+# a restart, masked, must be `expected` or one of the values in it.
+# Addresses and fields are the pico-sdk 2.3.0 hardware_regs headers'
+# (src/<chip>/hardware_regs).
 @dataclass(frozen=True)
 class Register:
     address: int
@@ -142,7 +143,8 @@ class Register:
 
 @dataclass(frozen=True)
 class RegisterSpec:
-    # By the DUT's chip (example.json "chip").
+    # By the DUT's chip (example.json "chip"), for each chip the program
+    # builds for.
     registers: dict
     after: float = 0.05
     source: str = ""
@@ -210,6 +212,55 @@ def _hello_gpout(chip: str) -> tuple[Register, ...]:
     return tuple(registers)
 
 
+# RP2350 datasheet 13.6.2: the modified Hamming code an ECC row carries in
+# bits 21:16, s_otp_calculate_ecc() as the datasheet gives it.
+_OTP_ECC_PARITY = (0b0000001010110101011011, 0b0000000011011001101101, 0b0000001100011110001110,
+                   0b0000000000011111110000, 0b0000001111100000000000, 0b0111111111111111111111)
+
+
+def otp_ecc_row(data: int) -> int:
+    row = data
+    for i, mask in enumerate(_OTP_ECC_PARITY):
+        row |= (bin(row & mask).count("1") & 1) << (16 + i)
+    return row
+
+
+def _raw_rows(data: bytes) -> list[int]:
+    # A raw OTP access moves four bytes a row, the top one not stored.
+    return [int.from_bytes(data[i:i + 3], "little") for i in range(0, len(data), 4)]
+
+
+# otp/hello_otp/hello_otp.c on rows it found empty (:35-40): "Hello from
+# OTP" as ECC rows from 0x400 (:44-46), then raw rewrites of those rows that
+# only set bits, 'H' to 'x' in row 0x400 and 'T' to 't' in row 0x406
+# (:64-73); the ECC rewrite as "hello from otp" (:92-94) would clear bits of
+# row 0x400, the first it writes, so it changes nothing. Raw rows from 0x410
+# take "Hel\0lo \0fro\0m O\0TP" (:110-112), then its odd characters as 'o'
+# and even ones as '~', which only sets bits (:135-144). Rows read through
+# OTP_DATA_RAW (OTP_DATA_RAW_BASE + 4 x row), 24 bits with the top 8 zero
+# (datasheet 13.1).
+OTP_DATA_RAW = 0x40134000
+OTP_ECC_ROW, OTP_RAW_ROW = 0x400, 0x410
+
+
+def _hello_otp_rows() -> dict[int, int]:
+    text = b"Hello from OTP\0\0"
+    ecc = [otp_ecc_row(int.from_bytes(text[i:i + 2], "little")) for i in range(0, len(text), 2)]
+    ecc[0] |= ord("x") & ~ord("H")
+    ecc[6] |= ord("t") & ~ord("T")
+    written = b"Hel\0lo \0fro\0m O\0TP\0"
+    over = bytes((ord("o") if c % 2 else ord("~")) if c else 0 for c in written)
+    raw = [a | b for a, b in zip(_raw_rows(written), _raw_rows(over))]
+    rows = {OTP_ECC_ROW + i: r for i, r in enumerate(ecc)}
+    rows.update({OTP_RAW_ROW + i: r for i, r in enumerate(raw)})
+    return rows
+
+
+def _hello_otp(chip: str) -> tuple[Register, ...]:
+    return tuple(Register(OTP_DATA_RAW + 4 * row, 0xFFFFFFFF, value, f"OTP row 0x{row:03x}")
+                 for row, value in _hello_otp_rows().items())
+
+
 def _per_chip(build) -> dict:
     return {chip: build(chip) for chip in BASES}
 
@@ -218,4 +269,8 @@ REGISTER_SPECS: dict[str, RegisterSpec] = {
     "hello_pwm": RegisterSpec(_per_chip(_hello_pwm), source="pwm/hello_pwm/hello_pwm.c"),
     "pio_squarewave": RegisterSpec(_per_chip(_pio_squarewave), source="pio/squarewave/squarewave.c"),
     "hello_gpout": RegisterSpec(_per_chip(_hello_gpout), source="clocks/hello_gpout/hello_gpout.c"),
+    # Built for RP2350 only (otp/CMakeLists.txt). Every run a case sees
+    # finds the rows the bench's boot run wrote (targets.py), which leaves
+    # page 0x10 unlocked: the lock (:166-170) comes after the writes.
+    "hello_otp": RegisterSpec({"rp2350": _hello_otp("rp2350")}, source="otp/hello_otp/hello_otp.c"),
 }

@@ -233,13 +233,14 @@ def test_the_example_parts_saw_the_program(harness, example, parts):
     assert not problems, f"{example.target}: {problems}"
 
 
-# The registers that show the program set up what its pins do, read over
-# SWD a moment after it starts (pin_specs.REGISTER_SPECS).
+# The registers that show the program set up what its pins do, or the OTP
+# rows it wrote, read over SWD a moment after it starts
+# (pin_specs.REGISTER_SPECS).
 def test_the_example_sets_its_registers(harness, example, parts):
     spec = REGISTER_SPECS.get(example.target)
-    if spec is None:
-        pytest.skip(f"no register criteria for {example.target}")
     chip = example.metadata["chip"]
+    if spec is None or chip not in spec.registers:
+        pytest.skip(f"no register criteria for {example.target} on {chip}")
     example.restart()
     harness.sleep(spec.after)
     with example.memory.link() as link:

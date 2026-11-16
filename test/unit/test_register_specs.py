@@ -24,10 +24,12 @@ def test_a_register_may_hold_any_of_several_values():
     assert r.check(0xE081) == "SM0_INSTR: 0x502000d8 & 0xffff is 0xe081, expected 0xe101 or 0xe000 or 0x1"
 
 
-def test_every_register_spec_covers_both_chips_with_aligned_reachable_words():
+def test_every_register_spec_covers_its_chips_with_aligned_reachable_words():
     for target, spec in REGISTER_SPECS.items():
         assert spec.source, target
-        assert set(spec.registers) == {"rp2040", "rp2350"}, target
+        assert set(spec.registers) <= {"rp2040", "rp2350"} and spec.registers, target
+        if target != "hello_otp":
+            assert set(spec.registers) == {"rp2040", "rp2350"}, target
         for chip, registers in spec.registers.items():
             assert registers, (target, chip)
             for r in registers:
@@ -83,6 +85,40 @@ def test_hello_gpout_divides_each_source_by_10_in_each_chips_layout():
     assert r50["GP25 FUNCSEL GPOUT3"].address == 0x400280CC and r50["GP25 FUNCSEL GPOUT3"].expected == 9
 
 
+def test_the_otp_ecc_code_is_the_datasheets():
+    from test.pico_examples.pin_specs import otp_ecc_row
+    # RP2350 datasheet 13.6.2: a single flip in the data leaves a syndrome
+    # with odd overall parity, two leave an even one.
+    def syndrome(row):
+        data = row & 0xFFFF
+        return (otp_ecc_row(data) ^ row) >> 16
+    for data in (0x0000, 0x6548, 0xFFFF, 0x1234):
+        row = otp_ecc_row(data)
+        assert row >> 22 == 0 and row & 0xFFFF == data
+        assert syndrome(row) == 0
+        assert syndrome(row ^ 0x10) & 0x20 and not syndrome(row ^ 0x30) & 0x20
+
+
+def test_hello_otp_rows_hold_what_its_one_complete_run_leaves():
+    from test.pico_examples.pin_specs import OTP_DATA_RAW, otp_ecc_row
+    rows = {r.address: r.expected for r in REGISTER_SPECS["hello_otp"].registers["rp2350"]}
+    assert set(REGISTER_SPECS["hello_otp"].registers) == {"rp2350"}
+    ecc = [rows[OTP_DATA_RAW + 4 * (0x400 + i)] for i in range(8)]
+    text = b"".join((r & 0xFFFF).to_bytes(2, "little") for r in ecc)
+    # 'H' read raw as 'x' (two bits set: uncorrectable), 'T' as 't' (one).
+    assert text == b"xello from OtP\0\0"
+    assert ecc[0] == otp_ecc_row(0x6548) | 0x30 and ecc[6] == otp_ecc_row(0x5054) | 0x20
+    raw = b"".join(rows[OTP_DATA_RAW + 4 * (0x410 + i)].to_bytes(3, "little") for i in range(5))
+    # hello_otp.c:155-162 prints these rows as "~o~~o~~~oo~o~~".
+    assert raw.rstrip(b"\0") == b"~o~~o~~~oo~o~~"
+    assert all(v >> 24 == 0 for v in rows.values())
+
+
+def test_a_program_built_for_one_chip_skips_its_register_case_on_the_other():
+    with pytest.raises(pytest.skip.Exception, match="no register criteria for hello_otp on rp2040"):
+        run_case("hello_otp", "rp2040", {})
+
+
 class Memory:
     def __init__(self, words):
         self.words = words
@@ -121,5 +157,5 @@ def test_the_case_names_each_register_that_is_off():
 
 
 def test_a_program_without_register_criteria_skips():
-    with pytest.raises(pytest.skip.Exception, match="no register criteria for blink"):
+    with pytest.raises(pytest.skip.Exception, match="no register criteria for blink on rp2040"):
         run_case("blink", "rp2040", {})

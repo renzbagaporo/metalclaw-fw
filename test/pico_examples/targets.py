@@ -449,6 +449,19 @@ SPECS: dict[str, Spec] = {
         seconds=3.0,
         source="multicore/multicore_runner_queue/multicore_runner_queue.c",
     ),
+    # otp/hello_otp/hello_otp.c:23-40: a run that finds OTP rows 0x400 or
+    # 0x410 programmed says so and returns, before any write. The bench's
+    # own boot runs it before any case listens, on a blank OTP, and its
+    # writes last, so every run a case sees stops there; what the boot run
+    # wrote is judged in the rows themselves (pin_specs.REGISTER_SPECS).
+    # The emulator only: hazards.py.
+    "hello_otp": Spec(
+        console=(r"ERROR: This example requires empty OTP rows to run - change the ecc_row and raw_row variables "
+                 r"to an empty row and recompile" + NL,),
+        seconds=3.0,
+        forbidden=forbid(r"Initial (?:ECC|Raw) Row Read failed", r"ECC Write", r"Raw Write", r"Software Lock"),
+        source="otp/hello_otp/hello_otp.c",
+    ),
     # pio/addition/addition.c:21-35: ten rand() % 100 pairs added by PIO.
     "pio_addition": Spec(
         console=(r"Doing some random additions:\r?\n", *(r"\d{1,2} \+ \d{1,2} = \d{1,3}\r?\n",) * 10),
