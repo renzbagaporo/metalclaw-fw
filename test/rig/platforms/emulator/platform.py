@@ -284,11 +284,17 @@ def host_slowdown(bench_layout: Layout) -> int:
 def bench(emulation: Emulation, pytestconfig, record_testsuite_property):
     _session["record"] = record_testsuite_property
     bench_layout = layout()
+    image = dut_image()
+    # A program the emulator cannot judge skips before Renode starts: a
+    # speed-limited one would otherwise hold the session until the
+    # harness's setup times out.
+    metadata = example_metadata(image)
+    if metadata is not None:
+        skip_emulator_limit(metadata["target"], bench_layout)
     for name, value in SLOW_HOST_DEFAULTS.items():
         if name == "CMSIS_DAP_USB_TIMEOUT_MS":
             value = str(int(value) * host_slowdown(bench_layout))
         os.environ.setdefault(name, value)
-    image = dut_image()
     series = soc_series(image)
     if series != bench_layout.dut_chip:
         pytest.exit(f"the {harness_board()} bench's DUT is an {bench_layout.dut_chip}, but {image} is built for "
@@ -350,7 +356,6 @@ def probe(harness: Harness, fixture: dict, pytestconfig):
 @pytest.fixture(scope="session")
 def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emulation, pytestconfig) -> Example:
     require_example_image(bench.dut_image)
-    skip_emulator_limit(example_metadata(bench.dut_image)["target"], bench.layout)
     e = Example(harness, bench.dut_image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"),
                 probe_telemetry.recorder(pytestconfig))
     if bench.settings.unmet:

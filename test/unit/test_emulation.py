@@ -127,17 +127,32 @@ class Untouchable:
         raise AssertionError(f"the harness was used ({name}) before the skip")
 
 
-@pytest.mark.parametrize("target", sorted(EMULATOR_LIMITS))
-def test_the_emulator_example_fixture_skips_a_limited_program_before_anything_else(tmp_path, monkeypatch, target):
+def start_bench(tmp_path, monkeypatch, target, layout_kind=""):
+    # The bench fixture up to Bench.start, which a skip must come before.
     def reached(*args, **kwargs):
         raise Reached
-    monkeypatch.setattr(platform, "Example", reached)
-    monkeypatch.setattr(platform, "hold_idle", reached)
-    bench = types.SimpleNamespace(dut_image=limited_image(tmp_path, target), layout=LAYOUTS["rpi_pi_pico"],
-                                  settings=types.SimpleNamespace(unmet=()))
+    monkeypatch.setenv("METALCLAW_DUT_IMAGE", str(limited_image(tmp_path, target)))
+    monkeypatch.setenv("METALCLAW_HARNESS_BOARD", "rpi_pi_pico")
+    monkeypatch.setenv(platform.LAYOUT_ENV, layout_kind)
+    monkeypatch.setenv("METALCLAW_RENODE_DIR", str(tmp_path))
+    monkeypatch.setenv("METALCLAW_RENODE_ROMS", str(tmp_path))
+    monkeypatch.setattr(platform, "Bench", reached)
+    monkeypatch.setattr(platform, "soc_series", lambda image: platform.layout().dut_chip)
+    for name in platform.SLOW_HOST_DEFAULTS:
+        monkeypatch.delenv(name, raising=False)
+    next(fixture_function(platform.bench)(emu.DEFAULT, CONFIG, lambda *a: None))
+
+
+@pytest.mark.parametrize("target", sorted(EMULATOR_LIMITS))
+def test_the_bench_skips_a_limited_program_before_renode_starts(tmp_path, monkeypatch, target):
     with pytest.raises(pytest.skip.Exception) as skipped:
-        fixture_function(platform.example)(bench, Untouchable(), None, {}, emu.DEFAULT, CONFIG)
+        start_bench(tmp_path, monkeypatch, target)
     assert str(skipped.value) == f"{target} is not judged in the emulator: {EMULATOR_LIMITS[target]}"
+
+
+def test_the_bench_starts_for_a_program_it_can_judge(tmp_path, monkeypatch):
+    with pytest.raises(Reached):
+        start_bench(tmp_path, monkeypatch, "spi_master")
 
 
 def test_the_emulator_example_fixture_goes_on_with_a_program_it_can_judge(tmp_path, monkeypatch):
@@ -152,13 +167,8 @@ def test_the_emulator_example_fixture_goes_on_with_a_program_it_can_judge(tmp_pa
 
 @pytest.mark.parametrize("target", sorted(emu.WIRE_LIMITS))
 def test_a_one_machine_bench_judges_the_programs_the_delayed_wires_cannot(tmp_path, monkeypatch, target):
-    def reached(*args, **kwargs):
-        raise Reached
-    monkeypatch.setenv("METALCLAW_ARM_TOOLCHAIN_DIR", str(tmp_path))
-    monkeypatch.setattr(platform, "Example", reached)
-    bench = types.SimpleNamespace(dut_image=limited_image(tmp_path, target), layout=ONE_MACHINE_LAYOUTS["rpi_pi_pico"])
     with pytest.raises(Reached):
-        fixture_function(platform.example)(bench, Untouchable(), None, {}, emu.DEFAULT, CONFIG)
+        start_bench(tmp_path, monkeypatch, target, "one_machine")
 
 
 def test_the_hardware_example_fixture_ignores_the_emulator_limits(tmp_path, monkeypatch):
@@ -197,9 +207,6 @@ def test_mpu9250_spi_gets_pin_level_wires_on_gp4_and_gp5():
 
 @pytest.mark.parametrize("target", sorted(emu.ONE_MACHINE_LIMITS))
 def test_a_one_machine_bench_still_skips_what_the_wires_do_not_explain(tmp_path, monkeypatch, target):
-    monkeypatch.setattr(platform, "Example", lambda *a, **k: (_ for _ in ()).throw(Reached()))
-    bench = types.SimpleNamespace(dut_image=limited_image(tmp_path, target), layout=ONE_MACHINE_LAYOUTS["rpi_pi_pico"],
-                                  settings=types.SimpleNamespace(unmet=()))
     with pytest.raises(pytest.skip.Exception) as skipped:
-        fixture_function(platform.example)(bench, Untouchable(), None, {}, emu.DEFAULT, CONFIG)
+        start_bench(tmp_path, monkeypatch, target, "one_machine")
     assert str(skipped.value) == f"{target} is not judged in the emulator: {emu.ONE_MACHINE_LIMITS[target]}"
