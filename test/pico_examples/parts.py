@@ -150,15 +150,27 @@ PARTS: dict[str, tuple[Attach, ...]] = {
                {"pressure": 98765, "temperature": 23450}),
     ),
     # i2c/mcp9808_i2c/mcp9808_i2c.c: ADDRESS 0x18. 34.562 degC is above the
-    # 30 degC upper limit the program writes and under its other two.
+    # 30 degC upper limit the program writes and under its other two. Its
+    # limits (:70-99) are 0x01E0, 0x0140 and 0x0280 at 1/16 degC, which
+    # the part keeps as TUPPER, TLOWER and TCRIT; at power-on all three are
+    # 0.
     "mcp9808_i2c": (
-        Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 34562}),
+        Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 34562},
+               checks=(Check("(part.upper, part.lower, part.critical)", lambda v: tuple(v) == (30000, 20000, 40000),
+                             "the program's 30, 20 and 40 degC limits in TUPPER, TLOWER and TCRIT"),)),
     ),
     # i2c/pcf8523_i2c/pcf8523_i2c.c: addr 0x68. The program writes its own
-    # time over this one, which shows its writes land.
+    # time over this one, which shows its writes land: the software reset
+    # (:28-32), then 0 to every time register (:35-57), which clears OS
+    # (Seconds bit 7) and leaves the counters running. 2 s after the
+    # restart the part reads year, month, day, weekday, hour and minute 0
+    # and a second or two, as the program itself prints them.
     "pcf8523_i2c": (
         Attach("pcf8523", "rtc", {"i2c": (4, 5, 0x68)}, {"i2c": 2},
-               {"time": (26, 11, 15, 0, 12, 34, 56)}),
+               {"time": (26, 11, 15, 0, 12, 34, 56)},
+               checks=(Check("(tuple(part.time), part.os, part.stop)",
+                             lambda v: tuple(v[0][:6]) == (0,) * 6 and v[0][6] in (1, 2) and not v[1] and not v[2],
+                             "the program's all-zero time, counting, its integrity flag cleared", 2.0),)),
     ),
     # spi/bme280_spi/bme280_spi.c: spi=(SCK, MOSI = TX, MISO = RX, CSn).
     "bme280_spi": (

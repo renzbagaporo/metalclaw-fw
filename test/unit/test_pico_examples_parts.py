@@ -220,3 +220,30 @@ def test_the_substep_speed_is_what_64_substeps_over_1_ms_give_within_1_us():
     assert judged(63935, -63936) and judged(63999, -64000) and judged(64064, -64065)
     assert not judged(63934, -64000) and not judged(64065, -64000)
     assert not judged(64000, -63935) and not judged(64000, -64066) and not judged(63000, -63000)
+
+
+def check_of(target, description_part):
+    (part,) = PARTS[target]
+    (check,) = [c for c in part.checks if description_part in c.description]
+    return check
+
+
+# mcp9808_i2c.c:70-99: each limit's two bytes at 1/16 degC.
+def test_mcp9808_i2cs_limits_are_read_back_from_the_part():
+    check = check_of("mcp9808_i2c", "limits")
+    limits = [(msb << 8 | lsb) * 1000 // 16 for msb, lsb in ((0x01, 0xE0), (0x01, 0x40), (0x02, 0x80))]
+    assert limits == [30000, 20000, 40000]
+    assert check.test(limits) and check.test(tuple(limits))
+    assert not check.test([0, 0, 0]) and not check.test([30000, 20000, 0])
+
+
+def test_pcf8523_i2cs_time_is_read_back_from_the_part():
+    check = check_of("pcf8523_i2c", "time")
+    assert check.after_seconds == 2.0
+    assert check.test(((0, 0, 0, 0, 0, 0, 1), False, False)) and check.test(([0, 0, 0, 0, 0, 0, 2], False, False))
+    # The time parts.py set, a stopped clock, OS left set, or seconds that
+    # did not run.
+    assert not check.test(((26, 11, 15, 0, 12, 34, 58), False, False))
+    assert not check.test(((0, 0, 0, 0, 0, 0, 1), False, True))
+    assert not check.test(((0, 0, 0, 0, 0, 0, 1), True, False))
+    assert not check.test(((0, 0, 0, 0, 0, 0, 0), False, False))
