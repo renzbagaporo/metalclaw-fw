@@ -97,6 +97,9 @@ EMULATION: dict[str, Emulation] = {
     "slave_mem_i2c": I2C_PIN_WIRES,
     "slave_mem_i2c_burst": I2C_PIN_WIRES,
     "pio_i2c_bus_scan": I2C_PIN_WIRES,
+    # pio/clocked_input/clocked_input.c:23-30: the PIO reads GP4 and GP5,
+    # where the harness's relays return SPI0's GP2 and GP3.
+    "pio_clocked_input": RELAYED_ON_GP4_GP5,
 }
 
 # Programs the emulator cannot judge with Metalclaw in the loop, and why;
