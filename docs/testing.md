@@ -31,6 +31,16 @@ names the probe-rs executable when it is not on `PATH`.
 - `devices/<name>/test/cases.py`, or a `cases/` directory of `test_*.py`
   files, for one device; `devices/cellular/test/cases/` has one per model
   and a `common.py` they import relatively (`from .common import ...`).
+- `test/pico_examples/cases.py` for an unmodified pico-examples program on
+  the DUT, judged by what its source says it does: the lines it prints
+  (`targets.py`, `part_targets.py`), what its parts saw (`parts.py`), its
+  pins and registers read over SWD (`pin_specs.py`), and the device on its
+  own USB (`usb_devices.py`). A program whose source prints a line a set
+  time apart has that interval bounded on the harness's clock (a Spec's
+  `intervals`), judged within what the clock readings around each line's
+  arrival can tell. A program that prints nothing skips its console case,
+  since an empty read shows nothing, and a build a Spec cannot judge skips
+  with the reason the Spec gives (`other_boards`).
 
 A case is a pytest function taking `harness`, `dut`, `probe` or `fixture`:
 
