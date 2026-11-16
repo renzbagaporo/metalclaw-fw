@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
-import socket
-import subprocess
-import threading
 from pathlib import Path
 
 import pytest
@@ -11,93 +8,6 @@ from test.rig.platforms.emulator import bench, platform
 
 pytest_plugins = ["pytester"]
 ROOT = Path(__file__).resolve().parents[2]
-
-# Renode 1.17.0's monitor, as it answered on a bench's port.
-GREETING = (b'\xff\xfd\x00\xff\xfd\x1f\xff\xfb\x01\xff\xfb\x03\xff\xfc"Renode, version 1.17.0\n\r\n\r'
-            b'(monitor) include @bench.resc\n\r(pico2) ')
-REPLIES = {
-    "uart0_dut_tx LateDeliveries": b"uart0_dut_tx LateDeliveries\n\r0x0000000000000003\r\r\n(pico2) ",
-    "uart0_harness_tx LateDeliveries":
-        b"uart0_harness_tx LateDeliveries\n\rNo such command or device: uart0_harness_tx\r\n(pico2) ",
-}
-NO_PROPERTY = ("uart0_dut_tx LateDeliveries\n\rThere was an error executing command 'uart0_dut_tx "
-               "LateDeliveries': \r\nuart0_dut_tx does not provide a field, method or property "
-               "LateDeliveries.\r\n(monitor) ")
-
-
-class FakeMonitor(threading.Thread):
-    def __init__(self, replies=REPLIES, greeting=GREETING):
-        super().__init__(daemon=True)
-        self.server = socket.socket()
-        self.server.bind(("127.0.0.1", 0))
-        self.server.listen(1)
-        self.port = self.server.getsockname()[1]
-        self.replies = replies
-        self.greeting = greeting
-        self.commands = []
-
-    def run(self):
-        connection, _ = self.server.accept()
-        with connection:
-            # The greeting in two parts, as a bench that is still printing
-            # sends it.
-            connection.sendall(self.greeting[:40])
-            connection.sendall(self.greeting[40:])
-            buffer = b""
-            while True:
-                data = connection.recv(4096)
-                if not data:
-                    return
-                buffer += data
-                while b"\n" in buffer:
-                    line, buffer = buffer.split(b"\n", 1)
-                    command = line.decode()
-                    self.commands.append(command)
-                    if command in self.replies:
-                        connection.sendall(self.replies[command])
-
-
-def test_a_counter_reads_as_the_number_the_monitor_printed():
-    reply = bench._monitor_text(REPLIES["uart0_dut_tx LateDeliveries"])
-    assert bench.monitor_value(reply, "uart0_dut_tx LateDeliveries") == 3
-
-
-@pytest.mark.parametrize("reply", [REPLIES["uart0_harness_tx LateDeliveries"], NO_PROPERTY.encode()],
-                         ids=["no wire", "no counter"])
-def test_a_package_without_the_wire_or_its_counter_reads_as_none(reply):
-    command = bench._monitor_text(reply).split("\n", 1)[0]
-    assert bench.monitor_value(bench._monitor_text(reply), command) is None
-
-
-def test_the_bench_reads_each_uart0_wires_late_deliveries_before_it_quits(tmp_path):
-    monitor = FakeMonitor()
-    monitor.start()
-    b = bench.Bench(tmp_path, bench.LAYOUTS["rpi_pi_pico"], tmp_path / "h.uf2", tmp_path, tmp_path / "z.elf",
-                    tmp_path / "work", "0123456789ABCDEF")
-    b.process = subprocess.Popen(["sleep", "30"])
-    b.monitor_port = monitor.port
-    try:
-        assert b.late_deliveries() == {"uart0_dut_tx": 3, "uart0_harness_tx": None}
-    finally:
-        b.process.kill()
-        b.process.wait()
-    assert monitor.commands == ["uart0_dut_tx LateDeliveries", "uart0_harness_tx LateDeliveries"]
-
-
-def test_a_monitor_that_never_answers_reads_as_none(monkeypatch):
-    monitor = FakeMonitor(replies={})
-    monitor.start()
-    assert bench.monitor_replies(monitor.port, ["uart0_dut_tx LateDeliveries"], timeout=1.0) == [None]
-
-
-def test_a_bench_that_is_gone_is_not_asked(tmp_path):
-    b = bench.Bench(tmp_path, bench.LAYOUTS["rpi_pi_pico"], tmp_path / "h.uf2", tmp_path, tmp_path / "z.elf",
-                    tmp_path / "work", "0123456789ABCDEF")
-    b.process = subprocess.Popen(["sh", "-c", "exit 0"])
-    b.process.wait()
-    b.monitor_port = 1
-    assert b.late_deliveries() == {"uart0_dut_tx": None, "uart0_harness_tx": None}
-
 
 class FakeHarness:
     def __init__(self, answer):
@@ -149,7 +59,8 @@ from test.rig.platforms.emulator import platform
 def diagnostics(pytestconfig, record_testsuite_property):
     platform._session["record"] = record_testsuite_property
     yield
-    platform.record_late_deliveries(pytestconfig, {"uart0_dut_tx": 0, "uart0_harness_tx": None})
+    platform.record_diagnostic(pytestconfig, "console_bridge_example_console_overruns", 0)
+    platform.record_diagnostic(pytestconfig, "console_bridge_stats", "unavailable: the REPL port is gone")
     platform._session["record"] = None
 """
 
@@ -160,12 +71,11 @@ def test_the_counts_reach_the_junit_properties_and_the_terminal_summary(pytester
     pytester.makepyfile("def test_passes(): pass\n")
     result = pytester.runpytest_subprocess("-p", "test.rig.platforms.emulator.platform", "--junitxml=junit.xml",
                                            "-o", "junit_family=xunit1")
-    result.stdout.fnmatch_lines(["*- emulator diagnostics -*", "renode_uart0_dut_tx_late_deliveries: 0",
-                                 "renode_uart0_harness_tx_late_deliveries: absent from this Renode package"])
+    result.stdout.fnmatch_lines(["*- emulator diagnostics -*", "console_bridge_example_console_overruns: 0",
+                                 "console_bridge_stats: unavailable: the REPL port is gone"])
     junit = (pytester.path / "junit.xml").read_text()
-    assert '<property name="renode_uart0_dut_tx_late_deliveries" value="0"' in junit
-    assert '<property name="renode_uart0_harness_tx_late_deliveries" value="absent from this Renode package"' \
-        in junit
+    assert '<property name="console_bridge_example_console_overruns" value="0"' in junit
+    assert '<property name="console_bridge_stats" value="unavailable: the REPL port is gone"' in junit
 
 
 CONSOLE_PLUGIN = """

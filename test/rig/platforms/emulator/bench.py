@@ -16,8 +16,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, replace
-from decimal import Decimal, InvalidOperation
+from dataclasses import dataclass
 from pathlib import Path
 
 from test.pico_examples.emulation import DEFAULT, Emulation
@@ -40,31 +39,21 @@ class Layout:
     # The bench script variable that sets the harness's chip ID, and with it
     # its USB serial, when the script has one.
     chip_id_variable: str | None = None
-    # What the DUT's peripherals are called in `dut_machine`: "" when it is
-    # a machine of its own, "d_" when both chips share one (each chip's
-    # peripherals carry their prefix, its cores their own cluster).
-    dut_prefix: str = ""
+    # The prefix of the DUT's peripherals' names in `dut_machine`.
+    dut_prefix: str = "d_"
 
 
-# By the harness's MicroPython board.
+# By the harness's MicroPython board. Both chips run in one Renode machine,
+# "bench": the harness's and the DUT's peripherals on one clock, their pins
+# joined by wires with no latency, each chip's cores and bus registrations
+# in a cluster of its own, the DUT's peripherals named with its prefix.
 LAYOUTS = {
     # Fixture 1: a Pico harness driving a Pico 2 DUT. The RP2040 reports the
     # emulated W25Q's default unique ID.
-    "rpi_pi_pico": Layout("scripts/multi-node/metalclaw_fixture.resc", "rp2040", "rp2350", "pico2",
-                          "0123456789ABCDEF"),
-    # The MetalClaw Pico RP2 carrier: an RP2354B harness driving a Pico DUT.
-    # The RP2350 reports its OTP chip ID, which the bench script sets.
-    "metalclaw_pico_rp2": Layout("scripts/multi-node/metalclaw_carrier.resc", "rp2350", "rp2040", "pico",
-                                 "00000000C0FFEE01", "harness_chip_id"),
-}
-
-# The same benches with both chips in one Renode machine, "bench": the
-# harness's and the DUT's peripherals on one clock, their pins joined by
-# wires with no latency, each chip's cores and bus registrations in a
-# cluster of its own. Chosen with METALCLAW_EMULATOR_LAYOUT=one_machine.
-ONE_MACHINE_LAYOUTS = {
     "rpi_pi_pico": Layout("scripts/multi-node/metalclaw_fixture_one_machine.resc", "rp2040", "rp2350", "bench",
                           "0123456789ABCDEF", dut_prefix="d_"),
+    # The MetalClaw Pico RP2 carrier: an RP2354B harness driving a Pico DUT.
+    # The RP2350 reports its OTP chip ID, which the bench script sets.
     "metalclaw_pico_rp2": Layout("scripts/multi-node/metalclaw_carrier_one_machine.resc", "rp2350", "rp2040",
                                  "bench", "00000000C0FFEE01", "harness_chip_id", dut_prefix="d_"),
 }
@@ -411,58 +400,18 @@ class Settings:
     unmet: tuple[str, ...] = ()
 
 
-def _seconds(value: str, what: str) -> Decimal:
-    try:
-        seconds = Decimal(value.strip().strip('"'))
-    except InvalidOperation:
-        raise BenchError(f"invalid {what} {value!r}; expected seconds") from None
-    if not seconds.is_finite() or seconds <= 0:
-        raise BenchError(f"invalid {what} {value!r}; expected positive seconds")
-    return seconds
-
-
 # What a program's Emulation (test/pico_examples/emulation.py) sets on the
-# bench `script`. A variable the script does not declare, or an I2C0 wiring
-# whose script is not in the package, is left out and named in `unmet`. A
-# wire latency also sets the DUT's SPI input delay, the round trip, where the
-# script has one. `quantum` (METALCLAW_RENODE_QUANTUM) overrides the
-# program's.
-def bench_settings(emulation: Emulation, script: Path, script_text: str, dut_machine: str,
-                   quantum: str | None = None, dut_prefix: str = "") -> Settings:
-    # A program's quantum and wire latency tune the delayed wires between two
-    # machines; with both chips in one machine (a DUT prefix) every GPIO is a
-    # plain wire on one clock, at the script's own quantum, and they do not
-    # apply. I2C0 still crosses as the script's byte-level bus unless the
-    # program asks for pin wires (*_one_machine_i2c0_{bus,wires}.resc):
-    # Renode's I2C controllers talk I2C only at byte level.
-    if dut_prefix:
-        emulation = replace(emulation, quantum=None, wire_latency_us=None)
+# bench `script`: its I2C0 wiring, the byte-level bus or pin-level wires
+# (`<script>_i2c0_{bus,wires}.resc`), since Renode's I2C controllers talk to
+# a byte-level bus unless their pads carry the bus. A variable the script
+# does not declare, or a wiring script not in the package, is left out and
+# named in `unmet`. `quantum` (METALCLAW_RENODE_QUANTUM) sets the script's
+# synchronisation quantum.
+def bench_settings(emulation: Emulation, script: Path, script_text: str, quantum: str | None = None) -> Settings:
     declared = script_variables(script_text)
     variables, unmet = [], []
-
-    def need(name: str, value: str, shown) -> None:
-        if name in declared:
-            variables.append((name, value))
-        else:
-            unmet.append(f"${name} {shown}")
-
     if quantum:
         variables.append(("quantum", f'"{quantum}"'))
-    elif emulation.quantum is not None:
-        need("quantum", f'"{emulation.quantum}"', emulation.quantum)
-    latency = emulation.wire_latency_us
-    if latency is not None:
-        if isinstance(latency, bool) or not isinstance(latency, int) or latency <= 0:
-            raise BenchError(f"invalid wire latency {latency!r}; expected whole microseconds")
-        need("wire_latency_us", str(latency), latency)
-        if "spi_input_delay_ns" in declared:
-            variables.append(("spi_input_delay_ns", str(2000 * latency)))
-    set_quantum = dict(variables).get("quantum", declared.get("quantum"))
-    set_latency = dict(variables).get("wire_latency_us", declared.get("wire_latency_us"))
-    if (quantum or emulation.quantum or latency) and set_quantum is not None and set_latency is not None:
-        q = _seconds(set_quantum, "quantum")
-        if Decimal(set_latency) / 1_000_000 <= 2 * q:
-            raise BenchError(f"a wire latency of {set_latency} us does not exceed two quanta of {q} s")
     wiring = emulation.i2c0_wiring
     if wiring is not None:
         if wiring not in ("bus", "wires"):
@@ -505,77 +454,6 @@ def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_r
         f"{dut_prefix}xipMemory LoadBinary @{dut_flash_bin}",
         "start",
     ]
-
-
-# The bench script's delayed UART0 wires, whose LateDeliveries count the
-# edges each delivered later than its latency once the receiving board had
-# run past them. Read before the bench quits; a Renode package whose script
-# or wires lack them reports None for the wire.
-LATE_DELIVERY_WIRES = ("uart0_dut_tx", "uart0_harness_tx")
-MONITOR_TIMEOUT_S = 30.0
-# The monitor's prompt, "(monitor) " or "(<machine>) ", ends every reply.
-_PROMPT = re.compile(r"\([^()\r\n]*\) ?$")
-_LEADING_PROMPT = re.compile(r"^\([^()\r\n]*\) ?")
-# Telnet option negotiation, then terminal escapes.
-_TELNET = re.compile(r"\xff[\xfb-\xfe].|\xff[^\xfb-\xfe]")
-_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-_NUMBER = re.compile(r"(?:0x[0-9a-fA-F]+|[0-9]+)")
-
-
-def _monitor_text(data: bytes) -> str:
-    return _ESCAPE.sub("", _TELNET.sub("", data.decode("latin-1"))).replace("\r", "")
-
-
-# The value a monitor command printed: its reply's one line that is a number
-# (Renode 1.17 prints a counter as 0x0000000000000003), or None when it
-# printed an error instead: "No such command or device" for an object the
-# bench script never made, "does not provide a field, method or property"
-# for a counter this package's wires do not have.
-def monitor_value(reply: str, command: str) -> int | None:
-    lines = [_LEADING_PROMPT.sub("", line).strip() for line in reply.split("\n")]
-    lines = [line for line in lines if line and line != command]
-    numbers = [line for line in lines if _NUMBER.fullmatch(line)]
-    if len(numbers) != 1 or len(lines) != 1:
-        return None
-    return int(numbers[0], 0)
-
-
-# Each command's reply, up to the prompt after it, from the monitor on
-# `port`. A reply that never ends in a prompt is None, as is every later one.
-# The greeting is read until it goes quiet: it can hold several prompts.
-def monitor_replies(port: int, commands: list[str], timeout: float = MONITOR_TIMEOUT_S,
-                    quiet: float = 0.5) -> list[str | None]:
-    replies: list[str | None] = []
-    with socket.create_connection(("127.0.0.1", port), timeout=timeout) as monitor:
-        def until_prompt(settle: float = 0.0) -> str | None:
-            text, deadline = "", time.monotonic() + timeout
-            while True:
-                prompted = _PROMPT.search(text) is not None
-                if prompted and not settle:
-                    return text
-                left = deadline - time.monotonic()
-                if left <= 0:
-                    return text if prompted else None
-                monitor.settimeout(min(left, settle) if prompted else left)
-                try:
-                    data = monitor.recv(4096)
-                except socket.timeout:
-                    if prompted:
-                        return text
-                    return None
-                if not data:
-                    return text if prompted else None
-                text += _monitor_text(data)
-
-        if until_prompt(quiet) is None:
-            return [None] * len(commands)
-        for command in commands:
-            monitor.sendall(command.encode() + b"\n")
-            reply = until_prompt()
-            replies.append(reply)
-            if reply is None:
-                break
-    return replies + [None] * (len(commands) - len(replies))
 
 
 class Bench:
@@ -661,8 +539,8 @@ class Bench:
         payload.write_bytes(harness_flash)
         harness_rom = self._rom(layout.harness_chip, "harness_rom.bin")
         dut_rom = self._rom(layout.dut_chip, "dut_rom.bin")
-        self.settings = bench_settings(self.emulation, script, script_text, layout.dut_machine,
-                                       os.environ.get("METALCLAW_RENODE_QUANTUM"), layout.dut_prefix)
+        self.settings = bench_settings(self.emulation, script, script_text,
+                                       os.environ.get("METALCLAW_RENODE_QUANTUM"))
         self.log = (self.work / "renode.log").open("w")
         self._note_settings()
         chip_id = None if layout.chip_id_variable is None else (layout.chip_id_variable, self.serial)
@@ -689,21 +567,6 @@ class Bench:
         if s.unmet:
             self.log.write(f"rig: {self.layout.script} does not take " + ", ".join(s.unmet) + "\n")
         self.log.flush()
-
-    # Each delayed UART0 wire's LateDeliveries, None where this package's
-    # bench has no such count or the monitor did not answer.
-    def late_deliveries(self) -> dict[str, int | None]:
-        counts: dict[str, int | None] = {wire: None for wire in LATE_DELIVERY_WIRES}
-        if self.process is None or self.process.poll() is not None or self.monitor_port is None:
-            return counts
-        commands = [f"{wire} LateDeliveries" for wire in LATE_DELIVERY_WIRES]
-        try:
-            replies = monitor_replies(self.monitor_port, commands)
-        except OSError:
-            return counts
-        for wire, command, reply in zip(LATE_DELIVERY_WIRES, commands, replies):
-            counts[wire] = None if reply is None else monitor_value(reply, command)
-        return counts
 
     # What the bench lacks for the DUT's own USB, or None: a bench script
     # without $dut_usbip_port exports no USB/IP server for it.

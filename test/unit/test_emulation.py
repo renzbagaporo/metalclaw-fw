@@ -4,12 +4,11 @@
 
 import json
 import types
-from decimal import Decimal
 
 import pytest
 
 from test.pico_examples import emulation as emu
-from test.rig.platforms.emulator.bench import LAYOUTS, ONE_MACHINE_LAYOUTS
+from test.rig.platforms.emulator.bench import LAYOUTS
 from test.pico_examples.emulation import EMULATION, EMULATOR_LIMITS, Emulation, emulation_for
 from test.pico_examples.part_targets import PART_SPECS
 from test.pico_examples.parts import JUMPERS, PARTS
@@ -18,59 +17,42 @@ from test.rig.platforms.emulator import platform
 from test.rig.platforms.hardware import platform as hardware
 
 
-def test_every_need_keeps_the_latency_above_two_quanta_in_whole_microseconds():
+def test_every_need_is_a_known_i2c0_wiring():
     for target, e in EMULATION.items():
-        quantum = Decimal(e.quantum or "0.0001")
-        latency = 300 if e.wire_latency_us is None else e.wire_latency_us
-        assert isinstance(latency, int) and not isinstance(latency, bool) and latency > 0, target
-        assert Decimal(latency) / 1_000_000 > 2 * quantum, target
-        assert e.i2c0_wiring in (None, "bus", "wires"), target
+        assert e.i2c0_wiring in ("bus", "wires"), target
 
 
-def test_every_harness_relayed_jumper_runs_at_a_fine_quantum_unless_out_of_reach():
-    relayed = {t for t, parts in JUMPERS.items() if all(p.model == "jumper" for p in parts)}
-    assert relayed - set(EMULATOR_LIMITS)
-    for target in relayed - set(EMULATOR_LIMITS):
-        e = EMULATION[target]
-        assert (e.quantum, e.wire_latency_us) == ("0.000001", 3), target
-
-
-def test_a_relayed_program_on_gp4_or_gp5_takes_the_pin_level_i2c0_wires():
-    for target in ("pio_uart_rx", "pio_uart_rx_intr", "pio_uart_dma", "pwm_measure_duty_cycle"):
+def test_every_program_on_gp4_or_gp5_off_i2c_takes_the_pin_level_i2c0_wires():
+    for target in ("pio_uart_rx", "pio_uart_rx_intr", "pio_uart_dma", "pwm_measure_duty_cycle",
+                   "pio_clocked_input", "gps_uart", "mpu9250_spi"):
+        assert EMULATION[target] is emu.GP4_GP5_WIRES, target
+    for target in ("pio_uart_rx", "pio_uart_rx_intr", "pio_uart_dma", "pwm_measure_duty_cycle",
+                   "pio_clocked_input"):
         assert {4, 5} & {p for part in PARTS[target] for p in part.dut_pins()}, target
-        assert EMULATION[target] == Emulation(quantum="0.000001", wire_latency_us=3, i2c0_wiring="wires"), target
-    assert EMULATION["pio_uart_rx"] is emu.RELAYED_ON_GP4_GP5
 
 
-def test_the_1_wire_and_dht_parts_answer_over_relay_wires():
-    for target in ("pio_onewire", "dht"):
-        assert EMULATION[target] is emu.RELAYED, target
-        assert EMULATION[target].i2c0_wiring is None
+def test_a_relayed_jumper_off_gp4_and_gp5_needs_nothing_of_the_bench():
+    relayed = {t for t, parts in JUMPERS.items() if all(p.model == "jumper" for p in parts)}
+    for target in relayed - set(EMULATOR_LIMITS):
+        if not {4, 5} & {p for part in PARTS[target] for p in part.dut_pins()}:
+            assert emulation_for({"target": target}) is emu.DEFAULT, target
 
 
 def test_a_program_without_needs_and_a_rig_image_get_the_defaults():
     assert emulation_for({"target": "hello_serial"}) is emu.DEFAULT
+    assert emulation_for({"target": "pio_onewire"}) is emu.DEFAULT
     assert emulation_for(None) is emu.DEFAULT
 
 
 # ---- emulator limits -------------------------------------------------------
 
 
-def test_the_emulator_limits_name_the_programs_whose_timing_the_wires_cannot_carry():
-    assert set(emu.WIRE_LIMITS) == {"slave_mem_i2c", "slave_mem_i2c_burst", "pio_i2c_bus_scan", "pio_clocked_input",
-                                    "pio_spi_flash", "spi_slave"}
-    for target, reason in emu.WIRE_LIMITS.items():
-        assert target in PARTS and target in set(SPECS) | set(PART_SPECS), target
-        assert "(300 us; 3 us at best with RELAYED)" in reason, target
-        assert reason.endswith("; pending a Renode change that puts the harness's pins in the DUT's time domain")
-    assert "open-drain I2C join" in EMULATOR_LIMITS["slave_mem_i2c"]
-    assert EMULATOR_LIMITS["slave_mem_i2c_burst"] == EMULATOR_LIMITS["slave_mem_i2c"]
-    assert "100 times slower than real time" in EMULATOR_LIMITS["hstx_spi_lcd"]
-    assert "21 MHz SPI jumpers" in EMULATOR_LIMITS["pio_clocked_input"]
-    assert "samples MISO on its own clock edges, so a harness flash answers a round trip" in (
-        EMULATOR_LIMITS["pio_spi_flash"])
-    assert "samples the DUT's MISO a round trip" in EMULATOR_LIMITS["spi_slave"]
-    assert "reads ff" in EMULATOR_LIMITS["spi_slave"]
+def test_the_emulator_limits_are_the_unprovisioned_the_too_slow_and_the_core_order():
+    assert set(EMULATOR_LIMITS) == set(emu.UNPROVISIONED) | set(emu.SPEED_LIMITS) | set(emu.CORE_ORDER_LIMITS)
+    assert set(emu.SPEED_LIMITS) == {"hstx_spi_lcd", "hello_pwm", "pio_hub75"}
+    for target in emu.SPEED_LIMITS:
+        assert "times slower than real time" in EMULATOR_LIMITS[target], target
+    assert set(emu.CORE_ORDER_LIMITS) == {"multicore_doorbell"}
 
 
 # The OTP programs never run on a bench (hazards.py). hello_otp is judged in
@@ -88,19 +70,15 @@ def test_every_hardware_hazard_is_judged_or_explained_in_the_emulator():
     assert SPECS["hello_otp"].source == REGISTER_SPECS["hello_otp"].source == "otp/hello_otp/hello_otp.c"
 
 
-def test_the_pin_level_i2c_programs_take_the_i2c0_wires_in_one_machine():
+def test_the_pin_level_i2c_programs_take_the_i2c0_wires():
     for target in ("slave_mem_i2c", "slave_mem_i2c_burst", "pio_i2c_bus_scan"):
-        assert EMULATION[target] == Emulation(i2c0_wiring="wires"), target
-        assert target in emu.WIRE_LIMITS and target not in emu.ONE_MACHINE_LIMITS, target
+        assert EMULATION[target] is emu.I2C_PIN_WIRES, target
+        assert target not in EMULATOR_LIMITS, target
     assert {2, 3} <= {p for part in PARTS["pio_i2c_bus_scan"] for p in part.dut_pins()}
-    assert "i2c_bus_scan" not in EMULATOR_LIMITS
 
 
-def test_a_program_no_emulated_bench_can_judge_needs_nothing_of_it():
-    # A program limited only on two machines may need its wiring in one.
-    assert not set(emu.ONE_MACHINE_LIMITS) & set(EMULATION)
-    for target in emu.ONE_MACHINE_LIMITS:
-        assert emulation_for({"target": target}) is emu.DEFAULT, target
+def test_a_program_the_emulator_cannot_judge_needs_nothing_of_it():
+    assert not set(EMULATOR_LIMITS) & set(EMULATION)
 
 
 class Reached(Exception):
@@ -127,13 +105,12 @@ class Untouchable:
         raise AssertionError(f"the harness was used ({name}) before the skip")
 
 
-def start_bench(tmp_path, monkeypatch, target, layout_kind=""):
+def start_bench(tmp_path, monkeypatch, target):
     # The bench fixture up to Bench.start, which a skip must come before.
     def reached(*args, **kwargs):
         raise Reached
     monkeypatch.setenv("METALCLAW_DUT_IMAGE", str(limited_image(tmp_path, target)))
     monkeypatch.setenv("METALCLAW_HARNESS_BOARD", "rpi_pi_pico")
-    monkeypatch.setenv(platform.LAYOUT_ENV, layout_kind)
     monkeypatch.setenv("METALCLAW_RENODE_DIR", str(tmp_path))
     monkeypatch.setenv("METALCLAW_RENODE_ROMS", str(tmp_path))
     monkeypatch.setattr(platform, "Bench", reached)
@@ -165,16 +142,10 @@ def test_the_emulator_example_fixture_goes_on_with_a_program_it_can_judge(tmp_pa
         fixture_function(platform.example)(bench, Untouchable(), None, {}, emu.DEFAULT, CONFIG)
 
 
-@pytest.mark.parametrize("target", sorted(emu.WIRE_LIMITS))
-def test_a_one_machine_bench_judges_the_programs_the_delayed_wires_cannot(tmp_path, monkeypatch, target):
-    with pytest.raises(Reached):
-        start_bench(tmp_path, monkeypatch, target, "one_machine")
-
-
 def test_the_hardware_example_fixture_ignores_the_emulator_limits(tmp_path, monkeypatch):
     def reached(*args, **kwargs):
         raise Reached
-    monkeypatch.setenv("METALCLAW_DUT_IMAGE", str(limited_image(tmp_path, "spi_slave")))
+    monkeypatch.setenv("METALCLAW_DUT_IMAGE", str(limited_image(tmp_path, "hello_pwm")))
     monkeypatch.setenv("METALCLAW_ARM_TOOLCHAIN_DIR", str(tmp_path))
     monkeypatch.setattr(hardware, "Example", reached)
     harness = types.SimpleNamespace(board=lambda: "metalclaw_pico_rp2")
@@ -203,10 +174,3 @@ def test_gps_uart_takes_the_pin_level_wires_on_gp4_and_gp5():
 def test_mpu9250_spi_gets_pin_level_wires_on_gp4_and_gp5():
     # Its MISO and CS are GP4 and GP5 (mpu9250_spi.c:43-46).
     assert EMULATION["mpu9250_spi"] == Emulation(i2c0_wiring="wires")
-
-
-@pytest.mark.parametrize("target", sorted(emu.ONE_MACHINE_LIMITS))
-def test_a_one_machine_bench_still_skips_what_the_wires_do_not_explain(tmp_path, monkeypatch, target):
-    with pytest.raises(pytest.skip.Exception) as skipped:
-        start_bench(tmp_path, monkeypatch, target, "one_machine")
-    assert str(skipped.value) == f"{target} is not judged in the emulator: {emu.ONE_MACHINE_LIMITS[target]}"

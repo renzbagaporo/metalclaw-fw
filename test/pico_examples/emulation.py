@@ -6,102 +6,62 @@
 # (test/rig/platforms/emulator/bench.py) and skips the programs it cannot
 # judge; the hardware platform never reads this.
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class Emulation:
-    # The bench's synchronisation quantum in seconds, as Renode takes it.
-    quantum: str | None = None
-    # The latency of every wire between the boards, in whole us; it must
-    # exceed two quanta.
-    wire_latency_us: int | None = None
-    # I2C0 between the boards: "bus", byte level (the scripts' default), or
-    # "wires", pin-level delayed wires (with the carrier's 5.1 k pull-ups).
+    # I2C0 between the chips: "bus", byte level (the bench scripts'
+    # default), or "wires", pin-level wires on GP4 and GP5 (with the
+    # carrier's 5.1 k pull-ups).
     i2c0_wiring: str | None = None
 
 
 DEFAULT = Emulation()
 
-# A jumper the harness relays (gpio_link's follow) crosses the boards twice,
-# out and back, so its edges reach the DUT two wire latencies late: the
-# bench runs at a 1 us quantum with 3 us wires for it. A 1-Wire or DHT part
-# answers its program within 10-40 us, which the same wires carry.
-RELAYED = Emulation(quantum="0.000001", wire_latency_us=3)
-
-# The same, for a program that takes DUT GP4 and GP5 as GPIO, PIO or UART
-# pins, not I2C: the bench scripts' default byte-level I2C0 bus leaves
-# those pads unwired, and only the pin-level I2C0 wires reach the
-# carrier's two harness branches of each.
-RELAYED_ON_GP4_GP5 = replace(RELAYED, i2c0_wiring="wires")
-
-# uart/gps_uart/gps_uart.c:20-23: uart1 at 9600 on GP4 (TX) and GP5 (RX),
-# which the default byte-level I2C0 bus leaves unwired; a UART at 9600
-# baud takes the default 300 us wires as they are.
+# A program that takes DUT GP4 and GP5 as GPIO, PIO, UART or SPI pins, not
+# I2C: the bench scripts' default byte-level I2C0 bus leaves those pads
+# unwired, and only the pin-level I2C0 wires reach the carrier's two harness
+# branches of each.
 GP4_GP5_WIRES = Emulation(i2c0_wiring="wires")
 
-# spi/mpu9250_spi/mpu9250_spi.c:43-46: SPI0 with MISO on GP4 and CS on GP5,
-# which the default byte-level I2C0 bus leaves unwired, so the part never
-# sees CS and the program reads 0; the pin-level I2C0 wires carry them.
-MPU9250_SPI_WIRES = GP4_GP5_WIRES
-
-# i2c/slave_mem_i2c/slave_mem_i2c.c and pio/i2c/i2c_bus_scan.c: I2C carried
-# on its pins, the DUT's I2C0 target and I2C1 controller joined by the
-# harness's open-drain jumpers on GP4-7, and a PIO controller on GP2 and GP3
-# against a harness I2C target there. Renode's RP2 I2C peripheral carries
-# its bus on its SDA and SCL pads when no byte-level bus is connected, so
-# these take the pin-level I2C0 wires; two machines' delayed wires still
-# cannot carry the open-drain join (WIRE_LIMITS).
+# I2C carried on its pins: Renode's RP2 I2C peripheral drives its SDA and
+# SCL pads when no byte-level bus is connected, so a program whose I2C
+# reaches the harness through a jumper or a PIO controller takes the
+# pin-level I2C0 wires.
 I2C_PIN_WIRES = Emulation(i2c0_wiring="wires")
 
 EMULATION: dict[str, Emulation] = {
-    "pio_uart_rx": RELAYED_ON_GP4_GP5,
-    "pio_uart_rx_intr": RELAYED_ON_GP4_GP5,
-    "pio_uart_dma": RELAYED_ON_GP4_GP5,
-    "pio_manchester_encoding": RELAYED,
-    "pio_differential_manchester": RELAYED,
-    "pwm_measure_duty_cycle": RELAYED_ON_GP4_GP5,
-    "pio_onewire": RELAYED,
-    "dht": RELAYED,
+    # pio/uart_rx/uart_rx.c:26-27 and uart_rx_intr.c:33-34: the PIO
+    # receives on GP3 from a UART TX on GP4, which the harness relays.
+    "pio_uart_rx": GP4_GP5_WIRES,
+    "pio_uart_rx_intr": GP4_GP5_WIRES,
+    # pio/uart_dma/uart_dma.c:19-21: sends on GP4 and receives on GP5.
+    "pio_uart_dma": GP4_GP5_WIRES,
+    # pwm/measure_duty_cycle/measure_duty_cycle.c:16-17: a PWM output on GP2
+    # measured by slice 2's B input on GP5.
+    "pwm_measure_duty_cycle": GP4_GP5_WIRES,
+    # pio/clocked_input/clocked_input.c:23-30: the PIO reads GP4 and GP5,
+    # where the harness's relays return SPI0's GP2 and GP3.
+    "pio_clocked_input": GP4_GP5_WIRES,
+    # uart/gps_uart/gps_uart.c:20-23: uart1 at 9600 on GP4 (TX) and GP5
+    # (RX).
     "gps_uart": GP4_GP5_WIRES,
-    "mpu9250_spi": MPU9250_SPI_WIRES,
+    # spi/mpu9250_spi/mpu9250_spi.c:43-46: SPI0 with MISO on GP4 and CS on
+    # GP5; without the wires the part never sees CS and the program reads 0.
+    "mpu9250_spi": GP4_GP5_WIRES,
+    # i2c/slave_mem_i2c: the DUT's I2C0 target and I2C1 controller, joined
+    # by the harness's open-drain jumpers on GP4-7 (parts.py _i2c_jumpers);
+    # pio/i2c/i2c_bus_scan.c:6-7, 35: a PIO I2C controller on GP2 and GP3
+    # against a harness I2C target there.
     "slave_mem_i2c": I2C_PIN_WIRES,
     "slave_mem_i2c_burst": I2C_PIN_WIRES,
     "pio_i2c_bus_scan": I2C_PIN_WIRES,
-    # pio/clocked_input/clocked_input.c:23-30: the PIO reads GP4 and GP5,
-    # where the harness's relays return SPI0's GP2 and GP3.
-    "pio_clocked_input": RELAYED_ON_GP4_GP5,
 }
 
-# Programs the emulator cannot judge with Metalclaw in the loop, and why;
-# the emulator platform skips each with its reason (EMULATOR_LIMITS). The
-# wires between the emulated boards deliver an edge a fixed latency after
-# its sender drove it, so a program whose timing needs the harness within
-# less than a round trip of them fails there for want of the emulator, not
-# of the harness. Each waits on a Renode change that puts the harness's
-# pins in the DUT's time domain.
-_WIRES = "the delayed wires between the boards (300 us; 3 us at best with RELAYED)"
-_PENDING = "pending a Renode change that puts the harness's pins in the DUT's time domain"
-WIRE_LIMITS: dict[str, str] = {
-    # i2c/slave_mem_i2c: the DUT's I2C0 target and I2C1 controller, joined
-    # by the harness's open-drain jumpers (parts.py _i2c_jumpers).
-    **dict.fromkeys(("slave_mem_i2c", "slave_mem_i2c_burst"),
-                    f"{_WIRES} cannot carry the harness's open-drain I2C join; {_PENDING}"),
-    # pio/clocked_input/clocked_input.c:23-30, 37: SPI0 at clk_sys / 6, half
-    # periods of about 24 ns, from GP2 and GP3 into the PIO's GP5 and GP4.
-    # pio/i2c/i2c_bus_scan.c:6-7, 35: a PIO I2C controller on GP2 and GP3.
-    "pio_i2c_bus_scan": f"{_WIRES} cannot carry the PIO controller's open-drain I2C to the harness's target; "
-                        f"{_PENDING}",
-    "pio_clocked_input": f"{_WIRES} cannot carry the 21 MHz SPI jumpers; {_PENDING}",
-    # pio/spi/spi_flash.c:106-128: the PIO SPI controller at 1 MHz in mode 0
-    # (spi_cpha0).
-    "pio_spi_flash": f"the PIO controller samples MISO on its own clock edges, so a harness flash answers a round "
-                     f"trip of {_WIRES} late; {_PENDING}",
-    # spi/spi_master_slave/spi_slave/spi_slave.c:72-88: the DUT answers each
-    # byte on GP19 in the window the harness's spi_page_controller clocks.
-    "spi_slave": f"the harness's controller samples the DUT's MISO a round trip of {_WIRES} late and reads ff; "
-                 f"{_PENDING}",
-}
+# The programs the emulator cannot judge with Metalclaw in the loop, and
+# why: the emulator platform skips each with its reason before the bench
+# starts (EMULATOR_LIMITS).
 
 # Programs that cannot complete without OTP keys, and a second image, that
 # the emulated bench does not provision: its DUT's OTP starts blank, and a
@@ -158,10 +118,7 @@ CORE_ORDER_LIMITS: dict[str, str] = {
                           "do not interleave that tightly",
 }
 
-EMULATOR_LIMITS: dict[str, str] = {**WIRE_LIMITS, **UNPROVISIONED, **SPEED_LIMITS, **CORE_ORDER_LIMITS}
-# What still applies with both chips in one machine, where no delayed wire
-# lies between the harness and the DUT.
-ONE_MACHINE_LIMITS: dict[str, str] = {**UNPROVISIONED, **SPEED_LIMITS, **CORE_ORDER_LIMITS}
+EMULATOR_LIMITS: dict[str, str] = {**UNPROVISIONED, **SPEED_LIMITS, **CORE_ORDER_LIMITS}
 
 
 # For a DUT image's example.json, or None for a rig image.

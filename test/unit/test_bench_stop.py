@@ -140,8 +140,8 @@ def test_an_interrupt_while_stopping_waits_until_renode_is_down(tmp_path, short_
 
 def test_an_interrupt_while_starting_stops_the_renode_already_launched(tmp_path, short_graces, monkeypatch,
                                                                        default_exit_signals):
-    for name in ("renode", "scripts/multi-node/metalclaw_carrier.resc", "roms/b2.elf", "roms/bootrom-combined.bin",
-                 "h.uf2", "d.elf"):
+    for name in ("renode", "scripts/multi-node/metalclaw_carrier_one_machine.resc", "roms/b2.elf",
+                 "roms/bootrom-combined.bin", "h.uf2", "d.elf"):
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text("")
     b = bench.Bench(tmp_path, bench.LAYOUTS["metalclaw_pico_rp2"], tmp_path / "h.uf2", tmp_path / "roms",

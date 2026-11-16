@@ -358,8 +358,8 @@ def test_a_bench_script_without_the_duts_usbip_port_leaves_its_usb_unmet(tmp_pat
                     tmp_path, "0123456789ABCDEF")
     assert b.dut_usb_unmet() is None
     b.process, b.usbip_port = types.SimpleNamespace(), 3240
-    assert b.dut_usb_unmet() == ("$dut_usbip_port, which scripts/multi-node/metalclaw_fixture.resc in this "
-                                 "Renode package does not take")
+    assert b.dut_usb_unmet() == ("$dut_usbip_port, which scripts/multi-node/metalclaw_fixture_one_machine.resc in "
+                                 "this Renode package does not take")
     with pytest.raises(bench.BenchError, match=r"needs \$dut_usbip_port"):
         b.import_dut_usb(0x2E8A, 0x0009)
 

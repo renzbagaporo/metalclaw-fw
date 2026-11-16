@@ -11,12 +11,11 @@ from pathlib import Path
 import pytest
 
 from test.pico_examples import pins
-from test.pico_examples.emulation import DEFAULT, EMULATOR_LIMITS, ONE_MACHINE_LIMITS, Emulation, emulation_for
+from test.pico_examples.emulation import DEFAULT, EMULATOR_LIMITS, Emulation, emulation_for
 from test.pico_examples.usb_devices import UsbDevice, usb_device
 from test.rig import probe_telemetry
 from test.rig.platforms.emulator.bench import (
     LAYOUTS,
-    ONE_MACHINE_LAYOUTS,
     Bench,
     BenchError,
     Layout,
@@ -54,8 +53,9 @@ SLOW_HOST_DEFAULTS = {
     "METALCLAW_PROBE_RESET_TIMEOUT_S": "600",
     "METALCLAW_PROBE_ACCESS_TIMEOUT_S": "600",
     # A single transfer block can stall past 10 s while the emulated harness
-    # runs a flash routine on a loaded host.
-    "CMSIS_DAP_USB_TIMEOUT_MS": "60000",
+    # runs a flash routine on a loaded host, and the whole bench, both chips
+    # on one clock, advances about 100 times slower than real time.
+    "CMSIS_DAP_USB_TIMEOUT_MS": "600000",
     # The last page's routine has no next page to overlap with, so its
     # whole run lands on one watchdog: 10-14 s of host time, past 30 s on a
     # loaded host. A timed-out routine is abandoned while it runs, and the
@@ -132,21 +132,12 @@ def harness_board() -> str:
     return os.environ.get(HARNESS_BOARD_ENV, HARNESS_BOARD)
 
 
-# "one_machine" puts both chips in one Renode machine (bench.py
-# ONE_MACHINE_LAYOUTS); unset, each is a machine of its own.
-LAYOUT_ENV = "METALCLAW_EMULATOR_LAYOUT"
-
-
 def layout() -> Layout:
     board = harness_board()
-    kind = os.environ.get(LAYOUT_ENV, "")
-    layouts = {"": LAYOUTS, "one_machine": ONE_MACHINE_LAYOUTS}.get(kind)
-    if layouts is None:
-        pytest.exit(f"invalid {LAYOUT_ENV} {kind!r}; expected one_machine or unset", returncode=2)
-    if board not in layouts:
-        pytest.exit(f"no emulated bench for harness board {board!r}{' in one machine' if kind else ''}; "
-                    f"{HARNESS_BOARD_ENV} is one of {', '.join(sorted(layouts))}", returncode=2)
-    return layouts[board]
+    if board not in LAYOUTS:
+        pytest.exit(f"no emulated bench for harness board {board!r}; "
+                    f"{HARNESS_BOARD_ENV} is one of {', '.join(sorted(LAYOUTS))}", returncode=2)
+    return LAYOUTS[board]
 
 
 # The bench script fixes the emulated harness's serial, per instance;
@@ -198,12 +189,6 @@ def record_diagnostic(config: pytest.Config, name: str, value) -> None:
     config.stash.setdefault(DIAGNOSTICS, []).append((name, str(value)))
     if _session["record"] is not None:
         _session["record"](name, str(value))
-
-
-def record_late_deliveries(config: pytest.Config, counts: dict[str, int | None]) -> None:
-    for wire, count in counts.items():
-        record_diagnostic(config, f"renode_{wire}_late_deliveries",
-                          "absent from this Renode package" if count is None else count)
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
@@ -269,17 +254,6 @@ def pytest_runtest_teardown(item, nextitem):
         record_console_stats(item.config, _session["harness"])
 
 
-# With both chips in one machine the whole bench advances at one pace,
-# about 100 times slower than real time, so a host wait on the emulated USB
-# (a probe transfer, the DUT's import and binding) gets this many times
-# longer than on two machines. Bench-time criteria are unchanged.
-ONE_MACHINE_HOST_SLOWDOWN = 10
-
-
-def host_slowdown(bench_layout: Layout) -> int:
-    return ONE_MACHINE_HOST_SLOWDOWN if bench_layout.dut_prefix else 1
-
-
 @pytest.fixture(scope="session")
 def bench(emulation: Emulation, pytestconfig, record_testsuite_property):
     _session["record"] = record_testsuite_property
@@ -290,10 +264,8 @@ def bench(emulation: Emulation, pytestconfig, record_testsuite_property):
     # harness's setup times out.
     metadata = example_metadata(image)
     if metadata is not None:
-        skip_emulator_limit(metadata["target"], bench_layout)
+        skip_emulator_limit(metadata["target"])
     for name, value in SLOW_HOST_DEFAULTS.items():
-        if name == "CMSIS_DAP_USB_TIMEOUT_MS":
-            value = str(int(value) * host_slowdown(bench_layout))
         os.environ.setdefault(name, value)
     series = soc_series(image)
     if series != bench_layout.dut_chip:
@@ -319,7 +291,6 @@ def bench(emulation: Emulation, pytestconfig, record_testsuite_property):
         except BenchError as error:
             pytest.exit(str(error), returncode=2)
         yield b
-        record_late_deliveries(pytestconfig, b.late_deliveries())
     finally:
         b.stop()
 
@@ -366,23 +337,21 @@ def example(bench: Bench, harness: Harness, probe, fixture: dict, emulation: Emu
     return e
 
 
-# A bench with both chips in one machine has no delayed wires between them,
-# so only the limits that do not come from those apply to it.
-def skip_emulator_limit(target: str, bench_layout: Layout) -> None:
-    limits = ONE_MACHINE_LIMITS if bench_layout.dut_prefix else EMULATOR_LIMITS
-    if target in limits:
-        pytest.skip(f"{target} is not judged in the emulator: {limits[target]}")
+def skip_emulator_limit(target: str) -> None:
+    if target in EMULATOR_LIMITS:
+        pytest.skip(f"{target} is not judged in the emulator: {EMULATOR_LIMITS[target]}")
 
 
 # Bench seconds a program gets, from when its cases want its USB, to turn
 # its USB controller on with its pull-up.
 DUT_USB_PRESENT_S = 10.0
-# Host seconds the DUT's USB/IP server gets to answer the import.
-DUT_USB_IMPORT_S = 120.0
-# Host seconds the import gets to enumerate (room for the cable to replug
-# a few times), then for this host's drivers to bind to its interfaces.
-DUT_USB_ENUMERATION_S = ENUMERATION_TIMEOUT_S
-DUT_USB_BIND_S = 120.0
+# Host seconds the DUT's USB/IP server gets to answer the import, the
+# import to enumerate (room for the cable to replug a few times), then this
+# host's drivers to bind to its interfaces: the bench runs about 100 times
+# slower than real time, its emulated USB with it.
+DUT_USB_IMPORT_S = 1200.0
+DUT_USB_ENUMERATION_S = 10 * ENUMERATION_TIMEOUT_S
+DUT_USB_BIND_S = 1200.0
 
 
 def usb_presenting(example: Example) -> bool:
@@ -442,12 +411,10 @@ def dut_usb(bench: Bench, harness: Harness, example: Example) -> UsbFunctions:
     except BenchError as error:
         pytest.fail(str(error))
     try:
-        import_s = DUT_USB_IMPORT_S * host_slowdown(bench.layout)
-        if not cable.imported.wait(import_s):
+        if not cable.imported.wait(DUT_USB_IMPORT_S):
             pytest.fail(f"the bench's USB/IP server did not answer the import of the DUT's USB "
-                        f"({cable.target}) within {import_s:.0f} s")
-        slowdown = host_slowdown(bench.layout)
-        found = wait_usb_functions(cable, device, DUT_USB_ENUMERATION_S * slowdown, DUT_USB_BIND_S * slowdown)
+                        f"({cable.target}) within {DUT_USB_IMPORT_S:.0f} s")
+        found = wait_usb_functions(cable, device, DUT_USB_ENUMERATION_S, DUT_USB_BIND_S)
         if found is None:
             pytest.fail(f"{example.target}'s device {device.vid:04x}:{device.pid:04x} never enumerated on this "
                         f"host after its import")

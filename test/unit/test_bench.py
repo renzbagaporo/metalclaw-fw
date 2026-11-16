@@ -28,11 +28,12 @@ def free_port():
         return probe.getsockname()[1]
 
 
-def commands(quantum=None, dut_machine="pico2", settings=None):
+def commands(quantum=None, dut_machine="bench", settings=None):
     if settings is None and quantum:
         settings = bench.Settings((("quantum", f'"{quantum}"'),))
     return bench.monitor_commands(Path("/renode/bench.resc"), Path("/w/rom.bin"), Path("/w/flash.bin"),
-                                  Path("/roms/dut.bin"), Path("/w/dut_flash.bin"), dut_machine, settings)
+                                  Path("/roms/dut.bin"), Path("/w/dut_flash.bin"), dut_machine, settings,
+                                  dut_prefix="d_")
 
 
 def test_a_bench_refuses_to_start_beside_another_renode(tmp_path, monkeypatch):
@@ -78,8 +79,8 @@ def test_the_bench_script_gets_its_files_before_it_is_included():
 def test_the_dut_image_is_loaded_into_the_dut_flash_before_the_bench_starts():
     run = commands()
     assert run[run.index("include @/renode/bench.resc") + 1:] == [
-        'mach set "pico2"',
-        "xipMemory LoadBinary @/w/dut_flash.bin",
+        'mach set "bench"',
+        "d_xipMemory LoadBinary @/w/dut_flash.bin",
         "start",
     ]
 
@@ -91,15 +92,16 @@ def test_a_quantum_is_set_before_the_bench_script_is_included():
 
 
 def test_the_dut_flash_is_loaded_into_the_layouts_dut_machine():
-    assert commands(dut_machine="pico")[-3] == 'mach set "pico"'
+    assert commands(dut_machine="other")[-3] == 'mach set "other"'
 
 
 def test_each_harness_board_has_a_bench_with_its_chips():
     assert bench.LAYOUTS["rpi_pi_pico"] == bench.Layout(
-        "scripts/multi-node/metalclaw_fixture.resc", "rp2040", "rp2350", "pico2", "0123456789ABCDEF")
+        "scripts/multi-node/metalclaw_fixture_one_machine.resc", "rp2040", "rp2350", "bench", "0123456789ABCDEF",
+        dut_prefix="d_")
     carrier = bench.LAYOUTS["metalclaw_pico_rp2"]
-    assert (carrier.script, carrier.harness_chip, carrier.dut_chip, carrier.dut_machine) == (
-        "scripts/multi-node/metalclaw_carrier.resc", "rp2350", "rp2040", "pico")
+    assert (carrier.script, carrier.harness_chip, carrier.dut_chip, carrier.dut_machine, carrier.dut_prefix) == (
+        "scripts/multi-node/metalclaw_carrier_one_machine.resc", "rp2350", "rp2040", "bench", "d_")
     assert carrier.serial == "00000000C0FFEE01"
 
 
@@ -176,8 +178,8 @@ def test_the_fixture_1_bench_gives_the_rp2040_mask_rom_to_the_harness(tmp_path, 
     assert extracted == ["b2.elf"]
     assert f"$harness_rom=@{tmp_path}/work/harness_rom.bin" in run
     assert f"$dut_rom=@{tmp_path}/roms/bootrom-combined.bin" in run
-    assert f"include @{tmp_path}/scripts/multi-node/metalclaw_fixture.resc" in run
-    assert 'mach set "pico2"' in run
+    assert f"include @{tmp_path}/scripts/multi-node/metalclaw_fixture_one_machine.resc" in run
+    assert run[-3:] == ['mach set "bench"', f"d_xipMemory LoadBinary @{tmp_path}/work/dut_flash.bin", "start"]
 
 
 def test_the_carrier_bench_gives_the_rp2040_mask_rom_to_the_dut(tmp_path, monkeypatch):
@@ -185,8 +187,8 @@ def test_the_carrier_bench_gives_the_rp2040_mask_rom_to_the_dut(tmp_path, monkey
     assert extracted == ["b2.elf"]
     assert f"$harness_rom=@{tmp_path}/roms/bootrom-combined.bin" in run
     assert f"$dut_rom=@{tmp_path}/work/dut_rom.bin" in run
-    assert f"include @{tmp_path}/scripts/multi-node/metalclaw_carrier.resc" in run
-    assert 'mach set "pico"' in run
+    assert f"include @{tmp_path}/scripts/multi-node/metalclaw_carrier_one_machine.resc" in run
+    assert run[-3] == 'mach set "bench"'
 
 
 def test_stopping_records_that_renode_exited_before_the_session_ended(tmp_path):
@@ -270,98 +272,66 @@ def test_an_instance_refuses_to_start_when_its_own_port_is_taken(tmp_path, monke
 # ---- per-session variables ---------------------------------------------------
 
 SCRIPT = '''$usbip_port?=3240
-$quantum?="0.0001"
-$wire_latency_us?=300
-$spi_input_delay_ns?=600000
-$i2c0_wiring?=@scripts/multi-node/metalclaw_carrier_i2c0_bus.resc
-mach create "carrier"
+$quantum?="0.00001"
+$i2c0_wiring?=@scripts/multi-node/metalclaw_carrier_one_machine_i2c0_bus.resc
+mach create "bench"
 '''
 # A Renode package without the I2C0 wiring scripts.
 OLD_SCRIPT = "\n".join(line for line in SCRIPT.splitlines() if "i2c0" not in line)
 
 
 def carrier_script(tmp_path, text=SCRIPT, wirings=("bus", "wires")):
-    script = tmp_path / "metalclaw_carrier.resc"
+    script = tmp_path / "metalclaw_carrier_one_machine.resc"
     script.write_text(text)
     for wiring in wirings:
-        (tmp_path / f"metalclaw_carrier_i2c0_{wiring}.resc").touch()
+        (tmp_path / f"metalclaw_carrier_one_machine_i2c0_{wiring}.resc").touch()
     return script
 
 
 def settings(emulation, script, quantum=None):
-    return bench.bench_settings(emulation, script, script.read_text(), "pico", quantum)
+    return bench.bench_settings(emulation, script, script.read_text(), quantum)
 
 
 def test_a_script_declares_its_variables_with_defaults():
     assert bench.script_variables(SCRIPT) == {
-        "usbip_port": "3240", "quantum": '"0.0001"', "wire_latency_us": "300", "spi_input_delay_ns": "600000",
-        "i2c0_wiring": "@scripts/multi-node/metalclaw_carrier_i2c0_bus.resc"}
+        "usbip_port": "3240", "quantum": '"0.00001"',
+        "i2c0_wiring": "@scripts/multi-node/metalclaw_carrier_one_machine_i2c0_bus.resc"}
 
 
 def test_no_needs_set_nothing(tmp_path):
     assert settings(Emulation(), carrier_script(tmp_path)) == bench.Settings()
 
 
-def test_a_relayed_jumper_sets_the_quantum_the_latency_and_the_spi_round_trip(tmp_path):
-    s = settings(Emulation(quantum="0.000001", wire_latency_us=3), carrier_script(tmp_path))
-    assert s.variables == (("quantum", '"0.000001"'), ("wire_latency_us", "3"), ("spi_input_delay_ns", "6000"))
-    assert s.unmet == ()
-
-
 def test_the_wire_script_is_chosen_beside_the_bench_script(tmp_path):
     script = carrier_script(tmp_path)
     s = settings(Emulation(i2c0_wiring="wires"), script)
-    assert s.variables == (("i2c0_wiring", f"@{tmp_path}/metalclaw_carrier_i2c0_wires.resc"),)
+    assert s.variables == (("i2c0_wiring", f"@{tmp_path}/metalclaw_carrier_one_machine_i2c0_wires.resc"),)
     assert settings(Emulation(i2c0_wiring="bus"), script).variables == (
-        ("i2c0_wiring", f"@{tmp_path}/metalclaw_carrier_i2c0_bus.resc"),)
+        ("i2c0_wiring", f"@{tmp_path}/metalclaw_carrier_one_machine_i2c0_bus.resc"),)
 
 
 def test_a_package_without_the_i2c0_wiring_leaves_it_unmet(tmp_path):
     script = carrier_script(tmp_path, OLD_SCRIPT, wirings=())
     s = settings(Emulation(i2c0_wiring="wires"), script)
     assert s.variables == ()
-    assert s.unmet == ("$i2c0_wiring wires (metalclaw_carrier_i2c0_wires.resc)",)
+    assert s.unmet == ("$i2c0_wiring wires (metalclaw_carrier_one_machine_i2c0_wires.resc)",)
     # Its own I2C0 is the byte-level bus.
     assert settings(Emulation(i2c0_wiring="bus"), script) == bench.Settings()
 
 
 def test_a_declared_wiring_whose_script_is_missing_is_unmet(tmp_path):
     s = settings(Emulation(i2c0_wiring="wires"), carrier_script(tmp_path, wirings=("bus",)))
-    assert s.unmet == ("$i2c0_wiring wires (metalclaw_carrier_i2c0_wires.resc)",)
+    assert s.unmet == ("$i2c0_wiring wires (metalclaw_carrier_one_machine_i2c0_wires.resc)",)
 
 
-def test_a_script_without_the_variables_leaves_them_unmet(tmp_path):
-    script = carrier_script(tmp_path, 'mach create "carrier"\n', wirings=())
-    s = settings(Emulation(quantum="0.000001", wire_latency_us=3), script)
-    assert s.variables == ()
-    assert s.unmet == ("$quantum 0.000001", "$wire_latency_us 3")
-
-
-@pytest.mark.parametrize("emulation, quantum", [
-    (Emulation(quantum="0.000001", wire_latency_us=2), None),
-    (Emulation(wire_latency_us=200), None),
-    (Emulation(quantum="0.0002"), None),
-    (Emulation(quantum="0.000001", wire_latency_us=3), "0.00001"),
-])
-def test_a_latency_of_two_quanta_or_less_is_refused(tmp_path, emulation, quantum):
-    with pytest.raises(bench.BenchError, match="does not exceed two quanta"):
-        settings(emulation, carrier_script(tmp_path), quantum)
-
-
-@pytest.mark.parametrize("latency", [0, -3, 2.5, True])
-def test_a_latency_in_anything_but_whole_microseconds_is_refused(tmp_path, latency):
-    with pytest.raises(bench.BenchError, match="whole microseconds"):
-        settings(Emulation(wire_latency_us=latency), carrier_script(tmp_path))
-
-
-def test_the_environment_quantum_overrides_the_programs(tmp_path):
-    s = settings(Emulation(quantum="0.000001", wire_latency_us=3), carrier_script(tmp_path), "0.0000012")
-    assert dict(s.variables)["quantum"] == '"0.0000012"'
+def test_the_environment_quantum_sets_the_scripts(tmp_path):
+    s = settings(Emulation(), carrier_script(tmp_path), "0.0000012")
+    assert s.variables == (("quantum", '"0.0000012"'),)
 
 
 def test_variables_are_set_before_the_bench_script_is_included(tmp_path):
-    s = settings(Emulation(quantum="0.000001", wire_latency_us=3, i2c0_wiring="wires"), carrier_script(tmp_path))
-    run = commands(dut_machine="pico", settings=s)
+    s = settings(Emulation(i2c0_wiring="wires"), carrier_script(tmp_path), "0.000001")
+    run = commands(dut_machine="bench", settings=s)
     include = run.index("include @/renode/bench.resc")
     for name, value in s.variables:
         assert run.index(f"${name}={value}") < include
@@ -373,10 +343,5 @@ def test_a_starting_bench_sets_its_programs_needs_and_notes_them(tmp_path, monke
     launch(tmp_path, monkeypatch, "metalclaw_pico_rp2", emulated)
     log = (tmp_path / "work" / "renode.log").read_text()
     # The empty test script declares nothing.
-    assert ("rig: scripts/multi-node/metalclaw_carrier.resc does not take $i2c0_wiring wires "
-            "(metalclaw_carrier_i2c0_wires.resc)\n") in log
-
-
-def test_one_machine_stretches_the_host_waits_on_emulated_usb():
-    assert platform.host_slowdown(bench.LAYOUTS["rpi_pi_pico"]) == 1
-    assert platform.host_slowdown(bench.ONE_MACHINE_LAYOUTS["rpi_pi_pico"]) == platform.ONE_MACHINE_HOST_SLOWDOWN == 10
+    assert ("rig: scripts/multi-node/metalclaw_carrier_one_machine.resc does not take $i2c0_wiring wires "
+            "(metalclaw_carrier_one_machine_i2c0_wires.resc)\n") in log

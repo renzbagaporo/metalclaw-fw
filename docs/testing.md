@@ -170,8 +170,14 @@ as `neo_m8n`'s do.
 Renode, from the fork that carries the RP2040 and RP2350 models. The
 justfile pins a commit of that fork and the portable package its release
 workflow published for it, which bundles .NET.
-Each bench's script in that fork (`scripts/multi-node/metalclaw_fixture.resc`,
-`scripts/multi-node/metalclaw_carrier.resc`) wires its two machines pin to pin. The harness's USB is exported over
+Each bench's script in that fork
+(`scripts/multi-node/metalclaw_fixture_one_machine.resc`,
+`scripts/multi-node/metalclaw_carrier_one_machine.resc`) puts both chips in
+one Renode machine, `bench`, on one clock: each chip's cores and bus
+registrations in a cluster of its own, the DUT's peripherals named with a
+`d_` prefix and the harness's with `h_`, and their pins joined by wires with
+no latency, so a harness part answers at the DUT's own edges. The harness's
+USB is exported over
 USB/IP and imported into this host's kernel, so the harness, its CMSIS-DAP
 probe and the DUT are driven exactly as on the bench. Every re-enumeration
 unplugs it; the platform imports it again, as a cable that stays in would.
@@ -192,8 +198,8 @@ builds (`METALCLAW_BOARD_DIR`; the platform reads it as
 
 | Harness board | Bench script | Harness | DUT | DUT image |
 | --- | --- | --- | --- | --- |
-| `rpi_pi_pico` (default) | `metalclaw_fixture.resc` | RP2040 | RP2350, machine `pico2` | `rpi_pico2/rp2350a/m33` |
-| `metalclaw_pico_rp2` | `metalclaw_carrier.resc` | RP2354B | RP2040, machine `pico` | `rpi_pico` |
+| `rpi_pi_pico` (default) | `metalclaw_fixture_one_machine.resc` | RP2040 | RP2350 | `rpi_pico2/rp2350a/m33` |
+| `metalclaw_pico_rp2` | `metalclaw_carrier_one_machine.resc` | RP2354B | RP2040 | `rpi_pico` |
 
 The fixture's pins come from the harness's board as on the bench, and the
 DUT image has to be built for the bench's DUT chip, or the run stops before
@@ -204,7 +210,7 @@ before the harness could.
 The DUT's flash boots with the DUT image already in it, as a probe download
 leaves it: the platform places each loadable segment of `zephyr.elf` whose
 load address is in flash at that address, erased between segments, and
-loads the result through the DUT's XIP window (`xipMemory LoadBinary`)
+loads the result through the DUT's XIP window (`d_xipMemory LoadBinary`)
 before the emulation starts. A download through the emulated probe takes
 20-30 minutes of host time, so the emulator's `dut` fixture only resets the
 DUT through the probe and waits for PING. SWD flashing is covered by
@@ -239,56 +245,40 @@ package, the boot ROM directory and the harness UF2; point
 `METALCLAW_RENODE_DIR` at a package built from a local checkout
 (`./build.sh --no-gui -t`, then unpack `output/packages/`) to try a Renode
 change. `METALCLAW_RENODE_QUANTUM` overrides the bench's synchronisation quantum
-in seconds. The Pico harness's serial is the emulated flash's unique ID,
+in seconds, 10 µs by default. The Pico harness's serial is the emulated flash's unique ID,
 `0123456789ABCDEF`. The RP2354B harness's is its OTP chip ID, which the
 carrier's bench script sets: `00000000C0FFEE01`.
 
 A pico-examples program can need more of the bench than the bench script's
 defaults; `test/pico_examples/emulation.py` says what, per program, and the
 platform sets it when the bench starts, as the script's per-session
-variables: `$quantum`, `$wire_latency_us` (whole microseconds, more than two
-quanta, checked before Renode starts; `$spi_input_delay_ns` follows as the
-round trip) and `$i2c0_wiring` (the byte-level bus or pin-level wires, each
-a script beside the bench script, `<script>_i2c0_bus.resc` and
-`<script>_i2c0_wires.resc`). The harness-relayed jumpers, and the 1-Wire and
-DHT parts that answer within tens of microseconds, run at a 1 µs quantum
-with 3 µs wires; a program that takes DUT GP4 or GP5 as GPIO, PIO or UART
-gets the pin-level I2C0 wires as well, the only wiring that reaches the
+variable `$i2c0_wiring`: the byte-level bus, the scripts' default, or
+pin-level wires on GP4 and GP5, each a script beside the bench script
+(`<script>_i2c0_bus.resc`, `<script>_i2c0_wires.resc`). Renode's RP2 I2C
+peripheral talks to a byte-level bus when one is connected, and otherwise
+drives and follows SDA and SCL itself. A program whose I2C reaches the
+harness at pin level (`slave_mem_i2c`, `slave_mem_i2c_burst`,
+`pio_i2c_bus_scan`) takes the wires, and so does a program that takes DUT
+GP4 or GP5 as GPIO, PIO, UART or SPI, the only wiring that reaches the
 carrier's two harness branches of each. A variable the package's bench
 script does not declare, or a wiring script it does not ship, is left out
-and named in `renode.log`, and the program's cases skip. `METALCLAW_RENODE_QUANTUM` takes the place of the program's
-quantum.
+and named in `renode.log`, and the program's cases skip.
 
 The emulator keeps Metalclaw in the loop: the harness runs its firmware on
 its own emulated chip, joined to the emulated DUT only by the bench
 script's wires, and no Renode model inside the DUT takes the place of a
-harness part. With `METALCLAW_EMULATOR_LAYOUT=one_machine` both chips are in
-one Renode machine on one clock, at a 10 µs quantum, their GPIOs joined by
-wires with no latency, so a harness part answers at the DUT's own edges;
-I2C0 crosses as a byte-level bus there unless a program asks for pin
-wires, on which Renode's RP2 I2C peripheral drives and follows SDA and SCL
-itself (`slave_mem_i2c`, `slave_mem_i2c_burst` and `pio_i2c_bus_scan` take
-them). With each chip in a machine of its own, each wire delivers an edge
-300 µs after its sender drove it, 3 µs at best at the relayed programs'
-quantum, so a harness that must answer within less than a round trip falls
-behind. A program the emulator cannot judge is listed in `EMULATOR_LIMITS`
-in `test/pico_examples/emulation.py` with the reason, and the emulator
-platform's `example` fixture skips its cases with that reason before it
-attaches a part or restarts the program; the hardware platform does not
-read the list. Its `WIRE_LIMITS`, which apply to the two-machine benches
-only, are the open-drain I2C joins of `slave_mem_i2c`,
-`slave_mem_i2c_burst` and `pio_i2c_bus_scan`, the 21 MHz SPI jumpers of
-`pio_clocked_input`, `pio_spi_flash`'s PIO controller, which samples MISO on
-its own clock edges and so gets a harness flash's answer a round trip late,
-and `spi_slave`, whose MISO the harness's controller samples a round trip
-late and reads as ff. On either layout, `SPEED_LIMITS` skips the programs
-that run the bench too far behind real time for the harness to finish
-setting up: `hstx_spi_lcd` (about six million HSTX register accesses per
-virtual second, about 100 times slower), `hello_pwm` (a PWM slice at
-clk_sys / 4 on GP0 and GP1, about 1,600 times slower) and `pio_hub75` (the
-PIO's changes on the panel's 14 pins, about 1,100 times slower). The
-emulator pays for each compare match, wrap and pin change whether or not
-anything is wired to the pin. `CORE_ORDER_LIMITS` skips
+harness part. A program the emulator cannot judge is listed in
+`EMULATOR_LIMITS` in `test/pico_examples/emulation.py` with the reason, and
+the emulator platform's `bench` fixture skips its cases with that reason
+before Renode starts; the hardware platform does not read the list.
+`UNPROVISIONED` holds the encrypted programs (below). `SPEED_LIMITS` holds
+the programs that run the bench too far behind real time for the harness
+to finish setting up: `hstx_spi_lcd` (about six million HSTX register
+accesses per virtual second, about 100 times slower), `hello_pwm` (a PWM
+slice at clk_sys / 4 on GP0 and GP1, about 1,600 times slower) and
+`pio_hub75` (the PIO's changes on the panel's 14 pins, about 1,100 times
+slower). The emulator pays for each compare match, wrap and pin change
+whether or not anything is wired to the pin. `CORE_ORDER_LIMITS` holds
 `multicore_doorbell`: core 1 reads its non-volatile exit flag once before
 spinning, and only silicon's back-to-back doorbell interrupts hold it off
 until the flag is set; the emulated cores, on separate host threads, do not
@@ -362,11 +352,12 @@ rig's own CMSIS-DAP client, which carries the mailbox, reads
 The pinned Renode models both chips' cores, PIO, DMA, USB device and debug
 port, whichever side of the bench each is on, with the DUT's debug port
 behind the wired SWD pins, and the UART, SPI and I2C controllers of both
-chips at pin level across the bench's wiring. The wires between the boards deliver each edge a fixed latency
-after its sender drove it (300 µs by default), so bit timing holds while the
-DUT sees a reply one round trip later than on the bench: an SPI transfer
-ends about 600 µs late on the DUT's side, and the 20 µs gaps the burst cases
-leave between windows reach the harness as about 620 µs.
+chips at pin level across the bench's wiring. The whole bench advances
+about 100 times slower than real time, so the platform's host-side waits on
+emulated USB are long: 600 s for a CMSIS-DAP transfer
+(`CMSIS_DAP_USB_TIMEOUT_MS`), and for the DUT's own USB 1,200 s for its
+USB/IP import to be answered, 6,000 s for it to enumerate and 1,200 s for
+this host's drivers to bind.
 
 `.github/workflows/emulator.yml` runs the emulator platform when started
 by hand from the Actions tab or with `gh workflow run emulator.yml`. It
