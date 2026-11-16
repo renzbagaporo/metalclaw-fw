@@ -293,12 +293,25 @@ def pytest_runtest_teardown(item, nextitem):
         record_console_stats(item.config, _session["harness"])
 
 
+# With both chips in one machine the whole bench advances at one pace,
+# about 100 times slower than real time, so a host wait on the emulated USB
+# (a probe transfer, the DUT's import and binding) gets this many times
+# longer than on two machines. Bench-time criteria are unchanged.
+ONE_MACHINE_HOST_SLOWDOWN = 10
+
+
+def host_slowdown(bench_layout: Layout) -> int:
+    return ONE_MACHINE_HOST_SLOWDOWN if bench_layout.dut_prefix else 1
+
+
 @pytest.fixture(scope="session")
 def bench(emulation: Emulation, pytestconfig, record_testsuite_property):
     _session["record"] = record_testsuite_property
-    for name, value in SLOW_HOST_DEFAULTS.items():
-        os.environ.setdefault(name, value)
     bench_layout = layout()
+    for name, value in SLOW_HOST_DEFAULTS.items():
+        if name == "CMSIS_DAP_USB_TIMEOUT_MS":
+            value = str(int(value) * host_slowdown(bench_layout))
+        os.environ.setdefault(name, value)
     image = dut_image()
     series = soc_series(image)
     if series != bench_layout.dut_chip:
@@ -460,10 +473,12 @@ def dut_usb(bench: Bench, harness: Harness, example: Example) -> UsbFunctions:
     except BenchError as error:
         pytest.fail(str(error))
     try:
-        if not cable.imported.wait(DUT_USB_IMPORT_S):
+        import_s = DUT_USB_IMPORT_S * host_slowdown(bench.layout)
+        if not cable.imported.wait(import_s):
             pytest.fail(f"the bench's USB/IP server did not answer the import of the DUT's USB "
-                        f"({cable.target}) within {DUT_USB_IMPORT_S:.0f} s")
-        found = wait_usb_functions(cable, device)
+                        f"({cable.target}) within {import_s:.0f} s")
+        slowdown = host_slowdown(bench.layout)
+        found = wait_usb_functions(cable, device, DUT_USB_ENUMERATION_S * slowdown, DUT_USB_BIND_S * slowdown)
         if found is None:
             pytest.fail(f"{example.target}'s device {device.vid:04x}:{device.pid:04x} never enumerated on this "
                         f"host after its import")

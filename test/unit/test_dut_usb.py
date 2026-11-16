@@ -341,7 +341,7 @@ def test_an_import_the_server_never_answers_fails_the_cases_that_asked_for_it(mo
 
     released = []
     bench_ = types.SimpleNamespace(import_dut_usb=lambda vid, pid: Unanswered(), dut_usb_unmet=lambda: None,
-                                   release_dut_usb=lambda: released.append(True))
+                                   release_dut_usb=lambda: released.append(True), layout=bench.LAYOUTS["rpi_pi_pico"])
     example = types.SimpleNamespace(target="hello_usb", metadata={"chip": "rp2040"})
     monkeypatch.setattr(platform, "wait_presenting", lambda harness, example: True)
     monkeypatch.setattr(platform, "DUT_USB_IMPORT_S", 0.05)

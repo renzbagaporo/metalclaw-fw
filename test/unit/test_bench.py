@@ -477,3 +477,8 @@ def test_a_one_machine_bench_drops_the_settings_that_tune_delayed_wires(tmp_path
     # A quantum the session asks for still applies.
     s = bench.bench_settings(RELAYED_ON_GP4_GP5, script, script.read_text(), "bench", "0.00001", dut_prefix="d_")
     assert s.variables == (("quantum", '"0.00001"'), ("i2c0_wiring", f"@{wires}"))
+
+
+def test_one_machine_stretches_the_host_waits_on_emulated_usb():
+    assert platform.host_slowdown(bench.LAYOUTS["rpi_pi_pico"]) == 1
+    assert platform.host_slowdown(bench.ONE_MACHINE_LAYOUTS["rpi_pi_pico"]) == platform.ONE_MACHINE_HOST_SLOWDOWN == 10
