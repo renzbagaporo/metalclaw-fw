@@ -261,7 +261,11 @@ def test_the_example_enters_bootsel_on_a_double_reset(example, parts):
         example.restart()
 
 
-def test_the_example_parts_saw_the_program(harness, example, parts):
+# The buses whose engine counters a failed part check reports.
+COUNTED_BUSES = ("spi", "i2c", "uart")
+
+
+def test_the_example_parts_saw_the_program(harness, example, parts, record_property):
     checks = [(part, check) for part in parts for check in part.checks]
     if not checks:
         pytest.skip(f"no part checks for {example.target}")
@@ -271,10 +275,20 @@ def test_the_example_parts_saw_the_program(harness, example, parts):
             harness.run(f"part = {part.name}\n{check.setup}\n")
     harness.sleep(max(check.after_seconds for _, check in checks))
     problems = []
-    for part, check in checks:
+    failed = {}
+    for n, (part, check) in enumerate(checks):
         value = ast.literal_eval(harness.run(f"part = {part.name}\nprint(repr({check.expression}))\n").strip())
         if not check.test(value):
             problems.append(f"{part.name}: {check.description} (got {value!r:.200})")
+            # The whole value, for the junit report: the message keeps 200
+            # characters of it.
+            record_property(f"part_check_{n}_{part.name}", repr(value))
+            failed[part.name] = part
+    for name, part in failed.items():
+        for bus in COUNTED_BUSES:
+            if bus in part.bindings:
+                record_property(f"part_{name}_{bus}_stats",
+                                harness.run(f"print(repr({name}.stats('{bus}')))\n").strip())
     assert not problems, f"{example.target}: {problems}"
 
 

@@ -265,3 +265,26 @@ def test_no_idle_level_holds_a_pin_the_program_drives_with_no_part_on_it():
     assert PROGRAM_OUTPUTS["adc_dma_capture"] == (6, 7, 8, 9, 10)
     assert {6, 7, 8, 9, 10} <= parts_dut_pins("adc_dma_capture", "pico")
     assert not {6, 7, 8, 9, 10} & parts_dut_pins("blink", "pico")
+
+
+def test_a_failed_part_check_reports_its_whole_value_and_the_parts_bus_counters():
+    from test.pico_examples import cases
+    from test.pico_examples.parts import Check
+
+    class Harness:
+        def run(self, code):
+            if ".stats('spi')" in code:
+                return "{'short_windows': 3}\n"
+            return repr(bytes(range(256)) * 4) + "\n"
+
+        def sleep(self, seconds):
+            pass
+
+    part = Attach("ssd1309", "oled", {"spi": (18, 19, 17, 20), "reset": (21,)},
+                  checks=(Check("part.read_region('gddram', 0, 1024)", lambda v: False, "the frame", 1.0),))
+    example = types.SimpleNamespace(target="ssd1309_spi", restart=lambda: None)
+    recorded = {}
+    with pytest.raises(AssertionError):
+        cases.test_the_example_parts_saw_the_program(Harness(), example, [part], recorded.__setitem__)
+    assert recorded["part_check_0_oled"] == repr(bytes(range(256)) * 4)
+    assert recorded["part_oled_spi_stats"] == "{'short_windows': 3}"
