@@ -557,3 +557,57 @@ def test_a_restart_that_lands_on_a_sleeping_program_waits_for_it_to_wake():
     Asleep().restart()
     assert calls == ["reset", ("halt", None, Example.ASLEEP_MAX_S), "reset"]
     assert Example.ASLEEP_MAX_S > 10.0
+
+
+# ---- counts and margins ------------------------------------------------
+
+
+def blink_from(first, half=0.25, seconds=3.0, undriven_after=None):
+    # The LED on at `first` s and toggling every `half`, driven once on.
+    def level(t):
+        return (t >= first and int((t - first) / half) % 2 == 0) << 25
+    out = []
+    for s in sampled(level, seconds):
+        t = s.us / 1e6
+        driven = t >= first and not (undriven_after is not None and undriven_after <= t < undriven_after + 0.05)
+        out.append(pins.Sample(s.us, s.levels, int(driven) << 25))
+    return out
+
+
+def test_blink_needs_the_changes_its_period_makes_in_the_watch():
+    (check,) = PIN_SPECS["blink"].toggles
+    # blink.c:46-51 at LED_DELAY_MS 250: 12 changes in 3 s.
+    assert check.edges == 10
+    for first in (0.0, 0.01, 0.2):
+        assert check.check(blink_from(first)) == [], first
+    # Starting 0.75 s late leaves 9.
+    assert any("changed 9 times" in p for p in check.check(blink_from(0.75)))
+
+
+def test_a_pin_must_be_driven_from_its_first_change_on():
+    (check,) = PIN_SPECS["blink"].toggles
+    assert check.check(blink_from(0.1)) == []
+    assert any("not driven" in p for p in check.check(blink_from(0.1, undriven_after=0.6)))
+    assert any("not driven" in p for p in check.check(blink_from(0.1, undriven_after=2.6)))
+
+
+def test_the_pio_blink_counts_follow_each_pins_frequency():
+    spec = PIN_SPECS["pio_blink"]
+    assert [(c.pin, c.edges) for c in spec.toggles] == [(3, 30), (4, 22), (5, 14), (6, 6)]
+
+
+def test_a_count_that_goes_the_wrong_way_after_a_button_edge_fails():
+    (button,) = PARTS["hello_7segment"]
+    period, high = button.properties["period"] / 1e9, button.properties["high"] / 1e9
+    spec = PIN_SPECS["hello_7segment"]
+    (check,) = spec.toggles
+    assert (check.steps, check.each_way) == (34, 14)
+
+    def late(t):
+        # The button as a program that read it 50 ms late would see it: the
+        # step 20 ms after each edge goes the old way.
+        return ((t - 0.05) % period) < high
+    shifted = sampled(seven_segment(late, 0.02), spec.seconds, pins_driven=range(2, 9))
+    honest = [pins.Sample(s.us, (s.levels & ~(1 << 9)) | (int(((s.us / 1e6 + 0.02) % period) < high) << 9), s.driven)
+              for s in shifted]
+    assert any("with GP9" in p for p in check.check(honest))

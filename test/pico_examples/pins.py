@@ -116,6 +116,18 @@ def driven_throughout(samples, pin):
     return bool(samples) and all((s.driven >> pin) & 1 for s in samples)
 
 
+# The samples from the one that saw `pin`'s first change on, or the last
+# one if it never changed. Before its first change the program may not have
+# set the pin up yet (it is still booting from the restart), and a pin
+# changes only once something drives it, so from there on it must be
+# driven.
+def from_first_change(samples, pin):
+    for i, (a, b) in enumerate(zip(samples, samples[1:])):
+        if (a.levels ^ b.levels) >> pin & 1:
+            return samples[i + 1:]
+    return samples[-1:]
+
+
 @dataclass(frozen=True)
 class Toggle:
     # A pin the program drives and toggles: at least `edges` changes, each
@@ -134,8 +146,8 @@ class Toggle:
             if late:
                 problems.append(f"GP{self.pin} still changed at {[round(t, 3) for t in late[:8]]} s")
             samples = [s for s in samples if s.us <= self.until * 1e6]
-        if not driven_throughout(samples[len(samples) // 4:], self.pin):
-            problems.append(f"GP{self.pin} is not driven as an output")
+        if not driven_throughout(from_first_change(samples, self.pin), self.pin):
+            problems.append(f"GP{self.pin} is not driven as an output from its first change on")
         seen = edges(samples, self.pin)
         if len(seen) < self.edges:
             problems.append(f"GP{self.pin} changed {len(seen)} times, expected at least {self.edges}")
@@ -195,8 +207,8 @@ class Morse:
 
     def check(self, samples) -> list[str]:
         problems = []
-        if not driven_throughout(samples[len(samples) // 4:], self.pin):
-            problems.append(f"GP{self.pin} is not driven as an output")
+        if not driven_throughout(from_first_change(samples, self.pin), self.pin):
+            problems.append(f"GP{self.pin} is not driven as an output from its first change on")
         got = morse(samples, self.pin, self.unit)
         if f"|{self.text}|" not in got:
             problems.append(f"GP{self.pin} keyed {got!r}, not {self.text!r} between two pauses")
@@ -212,15 +224,22 @@ def digits(samples, first, lit_low=True):
     # (time, digit) each time the seven pins from `first` up settle on
     # another digit; patterns that are no digit (a blank between two) are
     # skipped.
-    out = []
-    for s in samples:
+    return [(samples[i].us / 1e6, d) for _, i, d in _digit_changes(samples, first, lit_low)]
+
+
+def _digit_changes(samples, first, lit_low):
+    # (index of the last sample that showed the digit before, index of the
+    # first that shows this one, digit).
+    out, last = [], None
+    for i, s in enumerate(samples):
         pattern = (s.levels >> first) & 0x7F
         if lit_low:
             pattern ^= 0x7F
         if pattern in SEGMENT_DIGITS:
             d = SEGMENT_DIGITS.index(pattern)
-            if not out or out[-1][1] != d:
-                out.append((s.us / 1e6, d))
+            if not out or out[-1][2] != d:
+                out.append((last, i, d))
+            last = i
     return out
 
 
@@ -229,12 +248,16 @@ class Segments:
     # A seven-segment count on the pins from `first`: each change one digit
     # up while the `button` pin is low (pressed) and one down while it is
     # high, at least `steps` changes and `each_way` in both directions.
-    # Changes within `settle` seconds of a button edge may go either way.
+    # The program clears a digit, reads the button and shows the next one
+    # microseconds later (gpio/hello_7segment/hello_7segment.c:70-91), so
+    # the button it read is the one every sample from the last that showed
+    # the old digit to the first that shows the new one saw, unless the
+    # button changed among them: such a change may go either way and counts
+    # for neither.
     first: int
     button: int
     steps: int
     each_way: int
-    settle: float = 0.3
     lit_low: bool = True
 
     @property
@@ -243,18 +266,17 @@ class Segments:
 
     def check(self, samples) -> list[str]:
         problems = []
-        shown = digits(samples, self.first, self.lit_low)
-        presses = [t for t, _ in edges(samples, self.button)]
+        shown = _digit_changes(samples, self.first, self.lit_low)
         ups = downs = 0
-        for (t0, a), (t1, b) in zip(shown, shown[1:]):
+        for (_, _, a), (last, i, b) in zip(shown, shown[1:]):
+            t1 = samples[i].us / 1e6
             step = (b - a) % 10
             if step not in (1, 9):
                 problems.append(f"the display went from {a} to {b} at {t1:.3f} s")
                 continue
-            if any(abs(t1 - t) < self.settle for t in presses):
+            if len({s.levels >> self.button & 1 for s in samples[last:i + 1]}) > 1:
                 continue
-            before = [s for s in samples if s.us / 1e6 < t1]
-            pressed = not (before[-1].levels >> self.button) & 1 if before else False
+            pressed = not (samples[i].levels >> self.button) & 1
             if (step == 1) != pressed:
                 problems.append(f"the display went from {a} to {b} at {t1:.3f} s with GP{self.button} "
                                 f"{'low' if pressed else 'high'}")
