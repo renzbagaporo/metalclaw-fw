@@ -73,6 +73,15 @@ MPU9250_SPI_WIRES = GP4_GP5_WIRES
 # SWD, inside the DUT, so its pins reach nothing in the emulator.
 HELLO_PWM_UNWIRED = Emulation(unwired=Unwired((0, 1)))
 
+# i2c/slave_mem_i2c/slave_mem_i2c.c and pio/i2c/i2c_bus_scan.c: I2C carried
+# on its pins, the DUT's I2C0 target and I2C1 controller joined by the
+# harness's open-drain jumpers on GP4-7, and a PIO controller on GP2 and GP3
+# against a harness I2C target there. Renode's RP2 I2C peripheral carries
+# its bus on its SDA and SCL pads when no byte-level bus is connected, so
+# these take the pin-level I2C0 wires; two machines' delayed wires still
+# cannot carry the open-drain join (WIRE_LIMITS).
+I2C_PIN_WIRES = Emulation(i2c0_wiring="wires")
+
 EMULATION: dict[str, Emulation] = {
     "pio_uart_rx": RELAYED_ON_GP4_GP5,
     "pio_uart_rx_intr": RELAYED_ON_GP4_GP5,
@@ -85,6 +94,9 @@ EMULATION: dict[str, Emulation] = {
     "gps_uart": GP4_GP5_WIRES,
     "mpu9250_spi": MPU9250_SPI_WIRES,
     "hello_pwm": HELLO_PWM_UNWIRED,
+    "slave_mem_i2c": I2C_PIN_WIRES,
+    "slave_mem_i2c_burst": I2C_PIN_WIRES,
+    "pio_i2c_bus_scan": I2C_PIN_WIRES,
 }
 
 # Programs the emulator cannot judge with Metalclaw in the loop, and why;
@@ -97,8 +109,15 @@ EMULATION: dict[str, Emulation] = {
 _WIRES = "the delayed wires between the boards (300 us; 3 us at best with RELAYED)"
 _PENDING = "pending a Renode change that puts the harness's pins in the DUT's time domain"
 WIRE_LIMITS: dict[str, str] = {
+    # i2c/slave_mem_i2c: the DUT's I2C0 target and I2C1 controller, joined
+    # by the harness's open-drain jumpers (parts.py _i2c_jumpers).
+    **dict.fromkeys(("slave_mem_i2c", "slave_mem_i2c_burst"),
+                    f"{_WIRES} cannot carry the harness's open-drain I2C join; {_PENDING}"),
     # pio/clocked_input/clocked_input.c:23-30, 37: SPI0 at clk_sys / 6, half
     # periods of about 24 ns, from GP2 and GP3 into the PIO's GP5 and GP4.
+    # pio/i2c/i2c_bus_scan.c:6-7, 35: a PIO I2C controller on GP2 and GP3.
+    "pio_i2c_bus_scan": f"{_WIRES} cannot carry the PIO controller's open-drain I2C to the harness's target; "
+                        f"{_PENDING}",
     "pio_clocked_input": f"{_WIRES} cannot carry the 21 MHz SPI jumpers; {_PENDING}",
     # pio/spi/spi_flash.c:106-128: the PIO SPI controller at 1 MHz in mode 0
     # (spi_cpha0).
@@ -135,22 +154,6 @@ UNPROVISIONED: dict[str, str] = {
                         f"does not hold, and {_NO_KEY}",
 }
 
-# pio/i2c/i2c_bus_scan.c:6-7, 35: a PIO I2C controller on GP2 and GP3,
-# which reach the harness only as pin-level wires. Renode's RP2 I2C models
-# the harness's I2C target at byte level only (RP2_I2C.cs: "SDA/SCL pin
-# levels are not modeled"), so the part on that bus cannot answer it.
-# i2c/slave_mem_i2c: the DUT's I2C0 target and I2C1 controller, joined by
-# the harness's open-drain jumpers following and driving SDA and SCL
-# (parts.py _i2c_jumpers), which needs the two controllers' pin levels.
-_NO_PINS = "Renode's RP2 I2C peripheral does not model SDA and SCL levels"
-MODEL_LIMITS: dict[str, str] = {
-    "pio_i2c_bus_scan": f"{_NO_PINS}, so the harness's I2C target cannot answer a PIO controller on the pin-level "
-                        f"wires of GP2 and GP3",
-    **dict.fromkeys(("slave_mem_i2c", "slave_mem_i2c_burst"),
-                    f"{_NO_PINS}, so the harness's open-drain jumpers have no levels of the DUT's two controllers "
-                    f"to join"),
-}
-
 # hstx/spi_lcd/hstx_spi_lcd.c: one HSTX FIFO word per pixel byte, about six
 # million register accesses per virtual second, so the emulated bench runs
 # about 100 times slower than real time and the harness does not finish
@@ -160,10 +163,10 @@ SPEED_LIMITS: dict[str, str] = {
                     "accesses per virtual second",
 }
 
-EMULATOR_LIMITS: dict[str, str] = {**WIRE_LIMITS, **UNPROVISIONED, **MODEL_LIMITS, **SPEED_LIMITS}
+EMULATOR_LIMITS: dict[str, str] = {**WIRE_LIMITS, **UNPROVISIONED, **SPEED_LIMITS}
 # What still applies with both chips in one machine, where no delayed wire
 # lies between the harness and the DUT.
-ONE_MACHINE_LIMITS: dict[str, str] = {**UNPROVISIONED, **MODEL_LIMITS, **SPEED_LIMITS}
+ONE_MACHINE_LIMITS: dict[str, str] = {**UNPROVISIONED, **SPEED_LIMITS}
 
 
 # For a DUT image's example.json, or None for a rig image.

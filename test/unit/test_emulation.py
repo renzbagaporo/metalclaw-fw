@@ -59,12 +59,13 @@ def test_a_program_without_needs_and_a_rig_image_get_the_defaults():
 
 
 def test_the_emulator_limits_name_the_programs_whose_timing_the_wires_cannot_carry():
-    assert set(emu.WIRE_LIMITS) == {"pio_clocked_input", "pio_spi_flash", "spi_slave"}
+    assert set(emu.WIRE_LIMITS) == {"slave_mem_i2c", "slave_mem_i2c_burst", "pio_i2c_bus_scan", "pio_clocked_input",
+                                    "pio_spi_flash", "spi_slave"}
     for target, reason in emu.WIRE_LIMITS.items():
         assert target in PARTS and target in set(SPECS) | set(PART_SPECS), target
         assert "(300 us; 3 us at best with RELAYED)" in reason, target
         assert reason.endswith("; pending a Renode change that puts the harness's pins in the DUT's time domain")
-    assert "does not model SDA and SCL levels" in EMULATOR_LIMITS["slave_mem_i2c"]
+    assert "open-drain I2C join" in EMULATOR_LIMITS["slave_mem_i2c"]
     assert EMULATOR_LIMITS["slave_mem_i2c_burst"] == EMULATOR_LIMITS["slave_mem_i2c"]
     assert "100 times slower than real time" in EMULATOR_LIMITS["hstx_spi_lcd"]
     assert "21 MHz SPI jumpers" in EMULATOR_LIMITS["pio_clocked_input"]
@@ -89,16 +90,18 @@ def test_every_hardware_hazard_is_judged_or_explained_in_the_emulator():
     assert SPECS["hello_otp"].source == REGISTER_SPECS["hello_otp"].source == "otp/hello_otp/hello_otp.c"
 
 
-def test_the_pio_bus_scan_waits_on_a_pin_level_i2c_model():
-    assert set(emu.MODEL_LIMITS) == {"pio_i2c_bus_scan", "slave_mem_i2c", "slave_mem_i2c_burst"}
-    assert EMULATOR_LIMITS["pio_i2c_bus_scan"] == emu.MODEL_LIMITS["pio_i2c_bus_scan"]
+def test_the_pin_level_i2c_programs_take_the_i2c0_wires_in_one_machine():
+    for target in ("slave_mem_i2c", "slave_mem_i2c_burst", "pio_i2c_bus_scan"):
+        assert EMULATION[target] == Emulation(i2c0_wiring="wires"), target
+        assert target in emu.WIRE_LIMITS and target not in emu.ONE_MACHINE_LIMITS, target
     assert {2, 3} <= {p for part in PARTS["pio_i2c_bus_scan"] for p in part.dut_pins()}
     assert "i2c_bus_scan" not in EMULATOR_LIMITS
 
 
-def test_a_program_the_emulator_cannot_judge_needs_nothing_of_it():
-    assert not set(EMULATOR_LIMITS) & set(EMULATION)
-    for target in EMULATOR_LIMITS:
+def test_a_program_no_emulated_bench_can_judge_needs_nothing_of_it():
+    # A program limited only on two machines may need its wiring in one.
+    assert not set(emu.ONE_MACHINE_LIMITS) & set(EMULATION)
+    for target in emu.ONE_MACHINE_LIMITS:
         assert emulation_for({"target": target}) is emu.DEFAULT, target
 
 

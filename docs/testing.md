@@ -266,24 +266,30 @@ cases skip. `METALCLAW_RENODE_QUANTUM` takes the place of the program's
 quantum.
 
 The emulator keeps Metalclaw in the loop: the harness runs its firmware on
-its own emulated board, joined to the emulated DUT only by the bench
+its own emulated chip, joined to the emulated DUT only by the bench
 script's wires, and no Renode model inside the DUT takes the place of a
-harness part. A program whose timing those wires cannot carry is listed in
-`EMULATOR_LIMITS` in `test/pico_examples/emulation.py` with the reason, and
-the emulator platform's `example` fixture skips its cases with that reason
-before it attaches a part or restarts the program; the hardware platform
-does not read the list. Each wire delivers an edge 300 µs after its sender
-drove it, 3 µs at best at the relayed programs' quantum, so a harness that
-must answer within less than a round trip falls behind: the open-drain I2C
-join of `slave_mem_i2c` and `slave_mem_i2c_burst`, the 21 MHz SPI jumpers of
+harness part. With `METALCLAW_EMULATOR_LAYOUT=one_machine` both chips are in
+one Renode machine on one clock, at a 10 µs quantum, their GPIOs joined by
+wires with no latency, so a harness part answers at the DUT's own edges;
+I2C0 crosses as a byte-level bus there unless a program asks for pin
+wires, on which Renode's RP2 I2C peripheral drives and follows SDA and SCL
+itself (`slave_mem_i2c`, `slave_mem_i2c_burst` and `pio_i2c_bus_scan` take
+them). With each chip in a machine of its own, each wire delivers an edge
+300 µs after its sender drove it, 3 µs at best at the relayed programs'
+quantum, so a harness that must answer within less than a round trip falls
+behind. A program the emulator cannot judge is listed in `EMULATOR_LIMITS`
+in `test/pico_examples/emulation.py` with the reason, and the emulator
+platform's `example` fixture skips its cases with that reason before it
+attaches a part or restarts the program; the hardware platform does not
+read the list. Its `WIRE_LIMITS`, which apply to the two-machine benches
+only, are the open-drain I2C joins of `slave_mem_i2c`,
+`slave_mem_i2c_burst` and `pio_i2c_bus_scan`, the 21 MHz SPI jumpers of
 `pio_clocked_input`, `pio_spi_flash`'s PIO controller, which samples MISO on
 its own clock edges and so gets a harness flash's answer a round trip late,
 and `spi_slave`, whose MISO the harness's controller samples a round trip
-late and reads as ff. Each entry waits on a Renode change that puts the
-harness's pins in the DUT's time domain. `pio_i2c_bus_scan` is listed too:
-its PIO I2C controller on GP2 and GP3 reaches the harness only over
-pin-level wires, and Renode's RP2 I2C peripheral, which serves the
-harness's I2C target, does not model SDA and SCL levels.
+late and reads as ff. On either layout, `hstx_spi_lcd` is skipped for the
+emulator's speed: about six million HSTX register accesses per virtual
+second run the bench about 100 times slower than real time.
 
 The hardware platform never runs the programs in `HARDWARE_HAZARDS`
 (`test/pico_examples/hazards.py`): `hello_otp` writes OTP for good, and
