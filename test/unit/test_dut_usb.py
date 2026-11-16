@@ -420,3 +420,11 @@ def test_each_instance_gives_the_dut_its_own_usbip_port(tmp_path, monkeypatch, w
     assert "$usbip_port=3246" in commands
     assert ("$dut_usbip_port=3256" in commands) == with_dut_port
     assert checked == ([1240, 3246, 3256] if with_dut_port else [1240, 3246])
+
+
+def test_the_console_goes_to_its_log_file_as_it_arrives(tmp_path, monkeypatch):
+    log = tmp_path / "console.log"
+    monkeypatch.setenv("METALCLAW_CONSOLE_LOG", str(log))
+    spec = Spec(console=("world",), seconds=1000.0)
+    assert read_console(Clock(), FakePort([b"hello ", b"world"]), spec) == "hello world"
+    assert log.read_bytes() == b"hello world"

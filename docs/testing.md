@@ -334,6 +334,10 @@ and SIGKILL 10 s later, as it can ignore SIGTERM. Started through
 util-linux's `setpriv --pdeathsig KILL` where that exists, Renode also dies
 with a rig killed outright.
 
+`METALCLAW_CONSOLE_LOG` names a file a pico-examples case appends the DUT's
+console to as it arrives, which keeps what a program printed when its
+session is killed before the report.
+
 `METALCLAW_RENODE_INSTANCE` (0 to 7, default 0) lets several benches run on
 one host. Instance N's Renode takes monitor port 1234 + N and USB/IP ports
 3240 + N for the harness and 3250 + N for the DUT, and its cables attach,

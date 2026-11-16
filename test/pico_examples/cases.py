@@ -7,6 +7,7 @@
 
 import ast
 import contextlib
+import os
 import re
 import time
 
@@ -73,6 +74,15 @@ def console(harness, example, fixture, parts):
 # without pause still ends on its deadline.
 CLOCK_EVERY_S = 0.5
 
+# A file the console is appended to as it arrives, so that a session killed
+# before its report still leaves what the program printed.
+CONSOLE_LOG_ENV = "METALCLAW_CONSOLE_LOG"
+
+
+def console_log():
+    path = os.environ.get(CONSOLE_LOG_ENV)
+    return open(path, "ab", buffering=0) if path else contextlib.nullcontext()
+
 
 # Every console read gets at least this many bench seconds: a read ends as
 # soon as everything matched, so a long window costs time only on a failure,
@@ -121,12 +131,17 @@ class Typist:
 # had returned, and before the next clock reading; the bridge's own delay
 # is taken as the same for every line.
 def read_console(harness, port, spec, patterns=None, inputs=None, ports=None, arrivals=None) -> str:
+    typist = Typist(port, spec.input if inputs is None else inputs, harness, ports)
+    with console_log() as log:
+        return _read_console(harness, port, spec, patterns, typist, arrivals, log)
+
+
+def _read_console(harness, port, spec, patterns, typist, arrivals, log) -> str:
     got = bytearray()
     last = harness.clock()
     deadline = last + max(spec.seconds, MIN_SECONDS)
     quiet, pending = last, []
     checked = time.monotonic()
-    typist = Typist(port, spec.input if inputs is None else inputs, harness, ports)
 
     def clock():
         nonlocal last, pending
@@ -140,6 +155,8 @@ def read_console(harness, port, spec, patterns=None, inputs=None, ports=None, ar
         chunk = port.read(4096)
         got += chunk
         if chunk:
+            if log is not None:
+                log.write(chunk)
             pending.append((len(got.decode(errors="replace")), quiet))
             typist(got.decode(errors="replace"))
         else:
