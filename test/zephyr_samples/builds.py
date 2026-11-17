@@ -366,8 +366,12 @@ BUILDS: dict[str, Build] = {
     # (music on the first, widgets on the others) the I2C0 panel is turned
     # on but never written (its data_bytes still 0 after 30 s) and the I2C1
     # panel takes three whole frames (3072 bytes) and no more, with nothing
-    # on the console; the widgets or stress demo on the first instead
-    # HardFaults soon after the banner.
+    # on the console. Over SWD the core then sits in arch_system_halt after
+    # a HardFault whose thread frame returns into RAM (PC 0x20012a4c, Thumb
+    # bit clear): memory overwritten, the console's too, as no fault report
+    # comes out even with immediate logging. The widgets or stress demo on
+    # the first panel instead HardFaults soon after the banner. Upstream
+    # runs the sample only on native_sim's colour displays.
     "zephyr/modules/lvgl/multi_display": Build("modules/lvgl/multi_display",
                                                test="sample.modules.lvgl.multi_display", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay",
