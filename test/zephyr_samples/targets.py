@@ -295,6 +295,14 @@ OWN: dict[str, Spec] = {
                                      r"^x_res 128, y_res 64, ppt \d+, rows \d+, cols \d+$", ordered=False,
                                      forbidden=(*FORBIDDEN, r"[Ff]ailed", r"not ready"),
                                      source="samples/subsys/display/cfb/src/main.c"),
+    # samples/subsys/display/cfb_shell: the cfb shell commands
+    # (subsys/fb/cfb_shell.c:430-505): initialise the framebuffer, read its
+    # width, print text; its yaml (harness display) has no commands. The
+    # part's GDDRAM must then hold something.
+    "zephyr/subsys/display/cfb_shell": shell_spec({"sample": "subsys/display/cfb_shell", "shell_commands": [
+        {"command": "cfb init", "expected": r"Framebuffer initialized: ssd1306@3c"},
+        {"command": "cfb get_param width", "expected": r"param: width=128"},
+        {"command": "cfb print 0 0 metalclaw"}]}, "subsys/fb/cfb_shell.c"),
     # samples/subsys/display/cfb_custom_font: prints nothing unless it
     # fails; the part's GDDRAM judges it.
     "zephyr/subsys/display/cfb_custom_font": own(forbidden=(*FORBIDDEN, r"[Ff]ailed", r"not ready", r"Could not"),

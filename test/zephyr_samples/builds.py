@@ -244,6 +244,8 @@ BUILDS: dict[str, Build] = {
     # nothing of its own.
     "zephyr/subsys/display/cfb": Build("subsys/display/cfb", test="sample.display.cfb.ssd16xx", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),
+    "zephyr/subsys/display/cfb_shell": Build("subsys/display/cfb_shell", test="sample.display.cfb_shell.ssd16xx", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),
     "zephyr/subsys/display/cfb_custom_font": Build(
         "subsys/display/cfb_custom_font", test="sample.display.cfb_custom_font.ssd16xx", overlays=(
             "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),

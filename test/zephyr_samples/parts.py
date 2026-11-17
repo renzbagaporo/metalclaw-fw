@@ -185,7 +185,7 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("(part.display_on, any(part.read_region('gddram', 0, 1024)))", lambda v: v == (True, True),
                   "the display on, with text drawn in its GDDRAM", 3.0),
         )),
-    ) for s in ("cfb", "cfb_custom_font")},
+    ) for s in ("cfb", "cfb_shell", "cfb_custom_font")},
     # BME280 at 0x76 on I2C0 as dht_polling's dht0: humidity in m%RH.
     "zephyr/sensor/dht_polling": (
         Attach("bme280", "env", {"i2c": (4, 5, 0x76)}, {"i2c": 2},
