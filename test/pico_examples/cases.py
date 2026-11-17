@@ -256,10 +256,11 @@ def test_the_example_enters_bootsel_on_a_double_reset(example, parts):
     try:
         for resets, expect_bootsel in ((1, False), (2, True)):
             if resets == 1:
-                # The program blinks once its double-reset window is over.
-                settled = pins.watch(example.memory, chip, spec.seconds, (spec.led,))
-                assert pins.edges(settled, spec.led), (
-                    f"{example.target}: GP{spec.led} never changed before the single reset")
+                # The bootrom's USB would mean an earlier pair of resets was
+                # already a double press.
+                with example.memory.link() as link:
+                    assert not pins.usb_presenting(link, chip), (
+                        f"{example.target}: the DUT's USB is presenting before the single reset")
             example.reset_by_run(resets, spec.low_s, spec.gap_s)
             samples = pins.watch(example.memory, chip, spec.seconds, (spec.led,))
             with example.memory.link() as link:

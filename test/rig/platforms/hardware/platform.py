@@ -603,6 +603,8 @@ def start_from_ram(link, elf: bytes, vectors: int) -> None:
 # its pins (test/pico_examples). One that loads nothing into flash runs from
 # SRAM, so a restart loads it again.
 class Example(Target):
+    reset_window_s = 0.0
+
     def __init__(self, harness: Harness, image: Path, toolchain_dir: str, recorder=None):
         metadata = example_metadata(image)
         super().__init__(harness, image, recorder, f"pico-examples/{metadata['target']}")
@@ -611,11 +613,26 @@ class Example(Target):
         self.elf = image.read_bytes()
         self.ram_only = not any(dut_flash.in_flash(p) for p, _, _ in dut_flash.segments(self.elf))
         self.vectors = symbol_addresses(image, ("__vectors",), toolchain_dir)["__vectors"] if self.ram_only else None
+        from test.pico_examples.pin_specs import BOOTSEL_SPECS
+        spec = BOOTSEL_SPECS.get(self.target)
+        # A program that counts resets takes a second one within its window
+        # as a double press, whoever issued the two: each reset waits that
+        # long of bench time first. On a bench the host's round trips take
+        # longer; an emulated bench runs them in a few emulated ms.
+        self.reset_window_s = spec.window_s if spec is not None else 0.0
 
     # The DUT pins the program's parts take, which no idle level may hold.
     def parts_dut_pins(self) -> set[int]:
         from test.pico_examples.parts import parts_dut_pins
         return parts_dut_pins(self.target, self.metadata.get("board"))
+
+    def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
+        self._past_reset_window()
+        super().reset_by_run(count, low_s, gap_s)
+
+    def _past_reset_window(self) -> None:
+        if self.reset_window_s:
+            self.harness.sleep(self.reset_window_s)
 
     def flash(self, wake_harness_pin=None) -> None:
         if not self.ram_only:
@@ -625,6 +642,7 @@ class Example(Target):
     # dips or their timer runs) can be asleep when the reset lands; it is
     # halted once it is awake again, as before a download, and reset then.
     def restart(self) -> None:
+        self._past_reset_window()
         if self.ram_only:
             with self.memory.link() as link:
                 start_from_ram(link, self.elf, self.vectors)

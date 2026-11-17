@@ -2,6 +2,7 @@
 
 import json
 import re
+import types
 
 import pytest
 
@@ -226,4 +227,20 @@ def test_every_interval_names_two_console_patterns_in_order():
 def test_a_double_resets_second_press_lands_inside_the_programs_window():
     from test.pico_examples.pin_specs import BOOTSEL_SPECS
     # PICO_BOOTSEL_VIA_DOUBLE_RESET_TIMEOUT_MS is 200.
-    assert BOOTSEL_SPECS["hello_double_tap"].gap_s < 0.2
+    assert BOOTSEL_SPECS["hello_double_tap"].gap_s < 0.2 < BOOTSEL_SPECS["hello_double_tap"].window_s
+
+
+def test_every_reset_of_a_double_reset_program_waits_out_its_window(monkeypatch):
+    from test.rig.platforms.hardware import platform as hardware
+    events = []
+    e = object.__new__(hardware.Example)
+    e.harness = types.SimpleNamespace(sleep=lambda s: events.append(("sleep", s)), serial="X")
+    e.ram_only, e.reset_window_s = False, 0.3
+    e.reset = lambda: events.append("reset")
+    monkeypatch.setattr(hardware.dap, "run_resets", lambda *a: events.append("run"))
+    e.restart()
+    e.reset_by_run(2, 0.01, 0.1)
+    assert events == [("sleep", 0.3), "reset", ("sleep", 0.3), "run"]
+    e.reset_window_s, events[:] = 0.0, []
+    e.restart()
+    assert events == ["reset"]
