@@ -360,9 +360,11 @@ BUILDS: dict[str, Build] = {
         confs=("test/zephyr_samples/overlays/lvgl_ssd1306.conf",)),
     # samples/modules/lvgl/multi_display: the panel on I2C0 and a second
     # on I2C1, as the zephyr,displays list. With the sample's default demos
-    # (music on the first, widgets on the others) the second panel draws
-    # and the first's GDDRAM stays empty; the widgets or stress demo on the
-    # first instead HardFaults soon after the banner.
+    # (music on the first, widgets on the others) the I2C0 panel is turned
+    # on but never written (its data_bytes still 0 after 30 s) and the I2C1
+    # panel takes three whole frames (3072 bytes) and no more, with nothing
+    # on the console; the widgets or stress demo on the first instead
+    # HardFaults soon after the banner.
     "zephyr/modules/lvgl/multi_display": Build("modules/lvgl/multi_display",
                                                test="sample.modules.lvgl.multi_display", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay",
