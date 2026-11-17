@@ -373,6 +373,11 @@ OWN: dict[str, Spec] = {
     # samples/subsys/display/lvgl: its yaml's harness is "none"; it logs
     # only failures (LVGL's own warnings too, CONFIG_LV_USE_LOG). The panel's
     # GDDRAM judges it (test/zephyr_samples/parts.py).
+    # samples/modules/lvgl/accelerometer_chart/src/main.c: its yaml's
+    # harness is none; it logs only failures, and charts accel0's readings.
+    # The panel's GDDRAM judges it (parts.py).
+    "zephyr/modules/lvgl/accelerometer_chart": own(forbidden=(*FORBIDDEN, r"<err>", r"\[Error\]"), seconds=5.0,
+                                                   source="samples/modules/lvgl/accelerometer_chart/src/main.c"),
     "zephyr/subsys/display/lvgl": own(forbidden=(*FORBIDDEN, r"<err>", r"\[Error\]"), seconds=5.0,
                                       source="samples/subsys/display/lvgl/src/main.c"),
     # samples/subsys/display/cfb_custom_font: prints nothing unless it

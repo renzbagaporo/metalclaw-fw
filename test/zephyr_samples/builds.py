@@ -351,6 +351,13 @@ BUILDS: dict[str, Build] = {
     "zephyr/subsys/display/lvgl": Build("subsys/display/lvgl", test="sample.display.lvgl.gui", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay"),
                                         confs=("test/zephyr_samples/overlays/lvgl_ssd1306.conf",)),
+    # samples/modules/lvgl/accelerometer_chart: the same panel, and a
+    # LIS2DH as accel0 on I2C1.
+    "zephyr/modules/lvgl/accelerometer_chart": Build("modules/lvgl/accelerometer_chart",
+                                                     test="sample.modules.lvgl.accelerometer_chart", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay",
+        "test/zephyr_samples/overlays/accel0_lis2dh_i2c1.overlay"),
+        confs=("test/zephyr_samples/overlays/lvgl_ssd1306.conf",)),
     # samples/modules/lvgl/demos: the widgets demo on the same panel.
     "zephyr/modules/lvgl/demos": Build("modules/lvgl/demos", test="sample.modules.lvgl.demo_widgets", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay"),

@@ -1,0 +1,37 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A LIS2DH at 0x18 as accel0 on I2C1 (GP6 SDA, GP7 SCL, standard rate),
+ * for a sample whose display already holds I2C0: the harness answers one
+ * I2C target per bus. The pads' pull-ups, as i2c_loopback.overlay.
+ */
+#include <zephyr/dt-bindings/i2c/i2c.h>
+
+/ {
+	aliases {
+		accel0 = &accel0_lis2dh;
+	};
+};
+
+&pinctrl {
+	i2c1_gp6_gp7_accel: i2c1_gp6_gp7_accel {
+		group1 {
+			pinmux = <I2C1_SDA_P6>, <I2C1_SCL_P7>;
+			input-enable;
+			input-schmitt-enable;
+			bias-pull-up;
+		};
+	};
+};
+
+&i2c1 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	pinctrl-0 = <&i2c1_gp6_gp7_accel>;
+	pinctrl-names = "default";
+
+	accel0_lis2dh: lis2dh@18 {
+		compatible = "st,lis2dh";
+		reg = <0x18>;
+		status = "okay";
+	};
+};

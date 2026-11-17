@@ -187,6 +187,14 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         )),
     ) for s in ("subsys/display/cfb", "subsys/display/cfb_shell", "subsys/display/cfb_custom_font",
                 "subsys/display/lvgl", "modules/lvgl/demos")},
+    # accelerometer_chart: the same SSD1306, and the LIS2DH on I2C1.
+    "zephyr/modules/lvgl/accelerometer_chart": (
+        Attach("ssd1306", "oled", {"i2c": (4, 5, 0x3C)}, {"i2c": 2}, checks=(
+            Check("(part.display_on, any(part.read_region('gddram', 0, 1024)))", lambda v: v == (True, True),
+                  "the display on, with the chart drawn in its GDDRAM", 3.0),
+        )),
+        Attach("lis3dh", "accel", {"i2c": (6, 7, 0x18)}, {"i2c": 2}, {"acceleration": (252, -500, 1020)}),
+    ),
     # BME280 at 0x76 on I2C0 as dht_polling's dht0: humidity in m%RH.
     "zephyr/sensor/dht_polling": (
         Attach("bme280", "env", {"i2c": (4, 5, 0x76)}, {"i2c": 2},
