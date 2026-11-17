@@ -84,6 +84,11 @@ OWN: dict[str, Spec] = {
         r"^temp 23\.4[4-6] Cel, pressure 98\.76[4-6]\d* kPa",
         forbidden=(*FORBIDDEN, r"Error"),
         source="samples/sensor/pressure_polling/src/main.c"),
+    # samples/drivers/gnss/src/main.c:15-27: prints each fix the driver
+    # publishes; its yaml has no harness. The u-blox UBX driver maps a 2D or
+    # 3D fix to GNSS_FIX_STATUS_GNSS_FIX, 1 (drivers/gnss/u_blox/gnss_ubx_common.c,
+    # include/zephyr/drivers/gnss.h).
+    "zephyr/drivers/gnss": own(r"Got a fix \(type: 1\)", seconds=30.0, source="samples/drivers/gnss/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

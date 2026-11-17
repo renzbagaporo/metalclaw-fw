@@ -125,6 +125,12 @@ BUILDS: dict[str, Build] = {
         "sensor/pressure_polling", test="sample.sensor.pressure_sensor",
         overlays=("devices/bmp388/test/dut/rp2.overlay", "test/zephyr_samples/overlays/pressure_sensor_bmp388.overlay"),
         confs=("devices/bmp388/test/dut/rp2.conf",)),
+    # samples/drivers/gnss: the rig's neo_m8n node on uart1 (DUT TX GP8, RX
+    # GP9), which also sets the gnss alias.
+    "zephyr/drivers/gnss": Build(
+        "drivers/gnss", test="sample.drivers.gnss",
+        overlays=("devices/neo_m8n/test/dut/uart1/rp2.overlay",),
+        confs=("test/zephyr_samples/overlays/gnss_neo_m8n.conf",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
