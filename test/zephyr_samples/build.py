@@ -59,8 +59,8 @@ def runs_on(test: dict, zephyr_board: str) -> bool:
 
 
 def board_configs(configs: list[str], zephyr_board: str) -> list[str]:
-    # extra_configs as twister applies them: an "arch:<arch>:" or
-    # "platform:<board>:" line only on that arch or board.
+    # extra_configs or extra_args as twister applies them: an "arch:<arch>:"
+    # or "platform:<board>:" entry only on that arch or board.
     kept = []
     for config in configs:
         parts = config.split(":")
@@ -91,13 +91,15 @@ def _list(value) -> list[str]:
     return shlex.split(value) if isinstance(value, str) else list(value)
 
 
+ROOT = Path(__file__).resolve().parents[2]
+
 # The list-valued cache entries several sources add to: one -D each, joined.
 LISTS = ("EXTRA_CONF_FILE", "EXTRA_DTC_OVERLAY_FILE")
 
 
 def cmake_args(build: Build, test: dict, work: Path, zephyr_board: str) -> list[str]:
     args, lists = [], {name: [] for name in LISTS}
-    for arg in _list(test.get("extra_args")):
+    for arg in board_configs(_list(test.get("extra_args")), zephyr_board):
         name, _, value = arg.partition("=")
         if name in lists:
             lists[name] += value.split(";")
@@ -111,6 +113,8 @@ def cmake_args(build: Build, test: dict, work: Path, zephyr_board: str) -> list[
         args.append("-DCONF_FILE=" + ";".join(_list(test["extra_conf_files"])))
     lists["EXTRA_CONF_FILE"] += _list(test.get("extra_overlay_confs"))
     lists["EXTRA_DTC_OVERLAY_FILE"] += _list(test.get("extra_dtc_overlay_files"))
+    lists["EXTRA_DTC_OVERLAY_FILE"] += [str(ROOT / o) for o in build.overlays]
+    lists["EXTRA_CONF_FILE"] += [str(ROOT / c) for c in build.confs]
     args += [f"-D{name}=" + ";".join(values) for name, values in lists.items() if values]
     return args + [f"-D{a}" for a in build.args]
 

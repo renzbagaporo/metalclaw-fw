@@ -1,0 +1,9 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* samples/sensor/pressure_polling looks its sensor up by this alias; the
+ * bmp388 node is the rig's (devices/bmp388/test/dut/rp2.overlay). */
+
+/ {
+	aliases {
+		pressure-sensor = &barometer;
+	};
+};

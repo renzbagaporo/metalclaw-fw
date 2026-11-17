@@ -25,6 +25,11 @@ class Build:
     test: str | None = None
     # Extra CMake cache entries ("NAME=value"), after the test's own.
     args: tuple[str, ...] = ()
+    # Devicetree overlays and Kconfig fragments of ours, repository-relative,
+    # added after the test's own (EXTRA_DTC_OVERLAY_FILE, EXTRA_CONF_FILE):
+    # the parts' nodes and the aliases the sample looks them up by.
+    overlays: tuple[str, ...] = ()
+    confs: tuple[str, ...] = ()
     # The boards (BOARDS keys) it builds for, and why the others are left out.
     boards: tuple[str, ...] = ("pico", "pico2")
     other_boards: str = ""
@@ -111,6 +116,15 @@ BUILDS: dict[str, Build] = {
     "zephyr/subsys/console/getchar": Build("subsys/console/getchar", test="sample.console.getchar"),
     "zephyr/subsys/console/getline": Build("subsys/console/getline", test="sample.console.getline"),
     "zephyr/drivers/uart/echo_bot": Build("drivers/uart/echo_bot", test="sample.drivers.uart"),
+    # Wave 1d: parts whose models a Zephyr driver already runs against (the
+    # rig's device images), on the nodes those images use
+    # (devices/<part>/test/dut/rp2.overlay), with the sample's alias.
+    # samples/sensor/pressure_polling: build_only upstream (judged by our own
+    # criterion).
+    "zephyr/sensor/pressure_polling": Build(
+        "sensor/pressure_polling", test="sample.sensor.pressure_sensor",
+        overlays=("devices/bmp388/test/dut/rp2.overlay", "test/zephyr_samples/overlays/pressure_sensor_bmp388.overlay"),
+        confs=("devices/bmp388/test/dut/rp2.conf",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

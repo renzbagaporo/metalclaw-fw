@@ -109,3 +109,25 @@ def test_a_shell_test_types_each_command_at_a_prompt_and_reads_its_reply():
             "\x1b[1;32muart:~$ \x1b[mkernel version\r\nZephyr version 4.4.0\r\n")
     assert spec.match(text)[0] == []
     assert spec.match(text.replace("Zephyr version", "Version"))[0] == ["^(?:Zephyr version .*)"]
+
+
+def test_our_overlays_and_confs_follow_the_tests_own(tmp_path):
+    from test.zephyr_samples.build import ROOT
+    test = {"extra_dtc_overlay_files": ["a.overlay"], "extra_args": "platform:other_board:SHIELD=x"}
+    args = cmake_args(Build("x", overlays=("o.overlay",), confs=("c.conf",)), test, tmp_path, "rpi_pico")
+    assert f"-DEXTRA_DTC_OVERLAY_FILE=a.overlay;{ROOT / 'o.overlay'}" in args
+    assert f"-DEXTRA_CONF_FILE={ROOT / 'c.conf'}" in args
+    assert not any("SHIELD" in a for a in args)
+
+
+def test_a_zephyr_samples_parts_come_from_its_own_table():
+    from test.pico_examples.parts import parts_for
+    assert [p.model for p in parts_for("zephyr/sensor/pressure_polling", "pico")] == ["bmp388"]
+    assert parts_for("zephyr/hello_world", "pico") == ()
+
+
+def test_every_overlay_and_conf_a_build_names_exists():
+    from test.zephyr_samples.build import ROOT
+    for target, build in BUILDS.items():
+        for path in (*build.overlays, *build.confs):
+            assert (ROOT / path).is_file(), (target, path)

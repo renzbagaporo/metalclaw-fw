@@ -542,9 +542,12 @@ PEERS: dict[str, tuple[Attach, ...]] = {
 PARTS.update(PEERS)
 
 
-# The parts a program's build on `board` (example.json "board") uses.
+# The parts a program's build on `board` (example.json "board") uses: an
+# upstream Zephyr sample's from test/zephyr_samples.
 def parts_for(target: str, board: str | None) -> tuple[Attach, ...]:
-    return tuple(p for p in PARTS.get(target, ()) if not p.boards or board in p.boards)
+    from test.zephyr_samples.parts import ZEPHYR_PARTS
+    table = ZEPHYR_PARTS if target.startswith("zephyr/") else PARTS
+    return tuple(p for p in table.get(target, ()) if not p.boards or board in p.boards)
 
 
 # The DUT pins they take.

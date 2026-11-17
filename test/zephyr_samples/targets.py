@@ -72,6 +72,16 @@ OWN: dict[str, Spec] = {
         r"^Zephyr version number: \d+$", r"^Reading using flash:$", r"^my_bytes: 01 02 03 04 ?$",
         forbidden=(*FORBIDDEN, r"Descriptors not found"),
         source="samples/subsys/bindesc/read_bindesc/src/main.c"),
+    # samples/sensor/pressure_polling/src/main.c:44-61: prints the sensor's
+    # temperature (%.2f) and pressure (%f, kPa) every second; build_only
+    # upstream. The bmp388 part holds 23.450 °C and 98765 Pa
+    # (test/zephyr_samples/parts.py), within its model's 1 Pa and 1 m°C.
+    "zephyr/sensor/pressure_polling": own(
+        r'^Found device "bmp388@76", getting sensor data$',
+        r"^Starting pressure, temperature and altitude polling sample\.$",
+        r"^temp 23\.4[4-6] Cel, pressure 98\.76[4-6]\d* kPa",
+        forbidden=(*FORBIDDEN, r"Error"),
+        source="samples/sensor/pressure_polling/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.
