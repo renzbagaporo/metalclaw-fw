@@ -248,7 +248,20 @@ PIN_CHANGES_KEPT = 64
 # A program linked with pico_bootsel_via_double_reset: one reset on RUN
 # starts it as usual, two within its window enter the USB bootloader. The
 # probe drives RUN (the fixture's swd nreset) with its own timing.
-def test_the_example_enters_bootsel_on_a_double_reset(example, parts):
+# Whether the DUT's USB presents within `seconds` of bench time: the
+# bootrom brings it up some time after the reset, and its own timer may not
+# run in the meantime, so the wait is on the bench's clock.
+def usb_presents_within(harness, example, chip, seconds) -> bool:
+    deadline = harness.clock() + seconds
+    while True:
+        with example.memory.link() as link:
+            if pins.usb_presenting(link, chip):
+                return True
+        if harness.clock() >= deadline:
+            return False
+
+
+def test_the_example_enters_bootsel_on_a_double_reset(harness, example, parts):
     spec = BOOTSEL_SPECS.get(example.target)
     if spec is None:
         pytest.skip(f"no double-reset criteria for {example.target}")
@@ -263,8 +276,11 @@ def test_the_example_enters_bootsel_on_a_double_reset(example, parts):
                         f"{example.target}: the DUT's USB is presenting before the single reset")
             example.reset_by_run(resets, spec.low_s, spec.gap_s)
             samples = pins.watch(example.memory, chip, spec.seconds, (spec.led,))
-            with example.memory.link() as link:
-                presenting = pins.usb_presenting(link, chip)
+            if expect_bootsel:
+                presenting = usb_presents_within(harness, example, chip, spec.seconds)
+            else:
+                with example.memory.link() as link:
+                    presenting = pins.usb_presenting(link, chip)
             seen = len(pins.edges(samples, spec.led))
             span = (f"{len(samples)} samples over {(samples[-1].us - samples[0].us) / 1e6:.3f} s of DUT time"
                     if samples else "no samples")
