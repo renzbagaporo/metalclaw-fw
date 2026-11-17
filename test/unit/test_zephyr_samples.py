@@ -57,7 +57,7 @@ def test_own_criteria_replace_the_yaml():
 def test_a_test_becomes_twisters_cmake_arguments(tmp_path):
     test = {"extra_args": "DEBUG_PRINTF=1 EXTRA_CONF_FILE=prj_x.conf", "extra_configs": ["CONFIG_A=y"],
             "extra_dtc_overlay_files": ["a.overlay"]}
-    args = cmake_args(Build("x", args=("CONFIG_B=n",)), test, tmp_path)
+    args = cmake_args(Build("x", args=("CONFIG_B=n",)), test, tmp_path, "rpi_pico")
     assert args[0] == "-DDEBUG_PRINTF=1"
     assert f"-DEXTRA_CONF_FILE=prj_x.conf;{tmp_path / 'testsuite_extra.conf'}" in args
     assert sum(a.startswith("-DEXTRA_CONF_FILE=") for a in args) == 1
@@ -84,3 +84,10 @@ def test_a_test_for_other_platforms_is_passed_over():
 def test_every_build_is_named_for_its_sample():
     for target, build in BUILDS.items():
         assert target == f"zephyr/{build.sample}", target
+
+
+def test_arch_and_platform_configs_apply_only_there(tmp_path):
+    test = {"extra_configs": ["CONFIG_A=y", "arch:arm:CONFIG_ARM_MPU=n", "arch:arc:CONFIG_ARC_MPU_ENABLE=n",
+                              "platform:rpi_pico:CONFIG_P=y", "platform:frdm_k64f:CONFIG_K=y"]}
+    cmake_args(Build("x"), test, tmp_path, "rpi_pico")
+    assert (tmp_path / "testsuite_extra.conf").read_text() == "CONFIG_A=y\nCONFIG_ARM_MPU=n\nCONFIG_P=y\n"

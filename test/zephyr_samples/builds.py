@@ -59,9 +59,7 @@ BUILDS: dict[str, Build] = {
         "subsys/portability/cmsis_rtos_v2/philosophers",
         "subsys/portability/cmsis_rtos_v2/timer_synchronization",
         "subsys/bindesc/hello_bindesc",
-        "subsys/bindesc/read_bindesc",
         "subsys/crc",
-        "subsys/llext/modules",
         "subsys/logging/logger",
         "subsys/pm/device_pm",
         "subsys/rtio/producer_consumer",
@@ -100,6 +98,13 @@ BUILDS: dict[str, Build] = {
     # samples/basic/blinky: its one test, on an LED harness (judged by our
     # own criterion, test/zephyr_samples/targets.py OWN).
     "zephyr/basic/blinky": Build("basic/blinky", test="sample.basic.blinky"),
+    # samples/subsys/bindesc/read_bindesc: build_only upstream (judged by our
+    # own criterion).
+    "zephyr/subsys/bindesc/read_bindesc": Build("subsys/bindesc/read_bindesc", test="sample.bindesc.read_bindesc"),
+    # samples/subsys/llext/modules: the module build, which loads the hello
+    # world extension at run time; its platform_allow lists QEMU and MPS2
+    # boards only.
+    "zephyr/subsys/llext/modules": Build("subsys/llext/modules", test="sample.llext.modules.module_build"),
     # samples/net/sockets/socketpair: its first test, on a "net" harness with
     # no patterns (judged by our own criterion).
     "zephyr/net/sockets/socketpair": Build("net/sockets/socketpair", test="sample.net.sockets.socketpair"),

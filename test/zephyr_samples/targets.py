@@ -47,6 +47,16 @@ OWN: dict[str, Spec] = {
     "zephyr/basic/blinky": own(r"^LED state: OFF$", r"^LED state: ON$", r"^LED state: OFF$",
                                intervals=every(1.0, 0.005, 3, first=1),
                                source="samples/basic/blinky/src/main.c"),
+    # samples/subsys/bindesc/read_bindesc/src/main.c:53-126: finds the
+    # descriptors in flash, then reads the kernel version through mapped
+    # flash, RAM and the flash driver, and its own my_bytes {1, 2, 3, 4};
+    # the search for id 123 is meant to miss. Its yaml is build_only.
+    "zephyr/subsys/bindesc/read_bindesc": own(
+        r"^Found descriptors at 0x[0-9a-f]+$", r"^Reading using memory mapped flash:$",
+        r"^Zephyr version: \d+\.\d+\.\d+", r"^Reading using RAM:$", r"^Descriptor not found!$",
+        r"^Zephyr version number: \d+$", r"^Reading using flash:$", r"^my_bytes: 01 02 03 04 ?$",
+        forbidden=(*FORBIDDEN, r"Descriptors not found"),
+        source="samples/subsys/bindesc/read_bindesc/src/main.c"),
     # samples/net/sockets/socketpair/src/main.c:230-257: three threads write
     # their names through socketpairs that main polls; it prints SUCCESS or
     # FAILURE after tearing down, and a short or wrong read on the way. Its

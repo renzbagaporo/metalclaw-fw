@@ -40,13 +40,37 @@ def yaml_tests(sample_dir: Path) -> dict[str, dict]:
     raise FileNotFoundError(f"no sample.yaml or testcase.yaml in {sample_dir}")
 
 
+# Every bench board's Zephyr arch (the RP2350's Cortex-M33 build).
+ARCH = "arm"
+
+
+def names_board(entry: str, zephyr_board: str) -> bool:
+    # Whether a platform entry names the board, alone or with qualifiers.
+    return zephyr_board == entry or zephyr_board.startswith(entry + "/") or entry.startswith(zephyr_board + "/")
+
+
 def runs_on(test: dict, zephyr_board: str) -> bool:
-    # Whether the test's platform_allow / platform_exclude let it run on the
-    # board: an entry names the board alone or with its qualifiers.
-    def names(entry: str) -> bool:
-        return zephyr_board == entry or zephyr_board.startswith(entry + "/") or entry.startswith(zephyr_board + "/")
+    # Whether the test's platform_allow / platform_exclude let it run on the board.
     allow, exclude = _list(test.get("platform_allow")), _list(test.get("platform_exclude"))
-    return (not allow or any(names(e) for e in allow)) and not any(names(e) for e in exclude)
+    return (not allow or any(names_board(e, zephyr_board) for e in allow)) and \
+        not any(names_board(e, zephyr_board) for e in exclude)
+
+
+def board_configs(configs: list[str], zephyr_board: str) -> list[str]:
+    # extra_configs as twister applies them: an "arch:<arch>:" or
+    # "platform:<board>:" line only on that arch or board.
+    kept = []
+    for config in configs:
+        parts = config.split(":")
+        if len(parts) == 3 and parts[0] == "arch":
+            if parts[1] == ARCH:
+                kept.append(parts[2])
+        elif len(parts) == 3 and parts[0] == "platform":
+            if names_board(parts[1], zephyr_board):
+                kept.append(parts[2])
+        else:
+            kept.append(config)
+    return kept
 
 
 def choose_test(build: Build, tests: dict[str, dict], zephyr_board: str) -> tuple[str, dict]:
@@ -69,7 +93,7 @@ def _list(value) -> list[str]:
 LISTS = ("EXTRA_CONF_FILE", "EXTRA_DTC_OVERLAY_FILE")
 
 
-def cmake_args(build: Build, test: dict, work: Path) -> list[str]:
+def cmake_args(build: Build, test: dict, work: Path, zephyr_board: str) -> list[str]:
     args, lists = [], {name: [] for name in LISTS}
     for arg in _list(test.get("extra_args")):
         name, _, value = arg.partition("=")
@@ -79,7 +103,7 @@ def cmake_args(build: Build, test: dict, work: Path) -> list[str]:
             args.append(f"-D{arg}")
     if test.get("extra_configs"):
         fragment = work / "testsuite_extra.conf"
-        fragment.write_text("".join(f"{line}\n" for line in test["extra_configs"]))
+        fragment.write_text("".join(f"{line}\n" for line in board_configs(test["extra_configs"], zephyr_board)))
         lists["EXTRA_CONF_FILE"].append(str(fragment))
     if test.get("extra_conf_files"):
         args.append("-DCONF_FILE=" + ";".join(_list(test["extra_conf_files"])))
@@ -107,7 +131,7 @@ def build_one(target: str, board: str, base: Path, out: Path) -> tuple[bool, str
     log = out / "logs" / board / f"{target}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     command = ["west", "build", "-p", "always", "-b", zephyr_board, "-d", str(work / "build"), str(sample_dir), "--",
-               *cmake_args(build, test, work)]
+               *cmake_args(build, test, work, zephyr_board)]
     with log.open("w") as f:
         f.write(shlex.join(command) + "\n")
         f.flush()
