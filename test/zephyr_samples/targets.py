@@ -333,6 +333,13 @@ OWN: dict[str, Spec] = {
             {"command": "sensor get ina237@40 current",
              "expected": r"channel type=\d+\(current\) index=0 shift=\d+ num_samples=1 value=\d+ns \(0\.(199|200)\d*\)"}]},
         "drivers/sensor/sensor_shell.c"),
+    # samples/drivers/stepper/generic/src/main.c:69-107: each button press
+    # moves to the next mode and logs it, first enabling the driver.
+    "zephyr/drivers/stepper/generic": own(r"<inf> stepper_generic: Starting generic stepper sample",
+                                          r"<inf> stepper_generic: mode: enable",
+                                          r"<inf> stepper_generic: mode: ping pong relative",
+                                          forbidden=(*FORBIDDEN, r"<err>"),
+                                          source="samples/drivers/stepper/generic/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

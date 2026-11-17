@@ -130,6 +130,9 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     **{f"zephyr/{target}": (Attach("square_wave", "button", {"out": (15,)},
                                    properties={"period": 1_000_000_000, "high": 900_000_000}),)
        for target in ("basic/button", "drivers/gpio/button_interrupt")},
+    # The stepper sample's mode button, pressed for 100 ms each second.
+    "zephyr/drivers/stepper/generic": (Attach("square_wave", "button", {"out": (15,)},
+                                              properties={"period": 1_000_000_000, "high": 900_000_000}),),
     # DS18B20 on GP15: 21.375 °C is 342 sixteenths, exact at 12 bits. Open
     # drain with no pull-up of its own, so only the carrier's lines carry it.
     **{f"zephyr/{target}": (Attach("ds18b20", "thermo", {"dq": (15,)},
