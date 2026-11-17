@@ -182,6 +182,10 @@ BUILDS: dict[str, Build] = {
     # samples/drivers/ht16k33: its yaml's harness is "TBD".
     "zephyr/drivers/ht16k33": Build("drivers/ht16k33", test="sample.drivers.ht16k33", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ht16k33_70.overlay")),
+    # samples/drivers/display: its builtin-display test, with an SSD1306 of
+    # ours as zephyr,display.
+    "zephyr/drivers/display": Build("drivers/display", test="sample.display.builtin", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

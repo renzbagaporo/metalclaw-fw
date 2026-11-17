@@ -122,6 +122,14 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
                   "the oscillator and display on, and LEDs 0-39 lit one by one", 8.0),
         )),
     ),
+    # SSD1306 at 0x3C: samples/drivers/display draws its corner rectangles
+    # and turns blanking off (src/display.c:400-457).
+    "zephyr/drivers/display": (
+        Attach("ssd1306", "oled", {"i2c": (4, 5, 0x3C)}, {"i2c": 2}, checks=(
+            Check("(part.display_on, any(part.read_region('gddram', 0, 1024)))", lambda v: v == (True, True),
+                  "the display on, with something drawn in its GDDRAM", 3.0),
+        )),
+    ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),

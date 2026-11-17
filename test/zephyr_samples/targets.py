@@ -179,6 +179,11 @@ OWN: dict[str, Spec] = {
                                   r"<inf> main: Blinking LEDs with a period of 500 ms", seconds=20.0,
                                   forbidden=(*FORBIDDEN, r"<err>"),
                                   source="samples/drivers/ht16k33/src/main.c"),
+    # samples/drivers/display/src/display.c:276-457: its builtin test's yaml
+    # has a fixture and no patterns; the log names the display, then starts.
+    "zephyr/drivers/display": own(r"<inf> sample: Display sample for ssd1306@3c", r"<inf> sample: Display starts",
+                                  forbidden=(*FORBIDDEN, r"<err>"),
+                                  source="samples/drivers/display/src/display.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.
