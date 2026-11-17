@@ -352,6 +352,13 @@ OWN: dict[str, Spec] = {
     "zephyr/sensor/light_polling": own(r"^lux: 1[12]\.\d+$", analog_pins=(26,),
                                        without_analog={"console": (BANNER, r"^lux: \d+\.\d+$")},
                                        source="samples/sensor/light_polling/src/main.c"),
+    # samples/drivers/fuel_gauge/src/main.c:112-282: finds the gauge and
+    # lists what it supports, with the cell voltage (uV) the INA219 gives
+    # the composite gauge: the part's 3.7 V, in its 4 mV steps.
+    "zephyr/drivers/fuel_gauge": own(r"<inf> app: Found device \"fuel-gauge\"",
+                                     r"<inf> app:   Voltage: 3(69[6-9]|70[0-4])\d{3}$",
+                                     forbidden=(*FORBIDDEN, r"<err>"),
+                                     source="samples/drivers/fuel_gauge/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

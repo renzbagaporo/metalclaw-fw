@@ -1,0 +1,23 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * samples/drivers/fuel_gauge reads fuel-gauge0: a composite gauge over the
+ * INA219 of ina219_40.overlay (bus voltage and current), a lithium-ion
+ * polymer cell with Zephyr's default OCV curve, as Zephyr's own composite
+ * nodes are built (tests/drivers/build_all/sensor/adc.dtsi).
+ */
+#include <zephyr/dt-bindings/battery/battery.h>
+
+/ {
+	aliases {
+		fuel-gauge0 = &fuel_gauge;
+	};
+
+	fuel_gauge: fuel-gauge {
+		compatible = "zephyr,fuel-gauge-composite";
+		status = "okay";
+		source-primary = <&ina219_40>;
+		device-chemistry = "lithium-ion-polymer";
+		ocv-capacity-table-0 = <BATTERY_OCV_CURVE_LITHIUM_ION_POLYMER_DEFAULT>;
+		charge-full-design-microamp-hours = <1000000>;
+	};
+};

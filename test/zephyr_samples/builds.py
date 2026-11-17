@@ -284,6 +284,10 @@ BUILDS: dict[str, Build] = {
     # (GP8/GP9), as its nrf52840dk overlay enables that board's uart1.
     "zephyr/subsys/zbus/uart_bridge": Build("subsys/zbus/uart_bridge",
                                             overlays=("test/zephyr_samples/overlays/uart1_gp8_gp9.overlay",)),
+    # samples/drivers/fuel_gauge: a composite gauge over an INA219.
+    "zephyr/drivers/fuel_gauge": Build("drivers/fuel_gauge", test="sample.sensor.fuel_gauge", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ina219_40.overlay",
+        "test/zephyr_samples/overlays/fuel_gauge_ina219.overlay")),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
