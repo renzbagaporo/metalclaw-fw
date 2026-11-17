@@ -306,6 +306,11 @@ OWN: dict[str, Spec] = {
         {"command": "cfb init", "expected": r"Framebuffer initialized: ssd1306@3c"},
         {"command": "cfb get_param width", "expected": r"param: width=128"},
         {"command": "cfb print 0 0 metalclaw"}]}, "subsys/fb/cfb_shell.c"),
+    # samples/subsys/display/lvgl: its yaml's harness is "none"; it logs
+    # only failures (LVGL's own warnings too, CONFIG_LV_USE_LOG). The panel's
+    # GDDRAM judges it (test/zephyr_samples/parts.py).
+    "zephyr/subsys/display/lvgl": own(forbidden=(*FORBIDDEN, r"<err>", r"\[Error\]"), seconds=5.0,
+                                      source="samples/subsys/display/lvgl/src/main.c"),
     # samples/subsys/display/cfb_custom_font: prints nothing unless it
     # fails; the part's GDDRAM judges it.
     "zephyr/subsys/display/cfb_custom_font": own(forbidden=(*FORBIDDEN, r"[Ff]ailed", r"not ready", r"Could not"),
