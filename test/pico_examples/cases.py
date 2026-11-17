@@ -288,14 +288,24 @@ for n, b in enumerate(bases):
           machine.mem32[b + 0x38], 'empty' if dr is None else '%#x' % dr))
 """
 # And its PIO blocks, where a UART on a pin pair no PL011 has runs
-# (core/ports/rp2/hal/uart_pio.c): per block FSTAT, FDEBUG, FLEVEL and IRQ,
-# and each state machine's ADDR. PIO0 and PIO1 at 0x50200000 and
-# 0x50300000, the RP2350's PIO2 at 0x50400000.
+# (core/ports/rp2/hal/uart_pio.c), with the DMA channels that read their RX
+# FIFOs into the receive rings: per block FSTAT, FDEBUG, FLEVEL and IRQ and
+# each state machine's ADDR; per such channel READ_ADDR, WRITE_ADDR,
+# TRANS_COUNT and CTRL_TRIG. PIO0 and PIO1 at 0x50200000 and 0x50300000, the
+# RP2350's PIO2 at 0x50400000; DMA at 0x50000000, 12 channels on the
+# RP2040 and 16 on the RP2350, 0x40 apart.
 HARNESS_PIOS = """import machine, sys
-bases = (0x50200000, 0x50300000) + ((0x50400000,) if 'RP2350' in sys.implementation._machine else ())
+rp2350 = 'RP2350' in sys.implementation._machine
+bases = (0x50200000, 0x50300000) + ((0x50400000,) if rp2350 else ())
 for n, b in enumerate(bases):
     print('pio%d fstat=%#x fdebug=%#x flevel=%#x irq=%#x addr=%s' % (n, machine.mem32[b + 0x4], machine.mem32[b + 0x8],
           machine.mem32[b + 0xc], machine.mem32[b + 0x30], [machine.mem32[b + 0xd4 + 0x18 * sm] for sm in range(4)]))
+for ch in range(16 if rp2350 else 12):
+    c = 0x50000000 + 0x40 * ch
+    read = machine.mem32[c]
+    if any(b + 0x20 <= read < b + 0x30 for b in bases):
+        print('dma%d read=%#x write=%#x count=%d ctrl=%#x' % (ch, read, machine.mem32[c + 0x4], machine.mem32[c + 0x8],
+              machine.mem32[c + 0xc]))
 """
 
 
