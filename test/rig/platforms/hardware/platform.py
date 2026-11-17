@@ -604,6 +604,8 @@ def start_from_ram(link, elf: bytes, vectors: int) -> None:
 # SRAM, so a restart loads it again.
 class Example(Target):
     reset_window_s = 0.0
+    # The image downloaded in place of the ELF, at each restart too, or None.
+    flash_image = None
 
     def __init__(self, harness: Harness, image: Path, toolchain_dir: str, recorder=None):
         metadata = example_metadata(image)
@@ -616,7 +618,7 @@ class Example(Target):
         # restart too. The ELF stays what the rig reads symbols and segments
         # from.
         if metadata.get("flash_image"):
-            self.image = image.parent / metadata["flash_image"]
+            self.flash_image = self.image = image.parent / metadata["flash_image"]
         self.metadata = metadata
         self.target = self.metadata["target"]
         self.elf = image.read_bytes()
@@ -658,7 +660,7 @@ class Example(Target):
             return
         # An image that erases its storage partition (flash_image) is
         # downloaded again, so each restart starts from empty storage.
-        if self.metadata.get("flash_image"):
+        if self.flash_image is not None:
             Target.flash(self)
             return
         try:
