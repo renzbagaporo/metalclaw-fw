@@ -80,7 +80,6 @@ BUILDS: dict[str, Build] = {
         "drivers/counter/alarm",
         "drivers/watchdog",
         "drivers/led/pwm",
-        "drivers/adc/adc_dt",
     ),
     # samples/kernel/bootargs: the tokenization test is the one that runs
     # outside QEMU (its extra_configs set the boot arguments).
@@ -120,7 +119,16 @@ BUILDS: dict[str, Build] = {
     # no patterns (judged by our own criterion).
     "zephyr/net/sockets/socketpair": Build("net/sockets/socketpair", test="sample.net.sockets.socketpair"),
     # The Pico 1 builds take the samples' own boards/rpi_pico.overlay (PWM on
-    # the LED, the on-chip RTC); the Pico 2 builds need an overlay of ours.
+    # the LED); the Pico 2 builds need an overlay of ours.
     **{f"zephyr/{s}": Build(s, boards=("pico",), other_boards="the sample has no rpi_pico2 overlay yet")
-       for s in ("basic/blinky_pwm", "basic/fade_led", "drivers/rtc")},
+       for s in ("basic/blinky_pwm", "basic/fade_led")},
+    # samples/drivers/rtc: the RP2040's on-chip RTC, the rpi_pico board's rtc
+    # alias (boards/raspberrypi/rpi_pico/rpi_pico-common.dtsi); upstream's
+    # platform_allow runs the sample on RP2040 boards only with an external
+    # RTC shield. The RP2350 has no RTC: its build needs a pcf8523 part.
+    "zephyr/drivers/rtc": Build("drivers/rtc", test="sample.drivers.rtc", boards=("pico",),
+                                other_boards="the RP2350 has no RTC; its build takes a pcf8523 part (wave 1e)"),
+    # samples/drivers/adc/adc_dt: its rpi_pico overlay's ADC channels;
+    # upstream's platform_allow leaves the RP2 boards out.
+    "zephyr/drivers/adc/adc_dt": Build("drivers/adc/adc_dt", test="sample.drivers.adc.adc_dt"),
 }
