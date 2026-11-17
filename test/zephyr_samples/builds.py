@@ -280,6 +280,10 @@ BUILDS: dict[str, Build] = {
     "zephyr/sensor/light_polling": Build(
         "sensor/light_polling", test="sample.sensor.light_polling.grove",
         overlays=("test/zephyr_samples/overlays/grove_light_adc0.overlay",)),
+    # samples/subsys/zbus/uart_bridge: zbus messages bridged out of uart1
+    # (GP8/GP9), as its nrf52840dk overlay enables that board's uart1.
+    "zephyr/subsys/zbus/uart_bridge": Build("subsys/zbus/uart_bridge",
+                                            overlays=("test/zephyr_samples/overlays/uart1_gp8_gp9.overlay",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

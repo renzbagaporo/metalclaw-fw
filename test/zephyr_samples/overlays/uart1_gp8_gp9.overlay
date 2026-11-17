@@ -1,0 +1,25 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * uart1 on the straight-through pins, DUT TX GP8 and RX GP9, at 115200, as
+ * the rig's uart1 images (devices/neo_m8n/test/dut/uart1/rp2.overlay). RX
+ * is pulled up so the line idles high with nothing driving it.
+ */
+&pinctrl {
+	uart1_gp8_gp9: uart1_gp8_gp9 {
+		group1 {
+			pinmux = <UART1_TX_P8>;
+		};
+		group2 {
+			pinmux = <UART1_RX_P9>;
+			input-enable;
+			bias-pull-up;
+		};
+	};
+};
+
+&uart1 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart1_gp8_gp9>;
+	pinctrl-names = "default";
+};
