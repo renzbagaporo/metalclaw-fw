@@ -48,6 +48,13 @@ OVERRIDES: dict[str, dict] = {
     # samples/drivers/watchdog: feeds the watchdog five times, then lets it
     # reset the chip; its yaml expects the second boot.
     "zephyr/drivers/watchdog": {"forbidden": FAULTS, "seconds": 20.0},
+    # samples/sensor/thermometer: its yaml's lines, then the part's 25.25 °C
+    # as the sample prints it, %0.1lf.
+    "zephyr/sensor/thermometer": {
+        "console": (BANNER, r"Thermometer Example (.*)",
+                    r"Temperature device is 0x[0-9|a-z]+, name is [a-z|0-9]+@[a-z|0-9]+",
+                    r"Temperature is 25\.[23]°C"),
+    },
     # samples/drivers/modem/at_client: its yaml's three lines, then an AT
     # typed on the console comes back from the modem part as OK.
     "zephyr/drivers/modem/at_client": {
@@ -113,6 +120,27 @@ OWN: dict[str, Spec] = {
     # 3D fix to GNSS_FIX_STATUS_GNSS_FIX, 1 (drivers/gnss/u_blox/gnss_ubx_common.c,
     # include/zephyr/drivers/gnss.h).
     "zephyr/drivers/gnss": own(r"Got a fix \(type: 1\)", seconds=30.0, source="samples/drivers/gnss/src/main.c"),
+    # Wave 1e: what each sensor sample prints of its part's values
+    # (test/zephyr_samples/parts.py), within the registers' resolution.
+    # samples/sensor/mpu6050/src/main.c:52-60: die temperature (%g), then
+    # acceleration (m/s/s) and rotation (rad/s), %f: 250, -500, 1125 mg and
+    # 10, -2, 3 deg/s at the default full scales.
+    "zephyr/sensor/mpu6050": own(
+        r"^\[[0-9:.]+\]:26\.5[23]\d* Cel$", r"^  accel 2\.45\d* -4\.90\d* 11\.03\d* m/s/s$",
+        r"^  gyro  0\.174\d* -0\.034\d* 0\.052\d* rad/s$",
+        source="samples/sensor/mpu6050/src/main.c; harness_config none"),
+    # samples/sensor/lis2dh/src/main.c:36-54: acceleration, %f m/s/s: 252,
+    # -500, 1020 mg in the 4 mg steps of normal mode.
+    "zephyr/sensor/lis2dh": own(
+        r"x 2\.4[67]\d* , y -4\.9[01]\d* , z 10\.0[0-2]\d*",
+        forbidden=(*FORBIDDEN, r"ERROR"),
+        source="samples/sensor/lis2dh/src/main.c; harness_config none"),
+    # samples/sensor/ina219/src/main.c:30-37: bus voltage in 4 mV steps,
+    # current in the overlay's 10 uA steps.
+    "zephyr/sensor/ina219": own(
+        r"^Bus: 5\.12[0-4]\d* \[V\] -- Power: \S+ \[W\] -- Current: 0\.123[3-5]\d* \[A\]$",
+        forbidden=(*FORBIDDEN, r"Could not fetch"),
+        source="samples/sensor/ina219/src/main.c; harness_config none"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

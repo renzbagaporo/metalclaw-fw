@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* An MPU-6050 at 0x68 on I2C0 (i2c0.overlay), polled: the sample's
+ * CONFIG_MPU6050_TRIGGER_NONE needs no interrupt line. */
+&i2c0 {
+	mpu6050@68 {
+		compatible = "invensense,mpu6050";
+		reg = <0x68>;
+		status = "okay";
+	};
+};

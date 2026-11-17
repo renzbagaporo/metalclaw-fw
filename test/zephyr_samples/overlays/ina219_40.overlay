@@ -1,0 +1,16 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* An INA219 at 0x40 on I2C0 (i2c0.overlay) with a 100 mohm shunt and a
+ * 10 uA current LSB, as the sample's own blackpill_f411ce overlay. */
+&i2c0 {
+	ina219@40 {
+		compatible = "ti,ina219";
+		reg = <0x40>;
+		brng = <0>;
+		pg = <0>;
+		sadc = <13>;
+		badc = <13>;
+		shunt-milliohm = <100>;
+		lsb-microamp = <10>;
+		status = "okay";
+	};
+};

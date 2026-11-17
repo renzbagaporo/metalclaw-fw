@@ -148,6 +148,16 @@ BUILDS: dict[str, Build] = {
     # samples/drivers/modem/at_client: console on uart0, the modem on uart1.
     "zephyr/drivers/modem/at_client": Build("drivers/modem/at_client",
                                             overlays=("test/zephyr_samples/overlays/at_client_uart1.overlay",)),
+    # Wave 1e: parts so far driven only by pico-examples programs, on I2C0 at
+    # GP4/GP5 (overlays/i2c0.overlay) with a node of ours each. mpu6050 and
+    # ina219 are build_only upstream and lis2dh's harness is "sensor": our
+    # own criteria judge them.
+    **{f"zephyr/sensor/{sample}": Build(f"sensor/{sample}", test=test, overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", f"test/zephyr_samples/overlays/{node}.overlay"))
+       for sample, test, node in (("mpu6050", "sample.sensor.mpu6050", "mpu6050_68"),
+                                  ("lis2dh", "sample.sensor.lis2dh", "lis2dh_18"),
+                                  ("ina219", "sample.drivers.ina219", "ina219_40"),
+                                  ("thermometer", "sample.sensor.thermometer", "mcp9808_ambient"))},
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

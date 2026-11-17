@@ -1,0 +1,24 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * I2C0 on GP4 (SDA) and GP5 (SCL), where the harness reaches the DUT on
+ * both benches (its I2C target sits there), at the standard rate. Upstream
+ * samples find the part's node below by its compatible or an alias.
+ */
+#include <zephyr/dt-bindings/i2c/i2c.h>
+
+&pinctrl {
+	i2c0_gp4_gp5: i2c0_gp4_gp5 {
+		group1 {
+			pinmux = <I2C0_SDA_P4>, <I2C0_SCL_P5>;
+			input-enable;
+			input-schmitt-enable;
+		};
+	};
+};
+
+&i2c0 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	pinctrl-0 = <&i2c0_gp4_gp5>;
+	pinctrl-names = "default";
+};

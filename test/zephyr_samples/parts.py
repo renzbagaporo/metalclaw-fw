@@ -74,6 +74,26 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     "zephyr/drivers/modem/at_client": (
         Attach("sim7000", "modem", {"uart": (9, 8)}, {}, {"powered": True}),
     ),
+    # Wave 1e, on I2C0 at GP4/GP5 (overlays/i2c0.overlay), with the values
+    # test/pico_examples/parts.py gives the same models. MPU-6050:
+    # acceleration in mg, angular rate in mdps, temperature in m°C.
+    "zephyr/sensor/mpu6050": (
+        Attach("mpu6050", "imu", {"i2c": (4, 5, 0x68)}, {"i2c": 2},
+               {"acceleration": (250, -500, 1125), "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
+    ),
+    # LIS3DH (the sample's LIS2DH driver): acceleration in mg.
+    "zephyr/sensor/lis2dh": (
+        Attach("lis3dh", "accel", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"acceleration": (252, -500, 1020)}),
+    ),
+    # INA219: bus voltage in mV, current in uA, the 100 mohm shunt in uohm.
+    "zephyr/sensor/ina219": (
+        Attach("ina219", "power", {"i2c": (4, 5, 0x40)}, {"i2c": 2},
+               {"bus_voltage": 5124, "current": 123400, "shunt_resistance": 100000}),
+    ),
+    # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
+    "zephyr/sensor/thermometer": (
+        Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),
+    ),
     # The neo_m8n node of devices/neo_m8n/test/dut/uart1/rp2.overlay: uart1,
     # DUT TX GP8 and RX GP9, so the part's TX (the binding's first pin) is
     # GP9. A 3D fix (fix=3) with 8 satellites, as test/pico_examples/parts.py

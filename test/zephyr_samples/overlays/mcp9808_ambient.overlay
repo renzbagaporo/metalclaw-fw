@@ -1,0 +1,16 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* An MCP9808 (a JEDEC JC-42.4 sensor) at 0x18 on I2C0 (i2c0.overlay), as
+ * the ambient-temp0 the thermometer sample reads. */
+/ {
+	aliases {
+		ambient-temp0 = &mcp9808;
+	};
+};
+
+&i2c0 {
+	mcp9808: mcp9808@18 {
+		compatible = "jedec,jc-42.4-temp";
+		reg = <0x18>;
+		status = "okay";
+	};
+};

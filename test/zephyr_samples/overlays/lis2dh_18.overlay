@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* A LIS2DH-family accelerometer at 0x18 on I2C0 (i2c0.overlay); the
+ * harness's lis3dh model answers as one. The sample polls it. */
+&i2c0 {
+	lis2dh@18 {
+		compatible = "st,lis2dh";
+		reg = <0x18>;
+		status = "okay";
+	};
+};
