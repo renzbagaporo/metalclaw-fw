@@ -462,9 +462,10 @@ def _jumper(name: str, source: int, sink: int) -> Attach:
 
 def _i2c_jumpers() -> tuple[Attach, ...]:
     # slave_mem_i2c.c:20-23: the i2c0 target on GP4 (SDA) / GP5 (SCL), the
-    # i2c1 controller on GP6 / GP7, wired SDA to SDA and SCL to SCL.
+    # i2c1 controller on GP6 / GP7, wired SDA to SDA and SCL to SCL; SCL
+    # through the clock jumper, which keeps the target's clock stretching.
     return (Attach("jumper_open_drain", "sda", {"a": (4,), "b": (6,)}, one_window=True),
-            Attach("jumper_open_drain", "scl", {"a": (5,), "b": (7,)}, one_window=True))
+            Attach("jumper_open_drain_clock", "scl", {"a": (5,), "b": (7,)}, one_window=True))
 
 
 # low_power_{dormant,sleep,pstate}_gpio.c wait while LOW_POWER_WAKE_GPIO 15
