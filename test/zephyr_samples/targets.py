@@ -221,9 +221,10 @@ OWN: dict[str, Spec] = {
         source="samples/sensor/lis2dh/src/main.c; harness_config none"),
     # samples/sensor/ina219/src/main.c:30-37: the part's 5.124 V bus, a
     # whole number of its 4 mV steps, and 123.4 mA, of the overlay's 10 uA
-    # steps: both exact.
+    # steps: both exact, but for the driver's double arithmetic, which
+    # leaves 1281 x 0.004 V at 5.123999.
     "zephyr/sensor/ina219": own(
-        r"^Bus: 5\.124000 \[V\] -- Power: \S+ \[W\] -- Current: 0\.123400 \[A\]$",
+        r"^Bus: 5\.12(3999|4000) \[V\] -- Power: \S+ \[W\] -- Current: 0\.123400 \[A\]$",
         forbidden=(*FORBIDDEN, r"Could not fetch"),
         source="samples/sensor/ina219/src/main.c; harness_config none"),
     # samples/basic/button/src/main.c:20-41: each sw0 event, with its key
