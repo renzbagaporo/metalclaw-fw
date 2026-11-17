@@ -172,6 +172,13 @@ OWN: dict[str, Spec] = {
         r"^Set up button at \S+ pin 15$", r"^Button pressed at \d+$", r"^Button pressed at \d+$",
         forbidden=(*FORBIDDEN, r"^Error"),
         source="samples/drivers/gpio/button_interrupt/src/main.c"),
+    # samples/drivers/ht16k33/src/main.c:26-36: lights the LEDs one by one
+    # (12.8 s), then blinks them; the part's display RAM is checked too
+    # (test/zephyr_samples/parts.py).
+    "zephyr/drivers/ht16k33": own(r"<inf> main: Iterating through all LEDs, turning them on one-by-one",
+                                  r"<inf> main: Blinking LEDs with a period of 500 ms", seconds=20.0,
+                                  forbidden=(*FORBIDDEN, r"<err>"),
+                                  source="samples/drivers/ht16k33/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

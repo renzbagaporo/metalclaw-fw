@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* An HT16K33 at 0x70 on I2C0 (i2c0.overlay), keyscan polled, as the
+ * sample's own nrf52840dk overlay. */
+&i2c0 {
+	ht16k33@70 {
+		compatible = "holtek,ht16k33";
+		reg = <0x70>;
+		status = "okay";
+	};
+};

@@ -111,6 +111,17 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     **{f"zephyr/{target}": (Attach("ds18b20", "thermo", {"dq": (15,)},
                                    properties={"temperature": 21375, "serial": 0xC0FFEE}, needs_line_pullups=True),)
        for target in ("sensor/ds18b20", "drivers/w1/scanner")},
+    # HT16K33 at 0x70. samples/drivers/ht16k33/src/main.c:26-31 turns its 128
+    # LEDs on one by one, 100 ms apart, from LED 0; the driver keeps LED n in
+    # display byte n / 8, bit n % 8 (drivers/led/ht16k33.c). By 8 s in the
+    # first five bytes are full, with the oscillator and display on.
+    "zephyr/drivers/ht16k33": (
+        Attach("ht16k33", "leds", {"i2c": (4, 5, 0x70)}, {"i2c": 2}, checks=(
+            Check("(part.oscillator, part.display_on, bytes(part.read_region('display', 0, 16)))",
+                  lambda v: v[:2] == (True, True) and v[2][:5] == b"\xff" * 5,
+                  "the oscillator and display on, and LEDs 0-39 lit one by one", 8.0),
+        )),
+    ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),
