@@ -349,7 +349,8 @@ BUILDS: dict[str, Build] = {
     # samples/subsys/display/lvgl: its gui test (harness none) on the SSD1306
     # of drivers/display, monochrome.
     "zephyr/subsys/display/lvgl": Build("subsys/display/lvgl", test="sample.display.lvgl.gui", overlays=(
-        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay"),
+                                        confs=("test/zephyr_samples/overlays/lvgl_ssd1306.conf",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
