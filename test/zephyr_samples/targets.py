@@ -95,6 +95,11 @@ OVERRIDES: dict[str, dict] = {
                   *((r"<inf> lora_receive: LoRa RX RSSI", lora_frame(f)) for f in RX_FRAMES[1:])),
         "seconds": 20.0,
     },
+    # samples/subsys/zbus/confirmed_channel and priority_boost publish on a
+    # timer and their patterns span several rounds: on the carrier the last
+    # comes after more than 10 s.
+    "zephyr/subsys/zbus/confirmed_channel": {"seconds": 30.0},
+    "zephyr/subsys/zbus/priority_boost": {"seconds": 30.0},
     # samples/subsys/task_wdt: the control thread gets stuck and the task
     # watchdog's callback resets the chip right after printing
     # (src/main.c:46-58), so the reset cuts the UART's transmit FIFO short: the
