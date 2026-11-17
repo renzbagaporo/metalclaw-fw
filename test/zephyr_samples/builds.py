@@ -190,7 +190,11 @@ BUILDS: dict[str, Build] = {
        for sample, test, node in (("mpu6050", "sample.sensor.mpu6050", "mpu6050_68"),
                                   ("lis2dh", "sample.sensor.lis2dh", "lis2dh_18"),
                                   ("ina219", "sample.drivers.ina219", "ina219_40"),
-                                  ("thermometer", "sample.sensor.thermometer", "mcp9808_ambient"))},
+                                  ("thermometer", "sample.sensor.thermometer", "mcp9808_ambient"),
+                                  # As upstream's RP2040 run (the adafruit_mcp9808
+                                  # shield): no alert pin, so its trigger
+                                  # options fall away and it polls.
+                                  ("jc42", "sample.sensor.jc42", "mcp9808_ambient"))},
     # samples/sensor/accel_polling: a LIS2DH-family part as accel0.
     "zephyr/sensor/accel_polling": Build("sensor/accel_polling", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/accel0_lis2dh.overlay")),

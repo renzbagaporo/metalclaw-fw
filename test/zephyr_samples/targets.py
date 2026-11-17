@@ -286,6 +286,12 @@ OWN: dict[str, Spec] = {
                                      r"/boot_count write new boot count 1: \[wr:1\]$",
                                      forbidden=(*FORBIDDEN, r"FAIL"), seconds=30.0,
                                      source="samples/subsys/fs/littlefs/src/main.c"),
+    # samples/sensor/jc42/src/main.c:132-155: its yaml's harness is
+    # "sensor", with no patterns; it prints the part's temperature every
+    # 2 s, after its uptime. The mcp9808 part reads 25.25 C (parts.py).
+    "zephyr/sensor/jc42": own(r"^\d+:\d{2}:\d{2}\.\d{3}: 25\.25 C$",
+                              forbidden=(*FORBIDDEN, r"error", r"failed", r"not ready", r"not found"),
+                              source="samples/sensor/jc42/src/main.c"),
     # samples/subsys/fs/format/src/main.c:45-52: formats its file system
     # (fs_mkfs) and logs the result, through the minimal logger.
     **{t: own(r"Format successful$", forbidden=(*FORBIDDEN, r"Format failed"),

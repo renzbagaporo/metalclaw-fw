@@ -216,9 +216,9 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("icm42688", "lid", {"spi": (18, 19, 16, 17)}),
     ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
-    "zephyr/sensor/thermometer": (
+    **{f"zephyr/sensor/{sample}": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),
-    ),
+    ) for sample in ("thermometer", "jc42")},
     # The neo_m8n node of devices/neo_m8n/test/dut/uart1/rp2.overlay: uart1,
     # DUT TX GP8 and RX GP9, so the part's TX (the binding's first pin) is
     # GP9. A 3D fix (fix=3) with 8 satellites, as test/pico_examples/parts.py
