@@ -205,6 +205,12 @@ OWN: dict[str, Spec] = {
         input=((r"^Other Device:   0x[0-9a-f]+$", b"metalclaw"),),
         forbidden=(*FORBIDDEN, r"Rx Error", r"Rx Overflow", r"Tx Error"),
         source="samples/drivers/uart/passthrough/src/main.c"),
+    # samples/drivers/led/led_strip/src/main.c:48-67: finds the strip, then
+    # shows its pattern; the part's frames are checked too.
+    "zephyr/drivers/led/led_strip": own(r"<inf> main: Found LED strip device ws2812",
+                                        r"<inf> main: Displaying pattern on strip",
+                                        forbidden=(*FORBIDDEN, r"<err>"),
+                                        source="samples/drivers/led/led_strip/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

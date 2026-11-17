@@ -192,6 +192,11 @@ BUILDS: dict[str, Build] = {
     # samples/drivers/uart/passthrough (harness keyboard): uart1 looped back.
     "zephyr/drivers/uart/passthrough": Build("drivers/uart/passthrough", test="sample.drivers.uart.passthrough",
                                              overlays=("test/zephyr_samples/overlays/passthrough_uart1.overlay",)),
+    # samples/drivers/led/led_strip: its yaml names a fixture and no patterns.
+    "zephyr/drivers/led/led_strip": Build("drivers/led/led_strip", test="sample.drivers.led_strip",
+                                          boards=("pico",),
+                                          other_boards="the Pico 2 build must also free GP6 from I2C1",
+                                          overlays=("test/zephyr_samples/overlays/ws2812_pio_gp6.overlay",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

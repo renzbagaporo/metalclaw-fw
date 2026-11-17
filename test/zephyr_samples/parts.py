@@ -6,7 +6,7 @@
 # unlike the models' defaults, so what the sample prints shows it came from
 # the part.
 
-from test.pico_examples.parts import Attach, Check
+from test.pico_examples.parts import Attach, Check, _ws2812_frames
 
 
 # The sx1262 node of devices/sx126x/test/dut/rp2.overlay: SPI0 SCK GP18, MOSI
@@ -137,6 +137,13 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     # uart/passthrough's loop: the harness carries uart1 TX (GP8) to RX (GP9).
     "zephyr/drivers/uart/passthrough": (
         Attach("jumper", "uart1_loop", {"source": (8,), "sink": (9,)}, one_window=True),
+    ),
+    # A 16-pixel WS2812 strip on GP6: led_strip updates it every
+    # CONFIG_SAMPLE_LED_UPDATE_DELAY (50 ms by default); 16 x 3 bytes a frame.
+    "zephyr/drivers/led/led_strip": (
+        Attach("ws2812b", "strip", {"din": (6,)}, properties={"count": 16}, checks=(
+            _ws2812_frames("strip", 48, "frames of 48 bytes, none with a pulse out of the datasheet's windows"),
+        )),
     ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
