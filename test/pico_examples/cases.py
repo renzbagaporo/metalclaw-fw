@@ -266,13 +266,16 @@ def test_the_example_enters_bootsel_on_a_double_reset(example, parts):
             with example.memory.link() as link:
                 presenting = pins.usb_presenting(link, chip)
             seen = len(pins.edges(samples, spec.led))
+            span = (f"{len(samples)} samples over {(samples[-1].us - samples[0].us) / 1e6:.3f} s of DUT time"
+                    if samples else "no samples")
             assert presenting == expect_bootsel, (
                 f"{example.target}: after {resets} RUN reset(s) the DUT's USB is "
-                f"{'' if presenting else 'not '}presenting, GP{spec.led} changed {seen} times")
+                f"{'' if presenting else 'not '}presenting, GP{spec.led} changed {seen} times ({span})")
             if expect_bootsel:
                 assert seen <= 1, f"{example.target}: GP{spec.led} changed {seen} times in the bootloader"
             else:
-                assert seen >= spec.edges, f"{example.target}: GP{spec.led} changed {seen} times after one reset"
+                assert seen >= spec.edges, (
+                    f"{example.target}: GP{spec.led} changed {seen} times after one reset ({span})")
     finally:
         example.restart()
 
