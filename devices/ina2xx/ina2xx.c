@@ -352,8 +352,10 @@ static uint8_t MCLW_RAM_FUNC(byte_flags)(const struct ina2xx_part *part, uint8_t
     if (r->width == 2 && (uint8_t)(r->writable >> (byte == 0 ? 8 : 0)) != 0) {
         flags |= MCLW_REG_WRITABLE;
     }
-    // SBOSA20A 7.3.1: reading DIAG_ALRT clears CNVRF (bit 1, low byte).
-    if (r->pointer == part->status_pointer && part->cnvr == INA22X_CNVRF && byte == 1) {
+    // SBOSA20A 7.3.1: reading DIAG_ALRT clears CNVRF (bit 1, low byte). The
+    // INA219's CNVR sits in its bus voltage register, which a read leaves
+    // as it is (SBOS448G Figure 24: a mode write or a Power read clears it).
+    if (r->pointer == part->status_pointer && part->status_pointer == INA22X_DIAG_ALRT && byte == 1) {
         flags |= MCLW_REG_CLEAR_ON_READ;
     }
     return flags;
@@ -388,7 +390,7 @@ static void MCLW_RAM_FUNC(put_reg)(struct ina2xx_state *s, uint8_t pointer, uint
 
 // INA228/INA237: a read of DIAG_ALRT has cleared CNVRF in the image.
 static void MCLW_RAM_FUNC(sync_status)(struct ina2xx_state *s) {
-    if (s->part->cnvr == INA22X_CNVRF && (get_reg(s, s->part->status_pointer) & INA22X_CNVRF) == 0) {
+    if (s->part->status_pointer == INA22X_DIAG_ALRT && (get_reg(s, s->part->status_pointer) & INA22X_CNVRF) == 0) {
         s->status &= (uint16_t)~INA22X_CNVRF;
     }
 }
