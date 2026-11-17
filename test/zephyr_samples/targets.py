@@ -288,6 +288,14 @@ OWN: dict[str, Spec] = {
     "zephyr/sensor/sm351lt": own(r"^Polling at 0\.5 Hz$", r"^#\d+ @ \d+ ms: [01]$", r"^#\d+ @ \d+ ms: 1$",
                                  r"^#\d+ @ \d+ ms: 0$", ordered=False, seconds=15.0,
                                  forbidden=(*FORBIDDEN, r"ERROR"), source="samples/sensor/sm351lt/src/main.c"),
+    # samples/subsys/input/input_dump: CONFIG_INPUT_EVENT_DUMP logs each
+    # event (subsys/input/input_utils.c:62): the button's key (EV_KEY 1,
+    # INPUT_KEY_0 11) pressed and released, and the wheel's steps (EV_REL 2,
+    # INPUT_REL_WHEEL 8), in whatever order they come.
+    "zephyr/subsys/input/input_dump": own(
+        r"input event: dev=buttons .*type= 1 code= 11 value=1", r"input event: dev=buttons .*type= 1 code= 11 value=0",
+        r"input event: dev=qdec .*type= 2 code=  8 value=-?[1-9]", ordered=False,
+        source="samples/subsys/input/input_dump; subsys/input/input_utils.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

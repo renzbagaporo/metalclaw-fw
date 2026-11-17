@@ -57,6 +57,13 @@ def adc_level(name: str, pin: int, high_ns: int, level: bool) -> Attach:
 
 
 ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
+    # input_dump's button (pressed 100 ms a second) and wheel: the
+    # harness's encoder, 100 steps a second back and forth over 2000, well
+    # inside the qdec's 2 ms sampling.
+    "zephyr/subsys/input/input_dump": (
+        Attach("square_wave", "button", {"out": (15,)}, properties={"period": 1_000_000_000, "high": 900_000_000}),
+        Attach("quadrature_encoder", "encoder", {"ab": (10, 11)}, properties={"travel": 2000, "rate": 100}),
+    ),
     # The SM351LT's output on GP15, closed (low) half of every 3 s: the
     # sample polls every 2 s, so its readings cycle through both levels.
     "zephyr/sensor/sm351lt": (Attach("square_wave", "magnet", {"out": (15,)},

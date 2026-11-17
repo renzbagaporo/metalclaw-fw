@@ -1,0 +1,19 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A quadrature encoder on GP10 (A) and GP11 (B), read by Zephyr's
+ * gpio-qdec as a wheel, with the timing an RP2040 board that carries one
+ * uses (boards/adafruit/macropad_rp2040/adafruit_macropad_rp2040.dts).
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+/ {
+	qdec: qdec {
+		compatible = "gpio-qdec";
+		gpios = <&gpio0 10 GPIO_ACTIVE_HIGH>, <&gpio0 11 GPIO_ACTIVE_HIGH>;
+		zephyr,axis = <INPUT_REL_WHEEL>;
+		steps-per-period = <4>;
+		sample-time-us = <2000>;
+		idle-timeout-ms = <200>;
+	};
+};
