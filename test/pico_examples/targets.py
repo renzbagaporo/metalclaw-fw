@@ -62,6 +62,13 @@ class Spec:
     # what console pattern i matched to printing what pattern j matched,
     # for a program whose source prints them a set time apart (every()).
     intervals: tuple[tuple[int, int, float, float], ...] = ()
+    # Each pattern matched against one console line at a time, its line end
+    # stripped, as Zephyr's twister console harness does (`^` and `$` anchor
+    # to that line), and each on a later line than the one before.
+    lines: bool = False
+    # With `lines`: each pattern matched on any line, in any order (twister's
+    # multi_line with `ordered: false`).
+    ordered: bool = True
 
     def for_board(self, board: str | None) -> "Spec | None":
         # The criteria for this board's build, or None where they cannot judge it.
@@ -92,12 +99,28 @@ class Spec:
 
     def match_ends(self, text: str, patterns: tuple[str, ...] | None = None) -> list[int | None]:
         # Where each pattern's match ends in `text`, None where it has none.
+        patterns = self.console if patterns is None else patterns
+        if self.lines:
+            return self._line_ends(text, patterns)
         ends, at = [], 0
-        for pattern in self.console if patterns is None else patterns:
+        for pattern in patterns:
             m = re.compile(pattern).search(text, at)
             ends.append(None if m is None else m.end())
             if m is not None:
                 at = m.end()
+        return ends
+
+    def _line_ends(self, text: str, patterns: tuple[str, ...]) -> list[int | None]:
+        # Per line: where the line a pattern matched ends in `text`.
+        spans = [(m.end(), m.group(0).rstrip("\r\n")) for m in re.finditer(r"[^\n]*\n|[^\n]+$", text)]
+        ends, after = [], 0
+        for pattern in patterns:
+            rx = re.compile(pattern)
+            first = after if self.ordered else 0
+            hit = next((i for i in range(first, len(spans)) if rx.search(spans[i][1])), None)
+            ends.append(None if hit is None else spans[hit][0])
+            if hit is not None:
+                after = hit + 1
         return ends
 
     def timing(self, text: str, arrivals) -> list[str]:
