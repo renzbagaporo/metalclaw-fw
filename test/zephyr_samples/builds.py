@@ -131,6 +131,12 @@ BUILDS: dict[str, Build] = {
         "drivers/gnss", test="sample.drivers.gnss",
         overlays=("devices/neo_m8n/test/dut/uart1/rp2.overlay",),
         confs=("test/zephyr_samples/overlays/gnss_neo_m8n.conf",)),
+    # samples/drivers/lora/{send,receive}: the rig's sx1262 node on SPI0 and
+    # its LoRaMAC-node backend.
+    **{f"zephyr/drivers/lora/{s}": Build(f"drivers/lora/{s}", test=f"sample.driver.lora.{s}",
+                                         overlays=("devices/sx126x/test/dut/rp2.overlay",),
+                                         confs=("devices/sx126x/test/dut/rp2.conf",))
+       for s in ("send", "receive")},
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

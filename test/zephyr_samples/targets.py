@@ -11,6 +11,7 @@
 from dataclasses import replace
 
 from test.pico_examples.targets import Spec, every
+from test.zephyr_samples.parts import lora_frame
 
 # The boot banner every sample prints first (kernel/banner.c, with
 # CONFIG_BOOT_BANNER on and BOOT_BANNER_STRING "Booting Zephyr OS build" by
@@ -35,6 +36,9 @@ FAULTS = FORBIDDEN[:2]
 # Bench seconds a sample gets to print its patterns, unless it overrides.
 SECONDS = 10.0
 
+# The lora receive sample's frames, one per lora_recv call.
+RX_FRAMES = tuple(f"metalclaw {i}".encode() for i in range(4))
+
 # By target: Spec fields that replace the ones the yaml gives.
 OVERRIDES: dict[str, dict] = {
     # samples/drivers/led/pwm/src/main.c:80-140: on, off, a fade up and down
@@ -44,6 +48,18 @@ OVERRIDES: dict[str, dict] = {
     # samples/drivers/watchdog: feeds the watchdog five times, then lets it
     # reset the chip; its yaml expects the second boot.
     "zephyr/drivers/watchdog": {"forbidden": FAULTS, "seconds": 20.0},
+    # samples/drivers/lora/receive/src/main.c:72-89: its yaml asks only for
+    # the "Synchronous reception" line, after which the sample blocks in
+    # lora_recv four times. The radio part puts a frame on air at each, and
+    # each must come back with the part's signal (-73 dBm, 7 dB SNR).
+    "zephyr/drivers/lora/receive": {
+        "console": (BANNER, r"<inf> lora_receive: Synchronous reception",
+                    *(r"<inf> lora_receive: LoRa RX RSSI: -73 dBm, SNR: 7 dB",) * 4,
+                    r"<inf> lora_receive: Asynchronous reception"),
+        "input": ((r"<inf> lora_receive: Synchronous reception", lora_frame(RX_FRAMES[0])),
+                  *((r"<inf> lora_receive: LoRa RX RSSI", lora_frame(f)) for f in RX_FRAMES[1:])),
+        "seconds": 20.0,
+    },
     # samples/subsys/task_wdt: the control thread gets stuck and the task
     # watchdog resets the chip.
     "zephyr/subsys/task_wdt": {"forbidden": FAULTS, "seconds": 20.0},
