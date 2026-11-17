@@ -45,6 +45,13 @@ OVERRIDES: dict[str, dict] = {
     # (CONFIG_FADE_DELAY steps), then blinking, with one-second pauses: on
     # the carrier the blinking starts 7 s in, so the loop ends after 10 s.
     "zephyr/drivers/led/pwm": {"seconds": 30.0},
+    # samples/modules/lvgl/demos: its yaml asks for the heap summary in
+    # brackets, but Zephyr 4.4.0 prints it without them
+    # (lib/heap/heap_info.c:67, from lvgl_print_heap_info at
+    # src/main.c:71-72); the line as printed.
+    "zephyr/modules/lvgl/demos": {
+        "console": (BANNER, r"^\d+ free bytes, \d+ allocated bytes, overhead = \d+ bytes"),
+        "forbidden": (*FORBIDDEN, r"<err>", r"\[Error\]")},
     # samples/drivers/watchdog: feeds the watchdog five times, then lets it
     # reset the chip; its yaml expects the second boot.
     "zephyr/drivers/watchdog": {"forbidden": FAULTS, "seconds": 20.0},
