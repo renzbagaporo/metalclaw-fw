@@ -130,6 +130,10 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
                   "the display on, with something drawn in its GDDRAM", 3.0),
         )),
     ),
+    # spi_bitbang's loopback: the harness carries MOSI (GP12) to MISO (GP13).
+    "zephyr/drivers/spi_bitbang": (
+        Attach("jumper", "mosi_miso", {"source": (12,), "sink": (13,)}, one_window=True),
+    ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),

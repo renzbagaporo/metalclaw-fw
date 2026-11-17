@@ -1,0 +1,21 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * samples/drivers/spi_bitbang's spibb0: a bit-banged SPI controller on
+ * GP12-15, MOSI GP12, MISO GP13, SCK GP14, CS GP15. Its loopback tests
+ * read back what MOSI sends, which the harness carries from GP12 to GP13
+ * (a jumper), as the sample's gpio_loopback fixture wires them.
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	spibb0: spibb0 {
+		compatible = "zephyr,spi-bitbang";
+		status = "okay";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		clk-gpios = <&gpio0 14 GPIO_ACTIVE_HIGH>;
+		mosi-gpios = <&gpio0 12 GPIO_ACTIVE_HIGH>;
+		miso-gpios = <&gpio0 13 0>;
+		cs-gpios = <&gpio0 15 GPIO_ACTIVE_LOW>;
+	};
+};
