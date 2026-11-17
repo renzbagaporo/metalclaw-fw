@@ -274,6 +274,10 @@ BUILDS: dict[str, Build] = {
     # gperf on the build host generates their kernel-object hash table.
     **{f"zephyr/userspace/{s}": Build(f"userspace/{s}", args=("CONFIG_ARM_MPU=y",))
        for s in ("hello_world_user", "prod_consumer", "shared_mem")},
+    # On the Pico 1 the logger's user-mode test runs its kernel-thread demo,
+    # then HardFaults (21 s in) entering the user thread: at
+    # __aeabi_read_tp, which loads z_arm_tls_ptr, a kernel global; it
+    # faults as well with CONFIG_CURRENT_THREAD_USE_TLS off.
     "zephyr/subsys/logging/logger@usermode": Build("subsys/logging/logger", test="sample.logger.usermode",
                                                    variant="usermode", args=("CONFIG_ARM_MPU=y",)),
     # samples/basic/minimal: its runtime test, which upstream runs on ARC
