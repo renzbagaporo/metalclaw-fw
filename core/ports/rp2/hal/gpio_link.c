@@ -24,9 +24,11 @@
 //         target's reply comes a bit late. The clock link instead keeps the
 //         first side low until it sees the released side up; a side still
 //         low after SETTLE is held by its own parts, and that low is
-//         forwarded without the line ever showing high. The handover shows
-//         a side high for two PIO cycles at most, under an I2C input's 50 ns
-//         spike filter (UM10204 table 10, tSP). Not for SDA: a controller
+//         forwarded without the line ever showing high. A side the link
+//         lets go is looked at again only once it has risen, or SETTLE has
+//         passed. The handover shows a side high for two PIO cycles at
+//         most, under an I2C input's 50 ns spike filter (UM10204 table 10,
+//         tSP). 31 instructions: a PIO block of its own. Not for SDA: a controller
 //         letting SDA go for a STOP would find it held low and take that
 //         for lost arbitration.
 //
@@ -62,15 +64,19 @@
 // 100 kHz bus (UM10204 table 10).
 #define JOIN_SETTLE_COUNT 15u
 #define JOIN_SETTLE_DELAY 15u
-#define CLOCK_LENGTH 22u
+#define CLOCK_LENGTH 31u
 #define CLOCK_TEST_B 0u
+#define CLOCK_A_LOW 4u
 #define CLOCK_A_WAIT 5u
 #define CLOCK_A_RELEASED 7u
 #define CLOCK_B_RISE 9u
-#define CLOCK_B_RISE_NEXT 13u
-#define CLOCK_B_LOW 14u
-#define CLOCK_A_RISE 17u
-#define CLOCK_A_ROSE 20u
+#define CLOCK_A_SETTLE 13u
+#define CLOCK_B_RISE_NEXT 16u
+#define CLOCK_B_LOW 17u
+#define CLOCK_A_RISE 20u
+#define CLOCK_A_ROSE 23u
+#define CLOCK_B_SETTLE 25u
+#define CLOCK_B_SETTLE_NEXT 29u
 
 enum link_kind {
     LINK_FOLLOW,
@@ -164,19 +170,32 @@ static void encode_programs(void) {
     p[9] = (uint16_t)pio_encode_mov(pio_osr, pio_pins) | side(1);
     p[10] = (uint16_t)pio_encode_out(pio_x, 1u) | side(1);
     p[11] = (uint16_t)pio_encode_jmp_not_x(CLOCK_B_RISE_NEXT) | side(1);
-    p[12] = (uint16_t)pio_encode_jmp(CLOCK_TEST_B) | side(0);
-    p[13] = (uint16_t)(pio_encode_jmp_y_dec(CLOCK_B_RISE) | side(1) | pio_encode_delay(JOIN_SETTLE_DELAY));
+    // B up: let go of A, and wait for it to rise before looking at it; A
+    // still low after SETTLE is held by its own parts (A_LOW).
+    p[12] = (uint16_t)pio_encode_set(pio_y, JOIN_SETTLE_COUNT) | side(0);
+    p[13] = (uint16_t)pio_encode_jmp_pin(CLOCK_TEST_B) | side(0);
+    p[14] = (uint16_t)(pio_encode_jmp_y_dec(CLOCK_A_SETTLE) | side(0) | pio_encode_delay(JOIN_SETTLE_DELAY));
+    p[15] = (uint16_t)pio_encode_jmp(CLOCK_A_LOW) | side(0);
+    p[16] = (uint16_t)(pio_encode_jmp_y_dec(CLOCK_B_RISE) | side(1) | pio_encode_delay(JOIN_SETTLE_DELAY));
     // B held low by its own parts: drive A until B is let go.
-    p[14] = (uint16_t)pio_encode_wait_pin(true, 0u) | side(1);
+    p[17] = (uint16_t)pio_encode_wait_pin(true, 0u) | side(1);
     // B let go: let go of A and hold B low until A is seen up; A still
     // low after SETTLE is held by its own parts (A_WAIT, B still driven).
-    p[15] = (uint16_t)pio_encode_set(pio_pindirs, 1u) | side(0);
-    p[16] = (uint16_t)pio_encode_set(pio_y, JOIN_SETTLE_COUNT) | side(0);
-    p[17] = (uint16_t)pio_encode_jmp_pin(CLOCK_A_ROSE) | side(0);
-    p[18] = (uint16_t)(pio_encode_jmp_y_dec(CLOCK_A_RISE) | side(0) | pio_encode_delay(JOIN_SETTLE_DELAY));
-    p[19] = (uint16_t)pio_encode_jmp(CLOCK_A_WAIT) | side(0);
-    p[20] = (uint16_t)pio_encode_set(pio_pindirs, 0u) | side(0);
-    p[21] = (uint16_t)pio_encode_jmp(CLOCK_TEST_B) | side(0);
+    p[18] = (uint16_t)pio_encode_set(pio_pindirs, 1u) | side(0);
+    p[19] = (uint16_t)pio_encode_set(pio_y, JOIN_SETTLE_COUNT) | side(0);
+    p[20] = (uint16_t)pio_encode_jmp_pin(CLOCK_A_ROSE) | side(0);
+    p[21] = (uint16_t)(pio_encode_jmp_y_dec(CLOCK_A_RISE) | side(0) | pio_encode_delay(JOIN_SETTLE_DELAY));
+    p[22] = (uint16_t)pio_encode_jmp(CLOCK_A_WAIT) | side(0);
+    // A up: let go of B, and wait for it to rise before looking at it; B
+    // still low after SETTLE is held by its own parts (B_LOW).
+    p[23] = (uint16_t)pio_encode_set(pio_pindirs, 0u) | side(0);
+    p[24] = (uint16_t)pio_encode_set(pio_y, JOIN_SETTLE_COUNT) | side(0);
+    p[25] = (uint16_t)pio_encode_mov(pio_osr, pio_pins) | side(0);
+    p[26] = (uint16_t)pio_encode_out(pio_x, 1u) | side(0);
+    p[27] = (uint16_t)pio_encode_jmp_not_x(CLOCK_B_SETTLE_NEXT) | side(0);
+    p[28] = (uint16_t)pio_encode_jmp(CLOCK_TEST_B) | side(0);
+    p[29] = (uint16_t)(pio_encode_jmp_y_dec(CLOCK_B_SETTLE) | side(0) | pio_encode_delay(JOIN_SETTLE_DELAY));
+    p[30] = (uint16_t)pio_encode_jmp(CLOCK_B_LOW) | side(0);
 }
 
 static const pio_program_t *program_of(enum link_kind kind) {
