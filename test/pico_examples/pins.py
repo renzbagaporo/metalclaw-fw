@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # What a pico-examples program does on its pins, read from the DUT itself
 # over SWD while it runs: SIO GPIO_IN, and each watched pin's IO_BANK0
-# GPIO_STATUS OETOPAD (whatever drives it: SIO, PIO, PWM), stamped with the DUT's
+# GPIO_STATUS OETOPAD (whatever drives it: SIO, PIO, PWM) and, for a pin
+# whose pad input is off, OUTTOPAD as its level, stamped with the DUT's
 # own 1 MHz timer, so the times are bench time on the bench and in the
 # emulator alike. The DUT keeps running (DapMemory never halts it). This
 # sees every pin, the board-internal LED (GP25) included, which no harness
@@ -19,6 +20,12 @@ CHIPS = {
     "rp2350": (0x400B0000 + 0x28, 0xD0000004, 0x40028000),
 }
 STATUS_OETOPAD = 1 << 13
+STATUS_OUTTOPAD = 1 << 9
+# PADS_BANK0_BASE + GPIO0 (pads_bank0.h: GPIOn at 4 + 4n) and its input
+# enable, IE: a program may switch a pad's input off on a pin it only
+# drives (Zephyr does, gpio_rpi_pico.c), and then GPIO_IN reads that pin 0.
+PADS = {"rp2040": 0x4001C000 + 4, "rp2350": 0x40038000 + 4}
+PAD_IE = 1 << 6
 
 # IO_QSPI_BASE + GPIO_QSPI_SS_CTRL, whose INOVER (bits 17:16) set to LOW
 # (2) makes every reader of QSPI_SS's input, SIO's GPIO_HI_IN included, see
@@ -71,6 +78,9 @@ def watch(memory, chip, seconds, pins=(), link=None, actions=()):
     samples = []
     pending = sorted(actions, key=lambda a: a[0])
     with (link or memory.link()) as l:
+        # A watched pin whose pad input is off is read from what drives its
+        # output (OUTTOPAD), while something does.
+        no_input = {pin for pin in pins if not l.read_words(PADS[chip] + 4 * pin, 1)[0] & PAD_IE}
         last = l.read_words(timer, 1)[0]
         unwrapped = 0
         moved = time.monotonic()
@@ -80,8 +90,11 @@ def watch(memory, chip, seconds, pins=(), link=None, actions=()):
             levels = l.read_words(gpio_in, 1)[0]
             driven = 0
             for pin in pins:
-                if l.read_words(io_bank0 + 8 * pin, 1)[0] & STATUS_OETOPAD:
+                status = l.read_words(io_bank0 + 8 * pin, 1)[0]
+                if status & STATUS_OETOPAD:
                     driven |= 1 << pin
+                    if pin in no_input:
+                        levels = (levels & ~(1 << pin)) | (bool(status & STATUS_OUTTOPAD) << pin)
             now = l.read_words(timer, 1)[0]
             if now != last:
                 moved = time.monotonic()

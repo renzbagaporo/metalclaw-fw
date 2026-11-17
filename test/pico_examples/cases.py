@@ -20,6 +20,7 @@ from test.pico_examples.parts import PinError, parts_for
 from test.pico_examples.pin_specs import BOOTSEL_SPECS, PIN_SPECS, REGISTER_SPECS
 from test.pico_examples.targets import SPECS, console_lines
 from test.pico_examples.usb_devices import usb_device
+from test.zephyr_samples.pin_specs import ZEPHYR_PIN_SPECS
 from test.zephyr_samples.targets import zephyr_spec
 
 
@@ -28,6 +29,11 @@ from test.zephyr_samples.targets import zephyr_spec
 # (test/zephyr_samples).
 def console_spec(example):
     return SPECS.get(example.target) or PART_SPECS.get(example.target) or zephyr_spec(example.metadata)
+
+
+# Its pin criteria: a pico-examples program's or a Zephyr sample's.
+def pin_spec(example):
+    return PIN_SPECS.get(example.target) or ZEPHYR_PIN_SPECS.get(example.target)
 
 NAME = "example_console"
 INTERFACE = "Metalclaw DUT console"
@@ -67,7 +73,7 @@ def parts(harness, example, fixture):
 # else (pio_hub75's R0 and G0).
 @pytest.fixture(scope="module")
 def console(harness, example, fixture, parts):
-    if console_spec(example) is None and example.target not in PIN_SPECS:
+    if console_spec(example) is None and pin_spec(example) is None:
         pytest.skip(f"no completion criteria for {example.target} yet")
     uart = fixture["uart"]
     harness.run(DETACH + f"metalclaw.attach('console_bridge', {NAME!r}, uart={(uart['tx'], uart['rx'])})\n")
@@ -236,7 +242,7 @@ def pin_actions(spec, chip, port):
 
 
 def test_the_example_drives_its_pins(example, parts, console, record_property):
-    spec = PIN_SPECS.get(example.target)
+    spec = pin_spec(example)
     if spec is None:
         pytest.skip(f"no pin criteria for {example.target}")
     chip = example.metadata["chip"]

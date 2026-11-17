@@ -3,6 +3,7 @@
 from test.pico_examples import pins
 
 TIMER, GPIO_IN, IO_BANK0 = pins.CHIPS["rp2350"]
+PADS = pins.PADS["rp2350"]
 
 
 class FakeLink:
@@ -30,7 +31,22 @@ class FakeLink:
             return [pins.STATUS_OETOPAD]
         if IO_BANK0 <= address < IO_BANK0 + 8 * 48:
             return [0]
+        if PADS <= address < PADS + 4 * 48:
+            return [pins.PAD_IE]
         raise AssertionError(hex(address))
+
+
+class OutputOnlyLink(FakeLink):
+    # GP25 toggling with its pad input off, as Zephyr leaves an output-only
+    # pin: GPIO_IN reads it 0, and only OUTTOPAD shows the level.
+    def read_words(self, address, count):
+        if address == PADS + 4 * 25:
+            return [0]
+        if address == GPIO_IN:
+            return [0]
+        if address == IO_BANK0 + 8 * 25:
+            return [pins.STATUS_OETOPAD | (((self.elapsed // 250_000) & 1) * pins.STATUS_OUTTOPAD)]
+        return super().read_words(address, count)
 
 
 def test_a_toggling_pin_is_seen_across_a_timer_wrap():
@@ -101,3 +117,8 @@ def test_a_dut_that_restarts_under_the_watch_is_watched_from_its_restart():
     samples = pins.watch(None, "rp2350", 1.0, (25,), link=RestartingLink())
     assert samples[0].us < 2000 and 0.99e6 <= samples[-1].us - samples[0].us < 1.01e6
     assert all(b.us > a.us for a, b in zip(samples, samples[1:]))
+
+
+def test_an_output_only_pin_is_read_from_what_drives_it():
+    samples = pins.watch(None, "rp2350", 2.0, (25,), link=OutputOnlyLink())
+    assert 7 <= len(pins.edges(samples, 25)) <= 9
