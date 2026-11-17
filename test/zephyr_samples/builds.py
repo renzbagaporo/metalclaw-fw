@@ -189,6 +189,9 @@ BUILDS: dict[str, Build] = {
     # samples/drivers/spi_bitbang: spibb0 on GP12-15, MOSI looped to MISO.
     "zephyr/drivers/spi_bitbang": Build("drivers/spi_bitbang",
                                         overlays=("test/zephyr_samples/overlays/spibb0_gp12_15.overlay",)),
+    # samples/drivers/uart/passthrough (harness keyboard): uart1 looped back.
+    "zephyr/drivers/uart/passthrough": Build("drivers/uart/passthrough", test="sample.drivers.uart.passthrough",
+                                             overlays=("test/zephyr_samples/overlays/passthrough_uart1.overlay",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

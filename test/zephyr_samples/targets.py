@@ -197,6 +197,14 @@ OWN: dict[str, Spec] = {
     "zephyr/drivers/display": own(r"<inf> sample: Display sample for ssd1306@3c", r"<inf> sample: Display starts",
                                   forbidden=(*FORBIDDEN, r"<err>"),
                                   source="samples/drivers/display/src/display.c"),
+    # samples/drivers/uart/passthrough/src/main.c:136-140: names both UARTs,
+    # then copies each one's input to the other; typed text goes out uart1,
+    # through the harness's loop, and back to the console.
+    "zephyr/drivers/uart/passthrough": own(
+        r"^Console Device: 0x[0-9a-f]+$", r"^Other Device:   0x[0-9a-f]+$", r"metalclaw",
+        input=((r"^Other Device:   0x[0-9a-f]+$", b"metalclaw"),),
+        forbidden=(*FORBIDDEN, r"Rx Error", r"Rx Overflow", r"Tx Error"),
+        source="samples/drivers/uart/passthrough/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

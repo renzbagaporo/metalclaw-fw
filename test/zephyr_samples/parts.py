@@ -134,6 +134,10 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     "zephyr/drivers/spi_bitbang": (
         Attach("jumper", "mosi_miso", {"source": (12,), "sink": (13,)}, one_window=True),
     ),
+    # uart/passthrough's loop: the harness carries uart1 TX (GP8) to RX (GP9).
+    "zephyr/drivers/uart/passthrough": (
+        Attach("jumper", "uart1_loop", {"source": (8,), "sink": (9,)}, one_window=True),
+    ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),
