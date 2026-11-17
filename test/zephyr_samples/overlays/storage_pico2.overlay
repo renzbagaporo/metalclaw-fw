@@ -1,15 +1,23 @@
 /* SPDX-License-Identifier: Apache-2.0 OR MIT */
 /*
- * A 64 KiB storage_partition at the top of the Pico 2's 4 MiB flash, for the
- * samples that keep data there (kvss, settings, fs, psa), with the code
- * partition shortened to make room. test/zephyr_samples/build.py writes
- * the image as Intel HEX with an erased (0xff) block over it, which the rig
- * downloads, so each flash of the sample starts it from empty storage.
+ * A 64 KiB storage_partition at the top of the Pico 2's 4 MiB flash, for
+ * the samples that keep data there (kvss, settings, fs, psa). The board
+ * defines no partitions, so this gives the flash its whole table: code
+ * from the start of flash, storage after it. test/zephyr_samples/build.py
+ * writes the image as Intel HEX with an erased (0xff) block over the
+ * storage, which the rig downloads, so each flash of the sample starts it
+ * from empty storage.
  */
 &flash0 {
 	partitions {
-		code_partition: partition@100 {
-			reg = <0x100 (DT_SIZE_M(4) - 0x100 - DT_SIZE_K(64))>;
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		code_partition: partition@0 {
+			label = "code";
+			reg = <0x0 (DT_SIZE_M(4) - DT_SIZE_K(64))>;
+			read-only;
 		};
 
 		storage_partition: partition@3f0000 {
