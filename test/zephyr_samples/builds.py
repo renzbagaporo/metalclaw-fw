@@ -293,11 +293,12 @@ BUILDS: dict[str, Build] = {
     "zephyr/drivers/auxdisplay": Build("drivers/auxdisplay", test="sample.drivers.auxdisplay", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/auxdisplay_pcf8574_27.overlay"),
         confs=("test/zephyr_samples/overlays/auxdisplay_pcf8574.conf",)),
-    # samples/subsys/sensing/simple: its sensing node on an MPU-6050 and a
-    # LIS2DH-family part; upstream builds it for native_sim's BMI160s.
+    # samples/subsys/sensing/simple: its sensing node on an MPU-6050 (I2C)
+    # and an ICM-42688 (SPI); upstream builds it for native_sim's BMI160s.
     "zephyr/subsys/sensing/simple": Build("subsys/sensing/simple", test="sample.sensing.simple", overlays=(
-        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/sensing_mpu6050_lis2dh.overlay"),
-        confs=("test/zephyr_samples/overlays/sensing_simple.conf",)),
+        "test/zephyr_samples/overlays/i2c0.overlay", "devices/icm4268x/test/dut/rp2.overlay",
+        "test/zephyr_samples/overlays/sensing_mpu6050_icm42688.overlay"),
+        confs=("devices/icm4268x/test/dut/rp2.conf", "test/zephyr_samples/overlays/sensing_simple.conf")),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
