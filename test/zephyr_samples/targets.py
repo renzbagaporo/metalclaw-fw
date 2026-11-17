@@ -247,9 +247,11 @@ OWN: dict[str, Spec] = {
                                      source="samples/subsys/fs/littlefs/src/main.c"),
     # samples/subsys/display/cfb/src/main.c:35-60: initialises the 128x64
     # panel's framebuffer, lists its fonts and its geometry; the part's
-    # GDDRAM is checked too.
+    # GDDRAM is checked too. Its printf lines come straight out, while the
+    # banner goes through the deferred logger and lands after them, so the
+    # lines match in any order.
     "zephyr/subsys/display/cfb": own(r"^Initialized ssd1306@3c$", r"^font width \d+, font height \d+$",
-                                     r"^x_res 128, y_res 64, ppt \d+, rows \d+, cols \d+$",
+                                     r"^x_res 128, y_res 64, ppt \d+, rows \d+, cols \d+$", ordered=False,
                                      forbidden=(*FORBIDDEN, r"[Ff]ailed", r"not ready"),
                                      source="samples/subsys/display/cfb/src/main.c"),
     # samples/subsys/display/cfb_custom_font: prints nothing unless it
