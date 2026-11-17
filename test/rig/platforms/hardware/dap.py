@@ -26,6 +26,8 @@ USB_TIMEOUT_MS = 1000
 # The variable patched probe-rs reads, so one setting covers both clients.
 USB_TIMEOUT_ENV = "CMSIS_DAP_USB_TIMEOUT_MS"
 DRAIN_TIMEOUT_MS = 20
+# Host seconds after a reset on RUN before the target is reached over SWD.
+RUN_SETTLE_S = 0.05
 # Connects to a multidrop DP a link makes, MULTIDROP_RETRY_S apart.
 MULTIDROP_ATTEMPTS = 3
 MULTIDROP_RETRY_S = 0.05
@@ -148,11 +150,15 @@ PIN_NRESET = 0x80
 # `low_us`, `gap_us` between them. DAP_SWJ_Pins' wait runs on the probe, so
 # the low and the gap are the probe's own time and only the turnaround
 # between two commands is the host's.
+# After the last release the chip starts up again, its debug port with it
+# (RP2040 datasheet 2.12.1, 2.13): RUN_SETTLE_S passes before anything
+# reaches for the target over SWD.
 def run_resets(serial, count, low_us, gap_us):
     with _Link(serial, 1_000_000, RP2040, connect=False) as link:
         for n in range(count):
             for level, wait in ((0, low_us), (PIN_NRESET, gap_us if n + 1 < count else 0)):
                 link._command(bytes([DAP_SWJ_PINS, level, PIN_NRESET]) + struct.pack("<I", int(wait)))
+    time.sleep(RUN_SETTLE_S)
 
 
 class DapError(RuntimeError):
