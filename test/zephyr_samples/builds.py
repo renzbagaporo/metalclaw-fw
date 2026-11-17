@@ -67,8 +67,6 @@ BUILDS: dict[str, Build] = {
         "subsys/smf/hsm_psicc2",
         "subsys/task_wdt",
         "subsys/tracing",
-        "subsys/testsuite/integration",
-        "subsys/testsuite/benchmark",
         "subsys/zbus/async_listeners",
         "subsys/zbus/benchmark",
         "subsys/zbus/confirmed_channel",
@@ -105,6 +103,10 @@ BUILDS: dict[str, Build] = {
     # world extension at run time; its platform_allow lists QEMU and MPS2
     # boards only.
     "zephyr/subsys/llext/modules": Build("subsys/llext/modules", test="sample.llext.modules.module_build"),
+    # samples/subsys/testsuite: ztest images that upstream builds only for
+    # native_sim (integration, build_only) and qemu_x86 (benchmark).
+    "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
+    "zephyr/subsys/testsuite/benchmark": Build("subsys/testsuite/benchmark", test="sample.testing.ztest.benchmark"),
     # samples/net/sockets/socketpair: its first test, on a "net" harness with
     # no patterns (judged by our own criterion).
     "zephyr/net/sockets/socketpair": Build("net/sockets/socketpair", test="sample.net.sockets.socketpair"),

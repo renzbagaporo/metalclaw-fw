@@ -35,7 +35,9 @@ def yaml_tests(sample_dir: Path) -> dict[str, dict]:
         path = sample_dir / name
         if path.is_file():
             doc = yaml.safe_load(path.read_text())
-            common = doc.get("common") or {}
+            # A testcase.yaml test without a harness runs on twister's ztest
+            # harness.
+            common = {**({"harness": "ztest"} if name == "testcase.yaml" else {}), **(doc.get("common") or {})}
             return {test: {**common, **(fields or {})} for test, fields in (doc.get("tests") or {}).items()}
     raise FileNotFoundError(f"no sample.yaml or testcase.yaml in {sample_dir}")
 
