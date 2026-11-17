@@ -44,6 +44,10 @@ int mclw_hal_gpio_square(struct mclw_gpio *gpio, uint32_t period_ns, uint32_t hi
 // -ENOSPC when the port has no engine left for it.
 int mclw_hal_gpio_follow(struct mclw_gpio *to, struct mclw_gpio *from);
 int mclw_hal_gpio_join(struct mclw_gpio *a, struct mclw_gpio *b);
+// join for an I2C clock line: as join, and a side's release reaches the
+// other side only as the whole line rises, so a target stretching the
+// clock holds the controller's side low throughout. Not for SDA.
+int mclw_hal_gpio_join_clock(struct mclw_gpio *a, struct mclw_gpio *b);
 void mclw_hal_gpio_unlink(struct mclw_gpio *gpio);
 
 #endif

@@ -108,6 +108,17 @@ int mclw_hal_gpio_join(struct mclw_gpio *a, struct mclw_gpio *b) {
     return 0;
 }
 
+int mclw_hal_gpio_join_clock(struct mclw_gpio *a, struct mclw_gpio *b) {
+    if (a->linked != NULL || b->linked != NULL) {
+        return -EINVAL;
+    }
+    a->linked = b;
+    b->linked = a;
+    a->link_kind = 3;
+    b->link_kind = 3;
+    return 0;
+}
+
 void mclw_hal_gpio_unlink(struct mclw_gpio *g) {
     if (g->linked != NULL) {
         g->linked->linked = NULL;
@@ -336,6 +347,12 @@ static void jumpers(void) {
     CHECK(mclw_model_jumper_open_drain.bindings[0].kind == MCLW_BINDING_GPIO_IN);
     CHECK(mclw_model_jumper_open_drain.bindings[1].kind == MCLW_BINDING_GPIO_IN);
     mclw_model_jumper_open_drain.ops->deinit(&instance);
+    CHECK(pins[0].linked == NULL);
+
+    attach(&mclw_model_jumper_open_drain_clock);
+    CHECK(pins[0].linked == &pins[1] && pins[0].link_kind == 3 && pins[1].link_kind == 3);
+    CHECK(get(&mclw_model_jumper_open_drain_clock, "linked") == 1);
+    mclw_model_jumper_open_drain_clock.ops->deinit(&instance);
     CHECK(pins[0].linked == NULL);
 }
 
