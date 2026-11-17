@@ -322,9 +322,9 @@ OWN: dict[str, Spec] = {
     "zephyr/drivers/auxdisplay_digits": own(forbidden=(*FORBIDDEN, r"<err>"), seconds=5.0,
                                             source="samples/drivers/auxdisplay_digits/src/main.c"),
     # samples/subsys/shell/shell_module/src/main.c: the demo commands
-    # (:84-97, 225-232, 155-201). minimal (prj_minimal.conf) and getopt
-    # (prj_getopt.conf) turn the banner off; robot is the yaml's robot
-    # suite, shell_module.robot: `version` at the prompt.
+    # (:84-97, 225-232, 155-201). All three configurations turn the banner
+    # off (prj.conf, prj_minimal.conf, prj_getopt.conf); robot is the
+    # yaml's robot suite, shell_module.robot: `version` at the prompt.
     "zephyr/subsys/shell/shell_module@minimal": shell_spec(
         {"sample": "subsys/shell/shell_module", "boot_banner": False, "shell_commands": [
             {"command": "demo ping", "expected": r"pong"},
@@ -336,7 +336,7 @@ OWN: dict[str, Spec] = {
             {"command": "demo getopt -a -c", "expected": r"Option -c requires an argument\."}]},
         "samples/subsys/shell/shell_module/src/main.c"),
     "zephyr/subsys/shell/shell_module@robot": shell_spec(
-        {"sample": "subsys/shell/shell_module", "shell_commands": [
+        {"sample": "subsys/shell/shell_module", "boot_banner": False, "shell_commands": [
             {"command": "version", "expected": r"Zephyr version"}]},
         "samples/subsys/shell/shell_module/shell_module.robot"),
     # samples/subsys/shell/fs: its yaml's harness is keyboard, with no
