@@ -180,3 +180,10 @@ def test_the_erased_storage_block_is_valid_intel_hex():
     assert lines[1].startswith(":10FFF000") and lines[2] == ":020000041020CA"
     for line in lines:
         assert sum(bytes.fromhex(line[1:])) & 0xFF == 0
+
+
+def test_no_zephyr_pattern_asks_for_a_literal_backslash():
+    from test.zephyr_samples.targets import OVERRIDES
+    patterns = [p for spec in OWN.values() for p in spec.console]
+    patterns += [p for fields in OVERRIDES.values() for p in fields.get("console", ())]
+    assert not [p for p in patterns if "\\\\" in p], "a doubled backslash matches a literal backslash"

@@ -234,6 +234,15 @@ BUILDS: dict[str, Build] = {
     # entropy_not_secure tests.
     **{f"zephyr/psa/{s}": Build(f"psa/{s}", test=f"sample.psa.{s}.secure_storage.entropy_not_secure", storage=True)
        for s in ("its", "persistent_key")},
+    # samples/subsys/display/cfb and cfb_custom_font: the character
+    # framebuffer on the SSD1306 of drivers/display; their tests (harness
+    # display) name other boards' panels, so the ssd16xx test, which adds
+    # nothing of its own.
+    "zephyr/subsys/display/cfb": Build("subsys/display/cfb", test="sample.display.cfb.ssd16xx", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),
+    "zephyr/subsys/display/cfb_custom_font": Build(
+        "subsys/display/cfb_custom_font", test="sample.display.cfb_custom_font.ssd16xx", overlays=(
+            "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

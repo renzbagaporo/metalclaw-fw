@@ -245,6 +245,18 @@ OWN: dict[str, Spec] = {
                                      r"/boot_count write new boot count 1: \[wr:1\]$",
                                      forbidden=(*FORBIDDEN, r"FAIL"), seconds=30.0,
                                      source="samples/subsys/fs/littlefs/src/main.c"),
+    # samples/subsys/display/cfb/src/main.c:35-60: initialises the 128x64
+    # panel's framebuffer, lists its fonts and its geometry; the part's
+    # GDDRAM is checked too.
+    "zephyr/subsys/display/cfb": own(r"^Initialized ssd1306@3c$", r"^font width \d+, font height \d+$",
+                                     r"^x_res 128, y_res 64, ppt \d+, rows \d+, cols \d+$",
+                                     forbidden=(*FORBIDDEN, r"[Ff]ailed", r"not ready"),
+                                     source="samples/subsys/display/cfb/src/main.c"),
+    # samples/subsys/display/cfb_custom_font: prints nothing unless it
+    # fails; the part's GDDRAM judges it.
+    "zephyr/subsys/display/cfb_custom_font": own(forbidden=(*FORBIDDEN, r"[Ff]ailed", r"not ready", r"Could not"),
+                                                 seconds=3.0,
+                                                 source="samples/subsys/display/cfb_custom_font/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

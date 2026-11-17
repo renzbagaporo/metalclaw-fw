@@ -150,6 +150,13 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     # rtio_loopback's bus: open-drain jumpers GP4 <-> GP6 (SDA) and GP5 <->
     # GP7 (SCL), as pico-examples' slave_mem_i2c is wired.
     "zephyr/drivers/i2c/rtio_loopback": _i2c_jumpers(),
+    # The cfb samples draw text on the same SSD1306.
+    **{f"zephyr/subsys/display/{s}": (
+        Attach("ssd1306", "oled", {"i2c": (4, 5, 0x3C)}, {"i2c": 2}, checks=(
+            Check("(part.display_on, any(part.read_region('gddram', 0, 1024)))", lambda v: v == (True, True),
+                  "the display on, with text drawn in its GDDRAM", 3.0),
+        )),
+    ) for s in ("cfb", "cfb_custom_font")},
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),
