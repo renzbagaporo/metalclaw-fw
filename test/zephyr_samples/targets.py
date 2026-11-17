@@ -14,8 +14,10 @@ from test.pico_examples.targets import Spec, every
 
 # The boot banner every sample prints first (kernel/banner.c, with
 # CONFIG_BOOT_BANNER on and BOOT_BANNER_STRING "Booting Zephyr OS build" by
-# default, kernel/Kconfig), as one console line.
-BANNER = r"^\*\*\* Booting Zephyr OS build .* \*\*\*$"
+# default, kernel/Kconfig). It ends a console line, but need not start one:
+# what the sample printed before the reset (a shell prompt, an unfinished
+# line) stays on the line it starts in.
+BANNER = r"\*\*\* Booting Zephyr OS build .* \*\*\*$"
 
 # Zephyr's fatal error and assertion reports (kernel/fatal.c, sys/__assert.h),
 # and a second boot banner: a fault prints no report with CONFIG_LOG off, but

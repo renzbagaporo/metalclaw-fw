@@ -131,3 +131,8 @@ def test_every_overlay_and_conf_a_build_names_exists():
     for target, build in BUILDS.items():
         for path in (*build.overlays, *build.confs):
             assert (ROOT / path).is_file(), (target, path)
+
+
+def test_the_banner_may_follow_what_came_before_the_reset():
+    spec = zephyr_spec(metadata(config={"type": "one_line", "regex": ["^Enter a line$"]}))
+    assert spec.match(" \x08 \x08*** Booting Zephyr OS build v4.4.0 ***\r\nEnter a line\r\n")[0] == []
