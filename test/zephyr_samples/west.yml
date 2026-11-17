@@ -5,6 +5,9 @@
 # small. `just setup-zephyr-samples` initialises it at
 # METALCLAW_ZEPHYR_SAMPLES_WORKSPACE (default ../.zephyr-samples-workspace).
 manifest:
+  # tflite-micro and chre sit in Zephyr's optional group (its
+  # submanifests/optional.yaml), which west leaves out unless asked.
+  group-filter: [+optional]
   remotes:
     - name: zephyrproject
       url-base: https://github.com/zephyrproject-rtos
@@ -35,3 +38,6 @@ manifest:
           - cmsis-dsp
           - nanopb
           - lvgl
+          # modules/tflite-micro and modules/chre (optional group).
+          - tflite-micro
+          - chre

@@ -102,8 +102,10 @@ BUILDS: dict[str, Build] = {
     ),
     # Wave 1a samples that need modules of the samples workspace
     # (test/zephyr_samples/west.yml): mipi-sys-t, mbedtls and
-    # tf-psa-crypto, cmsis-dsp, nanopb.
-    **_console("subsys/logging/syst", "modules/cmsis_dsp/moving_average", "modules/nanopb"),
+    # tf-psa-crypto, cmsis-dsp, nanopb, and the optional group's
+    # tflite-micro and chre.
+    **_console("subsys/logging/syst", "modules/cmsis_dsp/moving_average", "modules/nanopb",
+               "modules/tflite-micro/hello_world", "modules/chre"),
     # subsys/uuid runs upstream only on native_sim and qemu_x86. On the
     # Picos its PSA SHA-1 and base64 overrun the boards' 1 KiB main stack
     # (CONFIG_STACK_SENTINEL reports it), and the thread switched to next
