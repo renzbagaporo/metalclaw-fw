@@ -219,10 +219,11 @@ OWN: dict[str, Spec] = {
         r"x 2\.41\d* , y -4\.78\d* , z 9\.76\d*",
         forbidden=(*FORBIDDEN, r"ERROR"),
         source="samples/sensor/lis2dh/src/main.c; harness_config none"),
-    # samples/sensor/ina219/src/main.c:30-37: bus voltage in 4 mV steps,
-    # current in the overlay's 10 uA steps.
+    # samples/sensor/ina219/src/main.c:30-37: the part's 5.124 V bus, a
+    # whole number of its 4 mV steps, and 123.4 mA, of the overlay's 10 uA
+    # steps: both exact.
     "zephyr/sensor/ina219": own(
-        r"^Bus: 5\.12[0-4]\d* \[V\] -- Power: \S+ \[W\] -- Current: 0\.123[3-5]\d* \[A\]$",
+        r"^Bus: 5\.124000 \[V\] -- Power: \S+ \[W\] -- Current: 0\.123400 \[A\]$",
         forbidden=(*FORBIDDEN, r"Could not fetch"),
         source="samples/sensor/ina219/src/main.c; harness_config none"),
     # samples/basic/button/src/main.c:20-41: each sw0 event, with its key
@@ -352,12 +353,12 @@ OWN: dict[str, Spec] = {
     "zephyr/sensor/light_polling": own(r"^lux: 1[12]\.\d+$", analog_pins=(26,),
                                        without_analog={"console": (BANNER, r"^lux: \d+\.\d+$")},
                                        source="samples/sensor/light_polling/src/main.c"),
-    # samples/drivers/fuel_gauge/src/main.c:112-282: finds the gauge and
-    # lists what it supports, with the cell voltage (uV) the INA219 gives
-    # the composite gauge: the part's 3.7 V, in its 4 mV steps.
+    # samples/drivers/fuel_gauge/src/main.c:112-330: finds the gauge, lists
+    # what it supports (logging an error for each string property the
+    # composite gauge lacks, -ENOSYS), then polls it: the cell voltage the
+    # INA219 gives it, the part's 3.7 V, a whole number of 4 mV steps.
     "zephyr/drivers/fuel_gauge": own(r"<inf> app: Found device \"fuel-gauge\"",
-                                     r"<inf> app:   Voltage: 3(69[6-9]|70[0-4])\d{3}$",
-                                     forbidden=(*FORBIDDEN, r"<err>"),
+                                     r"<inf> app: Fuel gauge data: Charge: \d+%, Voltage: 3700mV$",
                                      source="samples/drivers/fuel_gauge/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
