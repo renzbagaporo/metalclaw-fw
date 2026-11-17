@@ -339,6 +339,17 @@ OWN: dict[str, Spec] = {
         {"sample": "subsys/shell/shell_module", "boot_banner": False, "shell_commands": [
             {"command": "version", "expected": r"Zephyr version"}]},
         "samples/subsys/shell/shell_module/shell_module.robot"),
+    # shell_module's login test (prj_login.conf: no banner, an obscured
+    # login: prompt whose root command is login; src/login_cmd.c:28-48).
+    # As at any shell, an Enter first at a login: prompt, which may be one
+    # from before the restart: it ends stray input there, and the password
+    # goes in at the prompt after it. The boot's hint is not needed. Then
+    # the welcome, and a command at the ordinary prompt.
+    "zephyr/subsys/shell/shell_module@login": Spec(
+        console=(r"^login: ", r"^Shell Login Demo$", PROMPT, r"^Zephyr version \d"),
+        input=((r"^login: ", b"\n"), (r"^login: ", b"zephyr\n"), (PROMPT, b"kernel version\n")),
+        seconds=SECONDS, forbidden=(*FORBIDDEN, r"Incorrect password"), lines=True,
+        source="samples/subsys/shell/shell_module/src/login_cmd.c"),
     # samples/subsys/shell/fs: its yaml's harness is keyboard, with no
     # commands. The fs shell (subsys/fs/shell.c:877-905, 542-600, 180-210,
     # 425-456) mounts littlefs on the erased storage partition, writes a
