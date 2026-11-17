@@ -289,6 +289,10 @@ BUILDS: dict[str, Build] = {
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ina219_40.overlay",
         "test/zephyr_samples/overlays/fuel_gauge_ina219.overlay"),
         confs=("test/zephyr_samples/overlays/sensor_i2c.conf",)),
+    # samples/drivers/auxdisplay: an HD44780 behind a PCF8574 backpack.
+    "zephyr/drivers/auxdisplay": Build("drivers/auxdisplay", test="sample.drivers.auxdisplay", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/auxdisplay_pcf8574_27.overlay"),
+        confs=("test/zephyr_samples/overlays/auxdisplay_pcf8574.conf",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

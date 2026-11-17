@@ -1,0 +1,50 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * samples/drivers/auxdisplay's auxdisplay_0: a 16x2 HD44780 in 4-bit mode
+ * behind a PCF8574 backpack at 0x27 on I2C0 (i2c0.overlay), wired as the
+ * common backpack is: P0 RS, P1 R/W, P2 E, P3 the backlight, P4-P7 DB4-DB7
+ * (devices/hd44780/hd44780_pcf8574.c). The driver only writes, so R/W is
+ * held low by a hog, which the expander must be up for
+ * (auxdisplay_pcf8574.conf raises the hogs' priority past it).
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&i2c0 {
+	pcf8574: pcf8574@27 {
+		compatible = "nxp,pcf857x";
+		reg = <0x27>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <8>;
+		status = "okay";
+
+		rw_low {
+			gpio-hog;
+			gpios = <1 GPIO_ACTIVE_HIGH>;
+			output-low;
+		};
+
+		backlight_on {
+			gpio-hog;
+			gpios = <3 GPIO_ACTIVE_HIGH>;
+			output-high;
+		};
+	};
+};
+
+/ {
+	auxdisplay_0: auxdisplay {
+		compatible = "hit,hd44780";
+		status = "okay";
+		columns = <16>;
+		rows = <2>;
+		mode = <4>;
+		register-select-gpios = <&pcf8574 0 GPIO_ACTIVE_HIGH>;
+		enable-gpios = <&pcf8574 2 GPIO_ACTIVE_HIGH>;
+		data-bus-gpios = <0>, <0>, <0>, <0>,
+				 <&pcf8574 4 GPIO_ACTIVE_HIGH>,
+				 <&pcf8574 5 GPIO_ACTIVE_HIGH>,
+				 <&pcf8574 6 GPIO_ACTIVE_HIGH>,
+				 <&pcf8574 7 GPIO_ACTIVE_HIGH>;
+	};
+};

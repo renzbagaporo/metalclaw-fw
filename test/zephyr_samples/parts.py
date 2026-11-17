@@ -201,6 +201,13 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("ina219", "power", {"i2c": (4, 5, 0x40)}, {"i2c": 2},
                {"bus_voltage": 3700, "current": 123400, "shunt_resistance": 100000}),
     ),
+    # The LCD backpack at 0x27: the sample's text in the HD44780's DDRAM.
+    "zephyr/drivers/auxdisplay": (
+        Attach("hd44780_pcf8574", "lcd", {"i2c": (4, 5, 0x27)}, {"i2c": 2}, checks=(
+            Check("bytes(part.read_region('ddram', 0, 128))", lambda v: b"Hello world from" in v,
+                  "the sample's greeting in the display's DDRAM", 3.0),
+        )),
+    ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),

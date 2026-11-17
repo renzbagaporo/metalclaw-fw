@@ -361,6 +361,10 @@ OWN: dict[str, Spec] = {
     "zephyr/drivers/fuel_gauge": own(r"<inf> app: Found device \"fuel-gauge\"",
                                      r"<inf> app: Fuel gauge data: Charge: \d+%, Voltage: 3700mV$",
                                      source="samples/drivers/fuel_gauge/src/main.c"),
+    # samples/drivers/auxdisplay/src/main.c: writes its greeting and logs
+    # only a failure; the part's DDRAM judges it.
+    "zephyr/drivers/auxdisplay": own(forbidden=(*FORBIDDEN, r"<err>"), seconds=3.0,
+                                     source="samples/drivers/auxdisplay/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.
