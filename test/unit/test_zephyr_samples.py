@@ -150,3 +150,24 @@ def test_button_interrupt_reads_its_set_up_line():
     spec = OWN["zephyr/drivers/gpio/button_interrupt"]
     text = BOOT + "Set up button at gpio-port@0 pin 15\r\nButton pressed at 1\r\nButton pressed at 2\r\n"
     assert spec.match(text) == ([], [])
+
+
+def test_the_radio_finds_its_pins_on_both_benches():
+    from test.zephyr_samples.parts import ZEPHYR_PARTS
+    from test.rig.platforms.hardware.platform import FIXTURE, METALCLAW_PICO_RP2_FIXTURE
+    radio = ZEPHYR_PARTS["zephyr/drivers/lora/send"][0]
+    for fixture in (FIXTURE, METALCLAW_PICO_RP2_FIXTURE):
+        assert "metalclaw.attach('sx1262'" in radio.code(fixture)
+    carrier = radio._pins(METALCLAW_PICO_RP2_FIXTURE)
+    linked = [p for b in ("spi", "busy", "dio1") for p in carrier[b]]
+    assert all(16 <= p < 48 for p in linked), carrier
+    assert carrier["busy"] == (22,)
+
+
+def test_every_zephyr_part_finds_its_pins_on_both_benches():
+    from test.zephyr_samples.parts import ZEPHYR_PARTS
+    from test.rig.platforms.hardware.platform import FIXTURE, METALCLAW_PICO_RP2_FIXTURE
+    for target, parts in ZEPHYR_PARTS.items():
+        for part in parts:
+            for fixture in (FIXTURE, METALCLAW_PICO_RP2_FIXTURE):
+                part.code(fixture)

@@ -11,14 +11,15 @@ from test.pico_examples.parts import Attach, Check, _i2c_jumpers, _ws2812_frames
 
 # The sx1262 node of devices/sx126x/test/dut/rp2.overlay: SPI0 SCK GP18, MOSI
 # GP19, MISO GP16, CS GP21 (a GPIO), NRESET GP6, BUSY GP10, DIO1 GP20. The
-# radio's engine drives BUSY, so every pin comes from one PIO window (on the
-# carrier, BUSY takes the GPIO22 branch). What it receives is set to the
+# radio's SPI engine drives BUSY and DIO1, so those and the SPI pins come
+# from one PIO window (on the carrier, BUSY takes the GPIO22 branch); NRESET
+# is a plain input and takes its own. What it receives is set to the
 # lora samples' channel (samples/drivers/lora/*/src/main.c: 865.1 MHz,
 # SF10, 125 kHz, CR 4/5, preamble 8, private network), with a signal of
 # -73 dBm at 7 dB SNR.
 def _sx1262(**checks) -> Attach:
     return Attach("sx1262", "radio", {"spi": (18, 19, 16, 21), "busy": (10,), "dio1": (20,), "nreset": (6,)},
-                  one_window=True,
+                  one_window=("spi", "busy", "dio1"),
                   properties={"rx_frequency": 865100000, "rx_sf": 10, "rx_bw": 125000, "rx_cr": 1, "rx_preamble": 8,
                               "rx_crc": True, "rx_iq_inverted": False, "rx_sync_word": 0x1424, "rx_rssi": -73,
                               "rx_snr": 700},

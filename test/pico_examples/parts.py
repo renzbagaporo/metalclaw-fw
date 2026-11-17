@@ -87,8 +87,10 @@ class Attach:
     # for every board.
     boards: tuple[str, ...] = ()
     # Every binding's pins from one PIO window together, for a part whose
-    # engine links its pins (a jumper).
-    one_window: bool = False
+    # engine links its pins (a jumper); or the names of the bindings whose
+    # pins must share one, the rest choosing theirs on their own (a radio
+    # whose SPI engine drives BUSY, beside a plain reset line).
+    one_window: bool | tuple[str, ...] = False
     # Properties that differ on a bench whose harness cannot hold the
     # part's pins at an analog level (fixture "analog_pins"), only high or
     # low.
@@ -104,10 +106,15 @@ class Attach:
 
     def _pins(self, fixture: dict) -> dict:
         counts = {b: self.pin_counts.get(b, len(v)) for b, v in self.bindings.items()}
-        if self.one_window:
-            chosen = iter(harness_pins(fixture, self.dut_pins()))
-            return {b: tuple(next(chosen) for _ in range(n)) for b, n in counts.items()}
-        return {b: harness_pins(fixture, v[:counts[b]], RULES.get(b)) for b, v in self.bindings.items()}
+        linked = tuple(self.bindings) if self.one_window is True else tuple(self.one_window or ())
+        pins = {}
+        if linked:
+            chosen = iter(harness_pins(fixture, tuple(p for b in linked for p in self.bindings[b][:counts[b]])))
+            pins = {b: tuple(next(chosen) for _ in range(counts[b])) for b in linked}
+        for b, v in self.bindings.items():
+            if b not in pins:
+                pins[b] = harness_pins(fixture, v[:counts[b]], RULES.get(b))
+        return pins
 
     def code(self, fixture: dict) -> str:
         pins = self._pins(fixture)

@@ -161,9 +161,11 @@ OWN: dict[str, Spec] = {
     # (test/zephyr_samples/parts.py), within the registers' resolution.
     # samples/sensor/mpu6050/src/main.c:52-60: die temperature (%g), then
     # acceleration (m/s/s) and rotation (rad/s), %f: 250, -500, 1125 mg and
-    # 10, -2, 3 deg/s at the default full scales.
+    # 10, -2, 3 deg/s at the default full scales. The part's 26.53 °C reads
+    # as 26: Zephyr's driver adds 36.0 °C where the register map's formula
+    # has 36.53 (drivers/sensor/tdk/mpu6050/mpu6050.c:56).
     "zephyr/sensor/mpu6050": own(
-        r"^\[[0-9:.]+\]:26\.5[23]\d* Cel$", r"^  accel 2\.45\d* -4\.90\d* 11\.03\d* m/s/s$",
+        r"^\[[0-9:.]+\]:26 Cel$", r"^  accel 2\.45\d* -4\.90\d* 11\.03\d* m/s/s$",
         r"^  gyro  0\.174\d* -0\.034\d* 0\.052\d* rad/s$",
         source="samples/sensor/mpu6050/src/main.c; harness_config none"),
     # samples/sensor/lis2dh/src/main.c:36-54: acceleration, %f m/s/s, of
