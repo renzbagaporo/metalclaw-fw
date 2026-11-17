@@ -79,3 +79,25 @@ def test_a_claim_before_the_first_toggle_is_judged_only_when_asked():
     samples.append(pins.Sample(2_000_000, level << 6, 1 << 6))
     assert any("intervals outside" in p for p in pins.Toggle(6, 4, (0.45, 0.55)).check(samples))
     assert pins.Toggle(6, 4, (0.45, 0.55), judged_from=1).check(samples) == []
+
+
+class RestartingLink(FakeLink):
+    # A DUT whose timer starts again from 0 a few reads in, as a reset that
+    # lands after the watch began.
+    def __init__(self):
+        super().__init__(step_us=1000, start=5_000_000)
+        self.reads = 0
+
+    def read_words(self, address, count):
+        if address == TIMER:
+            self.reads += 1
+            if self.reads == 4:
+                self.now, self.elapsed = 0, 0
+                return [0]
+        return super().read_words(address, count)
+
+
+def test_a_dut_that_restarts_under_the_watch_is_watched_from_its_restart():
+    samples = pins.watch(None, "rp2350", 1.0, (25,), link=RestartingLink())
+    assert samples[0].us < 2000 and 0.99e6 <= samples[-1].us - samples[0].us < 1.01e6
+    assert all(b.us > a.us for a, b in zip(samples, samples[1:]))

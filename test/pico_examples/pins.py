@@ -57,6 +57,12 @@ class Sample:
     driven: int  # OETOPAD of the watched pins
 
 
+# More DUT time than two samples of a watch are ever apart: a timer that
+# moved further between two reads went backwards, which the unsigned
+# difference shows as nearly a whole lap of its 32 bits.
+RESTART_STEP_US = 600_000_000
+
+
 def watch(memory, chip, seconds, pins=(), link=None, actions=()):
     # Samples for `seconds` of DUT time, as fast as the link allows; `driven`
     # carries OETOPAD for `pins` only. Each action (seconds, fn(link)) runs
@@ -81,8 +87,15 @@ def watch(memory, chip, seconds, pins=(), link=None, actions=()):
                 moved = time.monotonic()
             elif time.monotonic() - moved > STALL_S:
                 break
-            unwrapped += (now - last) % (1 << 32)
+            step = (now - last) % (1 << 32)
             last = now
+            if step > RESTART_STEP_US:
+                # The timer started again: the DUT reset under the watch,
+                # a reset the host issued just before landing late. The
+                # watch starts again from here.
+                samples, unwrapped = [], 0
+                continue
+            unwrapped += step
             samples.append(Sample(unwrapped, levels, driven))
     return samples
 
