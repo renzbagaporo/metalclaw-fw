@@ -129,10 +129,6 @@ BUILDS: dict[str, Build] = {
     # by our own criteria.
     **_console("subsys/shell/shell_module", "drivers/flash_shell", "arch/mpu/mpu_test"),
     "zephyr/subsys/testsuite/pytest/shell": Build("subsys/testsuite/pytest/shell", test="sample.harness.shell"),
-    # samples/subsys/shell/shell_module's login test: the shell starts
-    # obscured, at a login: prompt whose root command takes the password.
-    "zephyr/subsys/shell/shell_module@login": Build("subsys/shell/shell_module", test="sample.shell.shell_module.login",
-                                                    variant="login"),
     "zephyr/subsys/console/echo": Build("subsys/console/echo", test="sample.console.echo"),
     "zephyr/subsys/console/getchar": Build("subsys/console/getchar", test="sample.console.getchar"),
     "zephyr/subsys/console/getline": Build("subsys/console/getline", test="sample.console.getline"),

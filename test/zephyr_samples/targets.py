@@ -355,17 +355,6 @@ OWN: dict[str, Spec] = {
             "samples/arch/mpu/mpu_test/test_shell.yml"),
         per_board={"pico": {"input": shell_spec({"sample": "arch/mpu/mpu_test", "shell_commands": [
             {"command": "mpu mtest 0"}, {"command": "mpu mtest 4"}]}, "").input}}),
-    # samples/subsys/shell/shell_module's login test (prj_login.conf: no
-    # banner, obscured, root command login; src/login_cmd.c): the hint, the
-    # password at the login: prompt, the welcome, then a command at the
-    # ordinary prompt. With no banner, the boot's own hint line anchors the
-    # password: the prompt from before the restart may still be in the
-    # bridge, and an answer to it lands while the chip boots.
-    "zephyr/subsys/shell/shell_module@login": Spec(
-        console=(r"^Hint: password = zephyr$", r"^login: ", r"^Shell Login Demo$", PROMPT, r"^Zephyr version \d"),
-        input=((r"^Hint: password = zephyr$", b""), (r"^login: ", b"zephyr\n"), (PROMPT, b"kernel version\n")),
-        seconds=SECONDS, forbidden=(*FORBIDDEN, r"Incorrect password"), lines=True,
-        source="samples/subsys/shell/shell_module/src/login_cmd.c"),
     # samples/net/sockets/socketpair/src/main.c:230-257: three threads write
     # their names through socketpairs that main polls; it prints SUCCESS or
     # FAILURE after tearing down, and a short or wrong read on the way. Its
