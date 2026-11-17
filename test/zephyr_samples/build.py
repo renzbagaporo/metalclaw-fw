@@ -79,7 +79,7 @@ def choose_test(build: Build, tests: dict[str, dict], zephyr_board: str) -> tupl
     if build.test is not None:
         return build.test, tests[build.test]
     for name, test in tests.items():
-        if (not test.get("build_only") and test.get("harness", "") in ("console", "ztest", "")
+        if (not test.get("build_only") and test.get("harness", "") in ("console", "ztest", "shell", "")
                 and runs_on(test, zephyr_board)):
             return name, test
     raise LookupError(f"samples/{build.sample} has no test that runs on a console on {zephyr_board}")
@@ -113,6 +113,20 @@ def cmake_args(build: Build, test: dict, work: Path, zephyr_board: str) -> list[
     lists["EXTRA_DTC_OVERLAY_FILE"] += _list(test.get("extra_dtc_overlay_files"))
     args += [f"-D{name}=" + ";".join(values) for name, values in lists.items() if values]
     return args + [f"-D{a}" for a in build.args]
+
+
+def shell_commands(test: dict, sample_dir: Path) -> list[dict]:
+    # A shell-harness test's commands, as twister's Shell harness takes them:
+    # harness_config.shell_commands, else the sample's shell_commands_file
+    # (test_shell.yml by default).
+    config = test.get("harness_config") or {}
+    if config.get("shell_commands"):
+        return list(config["shell_commands"])
+    path = sample_dir / config.get("shell_commands_file", "test_shell.yml")
+    if not path.is_file():
+        return []
+    import yaml
+    return list(yaml.safe_load(path.read_text()) or [])
 
 
 def zephyr_commit(base: Path) -> str:
@@ -154,6 +168,7 @@ def build_one(target: str, board: str, base: Path, out: Path) -> tuple[bool, str
         "test": test_name,
         "harness": test.get("harness", ""),
         "harness_config": test.get("harness_config", {}),
+        "shell_commands": shell_commands(test, sample_dir) if test.get("harness") == "shell" else [],
         "cmake_args": command[command.index("--") + 1:],
         "zephyr": zephyr_commit(base),
         # Whether the image prints the boot banner (a sample may turn it off).

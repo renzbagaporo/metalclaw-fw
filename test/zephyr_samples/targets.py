@@ -72,6 +72,31 @@ OWN: dict[str, Spec] = {
         r"^Zephyr version number: \d+$", r"^Reading using flash:$", r"^my_bytes: 01 02 03 04 ?$",
         forbidden=(*FORBIDDEN, r"Descriptors not found"),
         source="samples/subsys/bindesc/read_bindesc/src/main.c"),
+    # Typed console samples, whose yaml harness is "keyboard": a person types.
+    # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
+    # adding a line feed after a carriage return.
+    "zephyr/subsys/console/echo": own(
+        r"^Start typing characters to see them echoed back$", r"^metalclaw$",
+        input=((r"^Start typing characters to see them echoed back$", b"metalclaw\r"),),
+        source="samples/subsys/console/echo/src/main.c"),
+    # samples/subsys/console/getchar/src/main.c:13-21: prints each
+    # character's code and the character.
+    "zephyr/subsys/console/getchar": own(
+        r"^Start typing characters to see their hex codes printed$", r"^char: \[0x61\] a$", r"^char: \[0x62\] b$",
+        input=((r"^Start typing characters to see their hex codes printed$", b"ab"),),
+        source="samples/subsys/console/getchar/src/main.c"),
+    # samples/subsys/console/getline/src/main.c:14-23: prints each line it
+    # reads and the line's last character.
+    "zephyr/subsys/console/getline": own(
+        r"^Enter a line$", r"^line: hi$", r"^last char was: 0x69$",
+        input=((r"^Enter a line$", b"hi\r"),),
+        source="samples/subsys/console/getline/src/main.c"),
+    # samples/drivers/uart/echo_bot/src/main.c:97-105: greets, then echoes
+    # each line that ends in a carriage return or line feed.
+    "zephyr/drivers/uart/echo_bot": own(
+        r"^Hello! I'm your echo bot\.$", r"^Tell me something and press enter:$", r"^Echo: metalclaw$",
+        input=((r"^Tell me something and press enter:$", b"metalclaw\r"),),
+        source="samples/drivers/uart/echo_bot/src/main.c"),
     # samples/net/sockets/socketpair/src/main.c:230-257: three threads write
     # their names through socketpairs that main polls; it prints SUCCESS or
     # FAILURE after tearing down, and a short or wrong read on the way. Its
@@ -88,6 +113,23 @@ def banner(metadata: dict) -> tuple[str, ...]:
     # The banner pattern, for an image built with the banner on (a sample may
     # turn CONFIG_BOOT_BANNER off: basic/hash_map).
     return (BANNER,) if metadata.get("boot_banner", True) else ()
+
+
+# The shell's prompt on the console UART (CONFIG_SHELL_PROMPT_UART's
+# default, subsys/shell/backends/Kconfig.backends).
+PROMPT = r"^uart:~\$ "
+
+
+def shell_spec(metadata: dict, source: str, prompt: str = PROMPT) -> Spec:
+    # As twister's Shell harness (scripts/pylib/shell-twister-harness): at
+    # each prompt the next command goes in with a line end, and a line of
+    # its response must match its `expected` from the line's start.
+    commands = metadata.get("shell_commands") or []
+    return Spec(console=(*banner(metadata), prompt,
+                         *(f"^(?:{c['expected']})" for c in commands if c.get("expected"))),
+                input=tuple((prompt, f"{c['command']}\n".encode()) for c in commands),
+                seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
+                source=f"{source}; samples/{metadata['sample']}/test_shell.yml")
 
 
 def is_zephyr(metadata: dict | None) -> bool:
@@ -109,6 +151,8 @@ def zephyr_spec(metadata: dict | None) -> Spec | None:
         spec = Spec(console=(*banner(metadata), r"^PROJECT EXECUTION SUCCESSFUL$"), seconds=SECONDS,
                     forbidden=(*FORBIDDEN, r"PROJECT EXECUTION FAILED"), lines=True, source=source)
         return replace(spec, **OVERRIDES.get(metadata["target"], {}))
+    if metadata.get("harness") == "shell":
+        return replace(shell_spec(metadata, source), **OVERRIDES.get(metadata["target"], {}))
     if metadata.get("harness") != "console":
         return None
     config = metadata["harness_config"]

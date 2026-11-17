@@ -21,7 +21,7 @@ class Build:
     # The sample's directory under samples/.
     sample: str
     # The yaml test to build, or None for its first test that runs on a
-    # console (or ztest) harness and is not build_only.
+    # console, ztest or shell harness and is not build_only.
     test: str | None = None
     # Extra CMake cache entries ("NAME=value"), after the test's own.
     args: tuple[str, ...] = ()
@@ -103,6 +103,15 @@ BUILDS: dict[str, Build] = {
     # world extension at run time; its platform_allow lists QEMU and MPS2
     # boards only.
     "zephyr/subsys/llext/modules": Build("subsys/llext/modules", test="sample.llext.modules.module_build"),
+    # Wave 1b: typed console. The shell samples' own commands
+    # (test_shell.yml) go in at the prompt; the keyboard samples are judged
+    # by our own criteria.
+    **_console("subsys/shell/shell_module", "drivers/flash_shell"),
+    "zephyr/subsys/testsuite/pytest/shell": Build("subsys/testsuite/pytest/shell", test="sample.harness.shell"),
+    "zephyr/subsys/console/echo": Build("subsys/console/echo", test="sample.console.echo"),
+    "zephyr/subsys/console/getchar": Build("subsys/console/getchar", test="sample.console.getchar"),
+    "zephyr/subsys/console/getline": Build("subsys/console/getline", test="sample.console.getline"),
+    "zephyr/drivers/uart/echo_bot": Build("drivers/uart/echo_bot", test="sample.drivers.uart"),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
