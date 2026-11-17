@@ -300,6 +300,8 @@ def test_a_failed_uart_part_check_reports_the_harness_uarts_registers():
             if code == cases.HARNESS_UARTS:
                 return ("uart0 fr=0x90 ris=0x0 mis=0x0 imsc=0x0 dr=empty\n"
                         "uart1 fr=0x80 ris=0x40 mis=0x40 imsc=0x50 dr=0x42\n")
+            if code == cases.HARNESS_PIOS:
+                return "pio0 fstat=0xf00 fdebug=0x0 flevel=0x1 irq=0x0 addr=[3, 0, 0, 0]\n"
             if ".stats('uart')" in code:
                 return "{'bytes_rx': 1}\n"
             return "1\n"
@@ -313,3 +315,4 @@ def test_a_failed_uart_part_check_reports_the_harness_uarts_registers():
     with pytest.raises(AssertionError):
         cases.test_the_example_parts_saw_the_program(Harness(), example, [part], recorded.__setitem__)
     assert recorded["harness_uart_registers"].endswith("uart1 fr=0x80 ris=0x40 mis=0x40 imsc=0x50 dr=0x42")
+    assert recorded["harness_pio_registers"] == "pio0 fstat=0xf00 fdebug=0x0 flevel=0x1 irq=0x0 addr=[3, 0, 0, 0]"

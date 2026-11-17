@@ -287,6 +287,16 @@ for n, b in enumerate(bases):
     print('uart%d fr=%#x ris=%#x mis=%#x imsc=%#x dr=%s' % (n, fr, machine.mem32[b + 0x3c], machine.mem32[b + 0x40],
           machine.mem32[b + 0x38], 'empty' if dr is None else '%#x' % dr))
 """
+# And its PIO blocks, where a UART on a pin pair no PL011 has runs
+# (core/ports/rp2/hal/uart_pio.c): per block FSTAT, FDEBUG, FLEVEL and IRQ,
+# and each state machine's ADDR. PIO0 and PIO1 at 0x50200000 and
+# 0x50300000, the RP2350's PIO2 at 0x50400000.
+HARNESS_PIOS = """import machine, sys
+bases = (0x50200000, 0x50300000) + ((0x50400000,) if 'RP2350' in sys.implementation._machine else ())
+for n, b in enumerate(bases):
+    print('pio%d fstat=%#x fdebug=%#x flevel=%#x irq=%#x addr=%s' % (n, machine.mem32[b + 0x4], machine.mem32[b + 0x8],
+          machine.mem32[b + 0xc], machine.mem32[b + 0x30], [machine.mem32[b + 0xd4 + 0x18 * sm] for sm in range(4)]))
+"""
 
 
 def test_the_example_parts_saw_the_program(harness, example, parts, record_property):
@@ -315,6 +325,7 @@ def test_the_example_parts_saw_the_program(harness, example, parts, record_prope
                                 harness.run(f"print(repr({name}.stats('{bus}')))\n").strip())
         if "uart" in part.bindings:
             record_property("harness_uart_registers", harness.run(HARNESS_UARTS).strip())
+            record_property("harness_pio_registers", harness.run(HARNESS_PIOS).strip())
     assert not problems, f"{example.target}: {problems}"
 
 
