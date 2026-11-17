@@ -227,6 +227,8 @@ BUILDS: dict[str, Build] = {
     # in every session, not from wherever the last one left them.
     "zephyr/subsys/kvss/nvs": Build("subsys/kvss/nvs", test="sample.nvs.basic", storage=True),
     "zephyr/subsys/fs/littlefs": Build("subsys/fs/littlefs", test="sample.filesystem.littlefs", storage=True),
+    "zephyr/subsys/settings": Build("subsys/settings", test="sample.subsys.settings.nvs", storage=True),
+    "zephyr/subsys/kvss/zms": Build("subsys/kvss/zms", test="sample.zms.basic", storage=True),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
