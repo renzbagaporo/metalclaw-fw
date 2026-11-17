@@ -338,8 +338,14 @@ class Count:
         return tuple(range(self.first, self.first + 7))
 
     def check(self, samples) -> list[str]:
-        shown = _digit_changes(samples, self.first, self.lit_low, self.table)
-        problems = [f"the display went from {a} to {b} at {samples[i].us / 1e6:.3f} s"
+        # The seven pins are read one after another, so a sample may straddle
+        # a change and show half of each digit: a pattern held for one
+        # sample only is such a read, not a digit the program showed.
+        mask = 0x7F << self.first
+        held = [s for before, s, after in zip([None] + samples[:-1], samples, samples[1:] + [None])
+                if any(n is not None and (n.levels ^ s.levels) & mask == 0 for n in (before, after))]
+        shown = _digit_changes(held, self.first, self.lit_low, self.table)
+        problems = [f"the display went from {a} to {b} at {held[i].us / 1e6:.3f} s"
                     for (_, _, a), (_, i, b) in zip(shown, shown[1:]) if (b - a) % 10 != 1]
         if len(shown) - 1 < self.steps:
             problems.append(f"the display changed {len(shown) - 1} times, expected at least {self.steps}")

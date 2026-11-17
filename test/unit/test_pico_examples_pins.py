@@ -133,3 +133,12 @@ def test_a_count_steps_up_by_its_programs_own_table():
     assert pins.Count(2, 5, GPIO_7SEG_DIGITS).pins == (2, 3, 4, 5, 6, 7, 8)
     backwards = list(reversed(samples))
     assert pins.Count(2, 1, GPIO_7SEG_DIGITS).check(backwards)
+
+
+def test_a_count_passes_over_a_sample_read_across_a_change():
+    from test.zephyr_samples.pin_specs import GPIO_7SEG_DIGITS
+    zero, one = GPIO_7SEG_DIGITS[0] << 2, GPIO_7SEG_DIGITS[1] << 2
+    torn = GPIO_7SEG_DIGITS[7] << 2  # A-C of the old 0, D-F of the new 1
+    levels = [zero] * 10 + [torn] + [one] * 10
+    samples = [pins.Sample(i * 4_000, v, 0) for i, v in enumerate(levels)]
+    assert pins.Count(2, 1, GPIO_7SEG_DIGITS).check(samples) == []
