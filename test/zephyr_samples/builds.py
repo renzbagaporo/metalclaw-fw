@@ -136,6 +136,11 @@ BUILDS: dict[str, Build] = {
     # (test_shell.yml) go in at the prompt; the keyboard samples are judged
     # by our own criteria.
     **_console("subsys/shell/shell_module", "drivers/flash_shell", "arch/mpu/mpu_test"),
+    # shell_module's minimal, getopt and robot tests (judged by commands of
+    # ours: their yamls' harnesses are keyboard and robot).
+    **{f"zephyr/subsys/shell/shell_module@{v}": Build("subsys/shell/shell_module",
+                                                      test=f"sample.shell.shell_module.{v}", variant=v)
+       for v in ("minimal", "getopt", "robot")},
     "zephyr/subsys/testsuite/pytest/shell": Build("subsys/testsuite/pytest/shell", test="sample.harness.shell"),
     "zephyr/subsys/console/echo": Build("subsys/console/echo", test="sample.console.echo"),
     "zephyr/subsys/console/getchar": Build("subsys/console/getchar", test="sample.console.getchar"),
