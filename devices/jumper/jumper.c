@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 // A jumper wire between two DUT pins, made by the harness pins that reach
 // them: `jumper` carries a push-pull signal from one pin to the other,
-// `jumper_open_drain` joins two open-drain lines (an I2C bus's SDA or SCL)
-// both ways. The port keeps the link up in hardware.
+// `jumper_open_drain` joins two open-drain lines (an I2C bus's SDA) both
+// ways, and `jumper_open_drain_clock` an I2C bus's SCL, keeping a target's
+// clock stretching as one wire would. The port keeps the link up in
+// hardware.
 
 #include <errno.h>
 #include <stdbool.h>
@@ -93,6 +95,18 @@ static int join_init(struct mclw_instance *inst, const struct mclw_binding *bind
     return err;
 }
 
+static int clock_init(struct mclw_instance *inst, const struct mclw_binding *bindings) {
+    struct jumper_state *s = inst->state;
+    int err;
+
+    s->pins[0] = bindings[0].gpio;
+    s->pins[1] = bindings[1].gpio;
+    err = mclw_hal_gpio_join_clock(s->pins[0], s->pins[1]);
+    s->linked = err == 0;
+    mclw_trace(inst, MCLW_TRACE_STATE, mclw_hal_gpio_pin(s->pins[1]), 0u, (int16_t)err);
+    return err;
+}
+
 static void jumper_deinit(struct mclw_instance *inst) {
     struct jumper_state *s = inst->state;
 
@@ -120,6 +134,12 @@ static const struct mclw_model_ops follow_ops = {
 
 static const struct mclw_model_ops join_ops = {
     .init = join_init,
+    .deinit = jumper_deinit,
+    .get = jumper_get,
+};
+
+static const struct mclw_model_ops clock_ops = {
+    .init = clock_init,
     .deinit = jumper_deinit,
     .get = jumper_get,
 };
@@ -156,4 +176,21 @@ const struct mclw_model mclw_model_jumper_open_drain = {
     .binding_count = sizeof(join_bindings) / sizeof(join_bindings[0]),
     .state_size = sizeof(struct jumper_state),
     .ops = &join_ops,
+};
+
+const struct mclw_model mclw_model_jumper_open_drain_clock = {
+    .abi_version = MCLW_ABI_VERSION,
+    .id = "jumper_open_drain_clock",
+    .family = "jumper",
+    .config = NULL,
+    .properties = jumper_properties,
+    .property_count = sizeof(jumper_properties) / sizeof(jumper_properties[0]),
+    .regions = NULL,
+    .region_count = 0,
+    .faults = NULL,
+    .fault_count = 0,
+    .bindings = join_bindings,
+    .binding_count = sizeof(join_bindings) / sizeof(join_bindings[0]),
+    .state_size = sizeof(struct jumper_state),
+    .ops = &clock_ops,
 };

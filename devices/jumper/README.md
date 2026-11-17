@@ -26,7 +26,17 @@ reach them. Two models:
   outlasts the rise of a line held up only by pad pull-ups and stays under
   the 4.0 µs minimum SCL high time of a 100 kHz bus (UM10204 table 10).
   While a target stretches SCL past the moment the controller lets it go,
-  the controller sees SCL high for that wait first.
+  the controller sees SCL high for that wait first: use
+  `jumper_open_drain_clock` for SCL.
+- `jumper_open_drain_clock` joins an I2C bus's SCL the same way, but a side
+  the harness lets go reaches the other side only as the whole line rises:
+  the harness keeps the first side low until it sees the released side up
+  (up to the same 2 µs), and a side still low then is held by its own parts,
+  so a target stretching the clock holds the controller's side low
+  throughout, as on one wire. A release shows a side high for two PIO cycles
+  at most, under an I2C input's 50 ns spike filter (UM10204 table 10, tSP).
+  Not for SDA: a controller that lets SDA go for a STOP would find it still
+  held low, and take that for lost arbitration.
 
 The link lives in the port's hardware from attach to detach; on rp2 each is
 one PIO state machine with no CPU or DMA, on PIO0, then PIO2, then PIO1, and
@@ -40,12 +50,14 @@ both pins must be in that block's 32-pin window.
 | `jumper` | `sink` | `gpio_out` | yes | the pin the harness drives after it |
 | `jumper_open_drain` | `a` | `gpio_in` | yes | one side |
 | `jumper_open_drain` | `b` | `gpio_in` | yes | the other side |
+| `jumper_open_drain_clock` | `a` | `gpio_in` | yes | one side |
+| `jumper_open_drain_clock` | `b` | `gpio_in` | yes | the other side |
 
 ```python
 import metalclaw
 tx_to_rx = metalclaw.attach("jumper", "tx_to_rx", source=4, sink=3)
 sda = metalclaw.attach("jumper_open_drain", "sda", a=4, b=6)
-scl = metalclaw.attach("jumper_open_drain", "scl", a=5, b=7)
+scl = metalclaw.attach("jumper_open_drain_clock", "scl", a=5, b=7)
 ```
 
 ## Properties
