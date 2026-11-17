@@ -269,6 +269,13 @@ BUILDS: dict[str, Build] = {
     "zephyr/drivers/auxdisplay_digits": Build("drivers/auxdisplay_digits", test="sample.drivers.auxdisplay_digits",
                                               overlays=("test/zephyr_samples/overlays/"
                                                         "auxdisplay_digits_gp2_10.overlay",)),
+    # Userspace: the three userspace samples and the logger's user-mode
+    # test, with the MPU on (the Picos' board configs leave it off).
+    # gperf on the build host generates their kernel-object hash table.
+    **{f"zephyr/userspace/{s}": Build(f"userspace/{s}", args=("CONFIG_ARM_MPU=y",))
+       for s in ("hello_world_user", "prod_consumer", "shared_mem")},
+    "zephyr/subsys/logging/logger@usermode": Build("subsys/logging/logger", test="sample.logger.usermode",
+                                                   variant="usermode", args=("CONFIG_ARM_MPU=y",)),
     # samples/basic/minimal: its runtime test, which upstream runs on ARC
     # (common-runtime.conf, no-timers.conf): no kernel timers, one printk.
     "zephyr/basic/minimal": Build("basic/minimal", test="sample.minimal.arc.runtime"),
