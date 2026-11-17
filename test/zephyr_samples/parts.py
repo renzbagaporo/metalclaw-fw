@@ -25,6 +25,21 @@ def _sx1262(**checks) -> Attach:
                   **checks)
 
 
+# Every frame the radio has captured, oldest first, emptying its queue: a
+# Check's setup defines it, so its expression can call it. The queue is not
+# emptied at the restart, which may come after the sample's first frame.
+TX_FRAMES = ("def _tx_frames(radio):\n"
+             "    out = []\n"
+             "    while radio.tx_pending:\n"
+             "        out.append(bytes(radio.read_region('tx', 0, radio.tx_length)))\n"
+             "        radio.tx_next = True\n"
+             "    return out\n")
+
+
+def tx_frames(test, description: str, after_seconds: float) -> Check:
+    return Check("_tx_frames(part)", test, description, after_seconds, setup=TX_FRAMES)
+
+
 # Puts one frame on air for the radio to receive, a little after the sample
 # says it listens (it logs before it calls lora_recv).
 def lora_frame(payload: bytes) -> str:
@@ -38,12 +53,18 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("bmp388", "baro", {"i2c": (4, 5, 0x76)}, {"i2c": 2}, {"pressure": 98765, "temperature": 23450}),
     ),
     # samples/drivers/lora/send/src/main.c:23-71: sends "helloworld 0" to
-    # "helloworld 9" in turn, each MAX_DATA_LEN 12 bytes; the first after the
-    # restart is the one the radio captures first once the queue is emptied.
+    # "helloworld 9" in turn, each MAX_DATA_LEN 12 bytes, a second apart.
     "zephyr/drivers/lora/send": (
-        _sx1262(checks=(Check("bytes(part.read_region('tx', 0, part.tx_length)) if part.tx_pending else None",
-                              lambda v: v == b"helloworld 0", "the first frame sent after the restart", 4.0,
-                              setup="while part.tx_pending:\n    part.tx_next = True\n"),)),
+        _sx1262(checks=(tx_frames(lambda v: b"helloworld 0" in v and all(f[:11] == b"helloworld " and len(f) == 12
+                                                                         for f in v),
+                                  "the helloworld frames the sample sent", 4.0),)),
+    ),
+    # samples/subsys/lorawan/class_a/src/main.c:95: joins over OTAA, which
+    # puts a JoinRequest on air: MHDR 0x00 (join request), AppEUI, DevEUI and
+    # DevNonce, MIC: 23 bytes (LoRaWAN 1.0.x 6.2.4). No network answers.
+    "zephyr/subsys/lorawan/class_a": (
+        _sx1262(checks=(tx_frames(lambda v: any(len(f) == 23 and f[0] == 0x00 for f in v),
+                                  "a JoinRequest", 6.0),)),
     ),
     "zephyr/drivers/lora/receive": (_sx1262(),),
     # samples/drivers/modem/at_client on uart1 (DUT TX GP8, RX GP9), so the

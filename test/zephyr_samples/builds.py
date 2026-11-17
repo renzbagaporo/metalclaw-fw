@@ -137,6 +137,10 @@ BUILDS: dict[str, Build] = {
                                          overlays=("devices/sx126x/test/dut/rp2.overlay",),
                                          confs=("devices/sx126x/test/dut/rp2.conf",))
        for s in ("send", "receive")},
+    # samples/subsys/lorawan/class_a: its EU868 test, with the rig's sx1262.
+    "zephyr/subsys/lorawan/class_a": Build("subsys/lorawan/class_a", test="sample.lorawan.class_a.eu868",
+                                           overlays=("devices/sx126x/test/dut/rp2.overlay",),
+                                           confs=("devices/sx126x/test/dut/rp2.conf",)),
     # samples/drivers/modem/at_client: console on uart0, the modem on uart1.
     "zephyr/drivers/modem/at_client": Build("drivers/modem/at_client",
                                             overlays=("test/zephyr_samples/overlays/at_client_uart1.overlay",)),
