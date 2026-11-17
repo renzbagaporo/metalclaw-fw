@@ -104,6 +104,10 @@ OVERRIDES: dict[str, dict] = {
     # comes after more than 10 s.
     "zephyr/subsys/zbus/confirmed_channel": {"seconds": 30.0},
     "zephyr/subsys/zbus/priority_boost": {"seconds": 30.0},
+    # samples/subsys/logging/syst sends printk through its MIPI SyS-T log
+    # backend, the boot banner too, which then reaches the console encoded
+    # ("SYS-T RAW DATA: ..."): only the yaml's own lines can be asked for.
+    "zephyr/subsys/logging/syst": {"console": (r"SYS-T RAW DATA: ", r"SYST Sample Execution Completed")},
     # samples/subsys/task_wdt: the control thread gets stuck and the task
     # watchdog's callback resets the chip right after printing
     # (src/main.c:46-58), so the reset cuts the UART's transmit FIFO short: the
