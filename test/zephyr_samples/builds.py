@@ -124,7 +124,7 @@ BUILDS: dict[str, Build] = {
     # Wave 1b: typed console. The shell samples' own commands
     # (test_shell.yml) go in at the prompt; the keyboard samples are judged
     # by our own criteria.
-    **_console("subsys/shell/shell_module", "drivers/flash_shell"),
+    **_console("subsys/shell/shell_module", "drivers/flash_shell", "arch/mpu/mpu_test"),
     "zephyr/subsys/testsuite/pytest/shell": Build("subsys/testsuite/pytest/shell", test="sample.harness.shell"),
     "zephyr/subsys/console/echo": Build("subsys/console/echo", test="sample.console.echo"),
     "zephyr/subsys/console/getchar": Build("subsys/console/getchar", test="sample.console.getchar"),

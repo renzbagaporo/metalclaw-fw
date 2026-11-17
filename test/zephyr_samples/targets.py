@@ -139,6 +139,29 @@ def own(*console: str, source: str, **fields) -> Spec:
     return Spec(console=(BANNER, *console), lines=True, source=source, **fields)
 
 
+def banner(metadata: dict) -> tuple[str, ...]:
+    # The banner pattern, for an image built with the banner on (a sample may
+    # turn CONFIG_BOOT_BANNER off: basic/hash_map).
+    return (BANNER,) if metadata.get("boot_banner", True) else ()
+
+
+# The shell's prompt on the console UART (CONFIG_SHELL_PROMPT_UART's
+# default, subsys/shell/backends/Kconfig.backends).
+PROMPT = r"^uart:~\$ "
+
+
+def shell_spec(metadata: dict, source: str, prompt: str = PROMPT) -> Spec:
+    # As twister's Shell harness (scripts/pylib/shell-twister-harness): at
+    # each prompt the next command goes in with a line end, and a line of
+    # its response must match its `expected` from the line's start.
+    commands = metadata.get("shell_commands") or []
+    return Spec(console=(*banner(metadata), prompt,
+                         *(f"^(?:{c['expected']})" for c in commands if c.get("expected"))),
+                input=tuple((prompt, f"{c['command']}\n".encode()) for c in commands),
+                seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
+                source=f"{source}; samples/{metadata['sample']}/test_shell.yml")
+
+
 # By target: criteria of ours, for a sample whose yaml judges it some other
 # way than its console (an LED harness, a host script), read from its source.
 OWN: dict[str, Spec] = {
@@ -321,6 +344,17 @@ OWN: dict[str, Spec] = {
         r"^Hello! I'm your echo bot\.$", r"^Tell me something and press enter:$", r"^Echo: metalclaw$",
         input=((r"^Tell me something and press enter:$", b"metalclaw\r"),),
         source="samples/drivers/uart/echo_bot/src/main.c"),
+    # samples/arch/mpu/mpu_test: its test_shell.yml reads words at 0x1 and
+    # 0x2 with `mpu mtest`, unaligned loads that an ARMv6-M core (the
+    # RP2040's) faults on; the Pico 1 build reads the boot ROM's aligned
+    # words at 0x0 and 0x4 instead (src/main.c:124-139).
+    "zephyr/arch/mpu/mpu_test": replace(
+        shell_spec({"sample": "arch/mpu/mpu_test", "shell_commands": [
+            {"command": "mpu mtest 1", "expected": "The value is: 0x.*"},
+            {"command": "mpu mtest 2", "expected": "The value is: 0x.*"}]},
+            "samples/arch/mpu/mpu_test/test_shell.yml"),
+        per_board={"pico": {"input": shell_spec({"sample": "arch/mpu/mpu_test", "shell_commands": [
+            {"command": "mpu mtest 0"}, {"command": "mpu mtest 4"}]}, "").input}}),
     # samples/net/sockets/socketpair/src/main.c:230-257: three threads write
     # their names through socketpairs that main polls; it prints SUCCESS or
     # FAILURE after tearing down, and a short or wrong read on the way. Its
@@ -331,29 +365,6 @@ OWN: dict[str, Spec] = {
                    r"unhandled events remaining", r"failed to find fd"),
         source="samples/net/sockets/socketpair/src/main.c"),
 }
-
-
-def banner(metadata: dict) -> tuple[str, ...]:
-    # The banner pattern, for an image built with the banner on (a sample may
-    # turn CONFIG_BOOT_BANNER off: basic/hash_map).
-    return (BANNER,) if metadata.get("boot_banner", True) else ()
-
-
-# The shell's prompt on the console UART (CONFIG_SHELL_PROMPT_UART's
-# default, subsys/shell/backends/Kconfig.backends).
-PROMPT = r"^uart:~\$ "
-
-
-def shell_spec(metadata: dict, source: str, prompt: str = PROMPT) -> Spec:
-    # As twister's Shell harness (scripts/pylib/shell-twister-harness): at
-    # each prompt the next command goes in with a line end, and a line of
-    # its response must match its `expected` from the line's start.
-    commands = metadata.get("shell_commands") or []
-    return Spec(console=(*banner(metadata), prompt,
-                         *(f"^(?:{c['expected']})" for c in commands if c.get("expected"))),
-                input=tuple((prompt, f"{c['command']}\n".encode()) for c in commands),
-                seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
-                source=f"{source}; samples/{metadata['sample']}/test_shell.yml")
 
 
 def is_zephyr(metadata: dict | None) -> bool:
