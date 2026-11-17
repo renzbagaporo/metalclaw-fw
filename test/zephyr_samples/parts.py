@@ -48,7 +48,18 @@ def lora_frame(payload: bytes) -> str:
             f"radio.write_region('rx', 0, {payload!r})\n")
 
 
+# A level on an ADC input: the carrier's RC filters on GP26-28 turn the
+# harness's 1 MHz square wave into its duty share of 3.3 V; a bench without
+# them (fixture "analog_pins") holds the pin low or high instead.
+def adc_level(name: str, pin: int, high_ns: int, level: bool) -> Attach:
+    return Attach("square_wave", name, {"out": (pin,)}, properties={"period": 1000, "high": high_ns},
+                  without_analog={"period": 0, "high": 0, "level": level})
+
+
 ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
+    # ADC input 0 (GP26) at 25 % of 3.3 V, input 1 (GP27) at 75 %.
+    "zephyr/drivers/adc/adc_dt": (adc_level("ain0", 26, 250, False),),
+    "zephyr/drivers/adc/adc_sequence": (adc_level("ain0", 26, 250, False), adc_level("ain1", 27, 750, True)),
     # The bmp388 node of devices/bmp388/test/dut/rp2.overlay: I2C0 on GP4/GP5
     # at 0x76. Pressure in Pa, temperature in m°C (devices/bmp388/bmp388.c).
     "zephyr/sensor/pressure_polling": (

@@ -259,6 +259,25 @@ OWN: dict[str, Spec] = {
     "zephyr/subsys/display/cfb_custom_font": own(forbidden=(*FORBIDDEN, r"[Ff]ailed", r"not ready", r"Could not"),
                                                  seconds=3.0,
                                                  source="samples/subsys/display/cfb_custom_font/src/main.c"),
+    # samples/drivers/adc: readings of the harness's levels
+    # (test/zephyr_samples/parts.py): about 825 mV on input 0 and 2475 mV
+    # on input 1 through the carrier's RC filters, within 65 mV; on a bench
+    # without them the inputs sit low and high.
+    "zephyr/drivers/adc/adc_dt": own(
+        r"^ADC reading\[\d+\]:$", r"^- adc@[0-9a-f]+, channel 0: \d+ = (7[6-9]\d|8[0-8]\d) mV$",
+        analog_pins=(26,), without_analog={"console": (BANNER, r"^ADC reading\[\d+\]:$",
+                                                       r"^- adc@[0-9a-f]+, channel 0: \d+ = [0-5]?\d mV$")},
+        source="samples/drivers/adc/adc_dt/src/main.c"),
+    "zephyr/drivers/adc/adc_sequence": own(
+        r"^ADC sequence reading \[\d+\]:$", r"^- adc@[0-9a-f]+, channel 0, \d+ sequence samples:$",
+        r"^- - \d+ = (7[6-9]\d|8[0-8]\d)mV$", r"^- adc@[0-9a-f]+, channel 1, \d+ sequence samples:$",
+        r"^- - \d+ = (24[1-9]\d|25[0-3]\d)mV$",
+        analog_pins=(26, 27),
+        without_analog={"console": (BANNER, r"^ADC sequence reading \[\d+\]:$",
+                                    r"^- adc@[0-9a-f]+, channel 0, \d+ sequence samples:$", r"^- - \d+ = [0-5]?\dmV$",
+                                    r"^- adc@[0-9a-f]+, channel 1, \d+ sequence samples:$",
+                                    r"^- - \d+ = (32[4-9]\d|33\d\d)mV$")},
+        source="samples/drivers/adc/adc_sequence/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

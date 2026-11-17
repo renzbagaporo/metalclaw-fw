@@ -243,6 +243,10 @@ BUILDS: dict[str, Build] = {
     "zephyr/subsys/display/cfb_custom_font": Build(
         "subsys/display/cfb_custom_font", test="sample.display.cfb_custom_font.ssd16xx", overlays=(
             "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),
+    # samples/drivers/adc/adc_sequence: ADC inputs 0 and 1 (GP26, GP27);
+    # upstream lists other boards.
+    "zephyr/drivers/adc/adc_sequence": Build("drivers/adc/adc_sequence", test="sample.drivers.adc.adc_sequence",
+                                             overlays=("test/zephyr_samples/overlays/adc0_ch0_ch1.overlay",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
