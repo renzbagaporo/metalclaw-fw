@@ -435,11 +435,12 @@ OWN: dict[str, Spec] = {
     # samples/subsys/shell/devmem_load (harness keyboard): `devmem load`
     # takes hex text until Ctrl-X Ctrl-Q and reports the bytes read
     # (subsys/shell/modules/devmem_service.c:166-206); `devmem <addr> 32`
-    # then reads the first word back, little endian. 0x20030000 is SRAM the
+    # then reads the first word back: without -e each 8 hex digits are one
+    # word's value, so 0xdeadbeef. 0x20030000 is SRAM the
     # sample leaves alone. No banner (its prj.conf).
     "zephyr/subsys/shell/devmem_load": Spec(
         console=(PROMPT, r"^press ctrl-x ctrl-q to escape$", r"^Number of bytes read: 8$",
-                 r"^Read value 0xefbeadde$"),
+                 r"^Read value 0xdeadbeef$"),
         input=((PROMPT, b"\n"), (PROMPT, b"devmem load 0x20030000\n"),
                (r"^press ctrl-x ctrl-q to escape$", b"deadbeef0badcafe\x18\x11"),
                (PROMPT, b"devmem 0x20030000 32\n")),
