@@ -80,7 +80,6 @@ BUILDS: dict[str, Build] = {
         "subsys/zbus/priority_boost",
         "subsys/zbus/runtime_obs_registration",
         "subsys/zbus/work_queue",
-        "net/sockets/socketpair",
         "sensor/die_temp_polling",
         "drivers/counter/alarm",
         "drivers/watchdog",
@@ -98,6 +97,9 @@ BUILDS: dict[str, Build] = {
     # samples/basic/blinky: its one test, on an LED harness (judged by our
     # own criterion, test/zephyr_samples/targets.py OWN).
     "zephyr/basic/blinky": Build("basic/blinky", test="sample.basic.blinky"),
+    # samples/net/sockets/socketpair: its first test, on a "net" harness with
+    # no patterns (judged by our own criterion).
+    "zephyr/net/sockets/socketpair": Build("net/sockets/socketpair", test="sample.net.sockets.socketpair"),
     # The Pico 1 builds take the samples' own boards/rpi_pico.overlay (PWM on
     # the LED, the on-chip RTC); the Pico 2 builds need an overlay of ours.
     **{f"zephyr/{s}": Build(s, boards=("pico",), other_boards="the sample has no rpi_pico2 overlay yet")

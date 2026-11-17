@@ -34,7 +34,8 @@ OVERRIDES: dict[str, dict] = {}
 
 
 def own(*console: str, source: str, **fields) -> Spec:
-    return Spec(console=(BANNER, *console), seconds=SECONDS, forbidden=FORBIDDEN, lines=True, source=source, **fields)
+    fields = {"seconds": SECONDS, "forbidden": FORBIDDEN, **fields}
+    return Spec(console=(BANNER, *console), lines=True, source=source, **fields)
 
 
 # By target: criteria of ours, for a sample whose yaml judges it some other
@@ -46,6 +47,15 @@ OWN: dict[str, Spec] = {
     "zephyr/basic/blinky": own(r"^LED state: OFF$", r"^LED state: ON$", r"^LED state: OFF$",
                                intervals=every(1.0, 0.005, 3, first=1),
                                source="samples/basic/blinky/src/main.c"),
+    # samples/net/sockets/socketpair/src/main.c:230-257: three threads write
+    # their names through socketpairs that main polls; it prints SUCCESS or
+    # FAILURE after tearing down, and a short or wrong read on the way. Its
+    # yaml's harness is "net", with no patterns.
+    "zephyr/net/sockets/socketpair": own(
+        r"^setting-up$", r"^tearing-down$", r"^SUCCESS$",
+        forbidden=(*FORBIDDEN, r"only wrote", r"only read", r"expected", r"FAILURE", r"error",
+                   r"unhandled events remaining", r"failed to find fd"),
+        source="samples/net/sockets/socketpair/src/main.c"),
 }
 
 
