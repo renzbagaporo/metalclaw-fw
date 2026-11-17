@@ -35,16 +35,15 @@ class PinSpec:
 class BootselSpec:
     # Resets on RUN: held low `low_s`, `gap_s` between them. After one, the
     # program blinks `led` at least `edges` times in `seconds`; after two
-    # the bootrom presents USB and the LED stops. Each step's first reset
-    # comes `settle_s` of bench time after the last start, past the window
-    # in which it would count as the second.
+    # the bootrom presents USB and the LED stops. The single reset comes
+    # once the program blinks: it blinks only past the window in which a
+    # reset would count as the second.
     led: int
     low_s: float
     gap_s: float
     seconds: float
     edges: int
     source: str = ""
-    settle_s: float = 0.3
 
 
 def half(seconds: float) -> tuple[float, float]:
@@ -141,8 +140,8 @@ BOOTSEL_SPECS: dict[str, BootselSpec] = {
     # with ACTIVITY_LED 25 (CMakeLists.txt). The second reset comes 100 ms
     # after the first is let go: past the boot to that check, inside its
     # window. One reset is followed by the 250 ms blink (hello_double_tap.c:20-25).
-    # Each step waits 300 ms first: a reset within 200 ms of the start
-    # before it is that start's second.
+    # A reset within 200 ms of the start before it is that start's second,
+    # so the single reset waits for the blink, timed by the DUT's own clock.
     "hello_double_tap": BootselSpec(LED, 0.01, 0.1, 2.0, toggles(2.0, 0.25, 0.2),
                                     "system/hello_double_tap/hello_double_tap.c"),
 }
