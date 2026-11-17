@@ -373,6 +373,11 @@ OWN: dict[str, Spec] = {
     # samples/subsys/display/lvgl: its yaml's harness is "none"; it logs
     # only failures (LVGL's own warnings too, CONFIG_LV_USE_LOG). The panel's
     # GDDRAM judges it (test/zephyr_samples/parts.py).
+    # samples/modules/lvgl/multi_display/src/main.c: its yaml has no
+    # patterns; it logs only failures, and runs a demo on the first panel
+    # and another on the second. Both panels' GDDRAM judge it (parts.py).
+    "zephyr/modules/lvgl/multi_display": own(forbidden=(*FORBIDDEN, r"<err>", r"\[Error\]"), seconds=5.0,
+                                             source="samples/modules/lvgl/multi_display/src/main.c"),
     # samples/modules/lvgl/accelerometer_chart/src/main.c: its yaml's
     # harness is none; it logs only failures, and charts accel0's readings.
     # The panel's GDDRAM judges it (parts.py).

@@ -1,0 +1,48 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A second 128x64 SSD1306 at 0x3C, on I2C1 (GP6 SDA, GP7 SCL, standard
+ * rate, the pads' pull-ups), with ssd1306_3c.overlay's panel settings, and
+ * both panels as the zephyr,displays list (samples/modules/lvgl/
+ * multi_display). The harness answers one I2C target per bus.
+ */
+#include <zephyr/dt-bindings/i2c/i2c.h>
+
+/ {
+	lvgl_displays: displays {
+		compatible = "zephyr,displays";
+		displays = <&ssd1306_3c &ssd1306_3c_i2c1>;
+		status = "okay";
+	};
+};
+
+&pinctrl {
+	i2c1_gp6_gp7_oled: i2c1_gp6_gp7_oled {
+		group1 {
+			pinmux = <I2C1_SDA_P6>, <I2C1_SCL_P7>;
+			input-enable;
+			input-schmitt-enable;
+			bias-pull-up;
+		};
+	};
+};
+
+&i2c1 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	pinctrl-0 = <&i2c1_gp6_gp7_oled>;
+	pinctrl-names = "default";
+
+	ssd1306_3c_i2c1: ssd1306@3c {
+		compatible = "solomon,ssd1306";
+		reg = <0x3c>;
+		width = <128>;
+		height = <64>;
+		segment-offset = <0>;
+		page-offset = <0>;
+		display-offset = <0>;
+		multiplex-ratio = <63>;
+		segment-remap;
+		com-invdir;
+		prechargep = <0x22>;
+	};
+};

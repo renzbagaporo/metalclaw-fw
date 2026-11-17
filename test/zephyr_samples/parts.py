@@ -187,6 +187,12 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         )),
     ) for s in ("subsys/display/cfb", "subsys/display/cfb_shell", "subsys/display/cfb_custom_font",
                 "subsys/display/lvgl", "modules/lvgl/demos")},
+    # multi_display: the same SSD1306, and a second on I2C1.
+    "zephyr/modules/lvgl/multi_display": tuple(
+        Attach("ssd1306", name, {"i2c": (sda, scl, 0x3C)}, {"i2c": 2}, checks=(
+            Check("(part.display_on, any(part.read_region('gddram', 0, 1024)))", lambda v: v == (True, True),
+                  f"{name}: the display on, with a demo drawn in its GDDRAM", 3.0),
+        )) for name, sda, scl in (("oled", 4, 5), ("oled2", 6, 7))),
     # accelerometer_chart: the same SSD1306, and the LIS2DH on I2C1.
     "zephyr/modules/lvgl/accelerometer_chart": (
         Attach("ssd1306", "oled", {"i2c": (4, 5, 0x3C)}, {"i2c": 2}, checks=(
