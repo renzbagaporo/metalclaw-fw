@@ -234,6 +234,15 @@ BUILDS: dict[str, Build] = {
     "zephyr/subsys/fs/littlefs": Build("subsys/fs/littlefs", test="sample.filesystem.littlefs", storage=True),
     "zephyr/subsys/settings": Build("subsys/settings", test="sample.subsys.settings.nvs", storage=True),
     "zephyr/subsys/kvss/zms": Build("subsys/kvss/zms", test="sample.zms.basic", storage=True),
+    # samples/subsys/fs/format: both its tests, build-only upstream (judged
+    # by our own criterion): littlefs on the storage partition, and FAT on a
+    # RAM disk (prj_ram.conf, ramdisk.overlay).
+    "zephyr/subsys/fs/format": Build("subsys/fs/format", test="sample.filesystem.format.littlefs", storage=True),
+    "zephyr/subsys/fs/format@fat_fs": Build("subsys/fs/format", test="sample.filesystem.format.fat_fs",
+                                            variant="fat_fs"),
+    # samples/basic/minimal: its runtime test, which upstream runs on ARC
+    # (common-runtime.conf, no-timers.conf): no kernel timers, one printk.
+    "zephyr/basic/minimal": Build("basic/minimal", test="sample.minimal.arc.runtime"),
     # samples/psa/{its,persistent_key}: PSA secure storage on the storage
     # partition. Zephyr has no entropy driver for the RP2 chips, so their
     # entropy_not_secure tests.

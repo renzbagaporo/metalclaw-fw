@@ -117,7 +117,9 @@ def board_name(zephyr_board: str) -> str:
 
 def cmake_args(build: Build, test: dict, work: Path, zephyr_board: str) -> list[str]:
     args, lists = [], {name: [] for name in LISTS}
-    for arg in board_configs(_list(test.get("extra_args")), zephyr_board):
+    # Without double quotes, as twister passes them (runner.py
+    # cmake_assemble_args): a list entry may quote its value.
+    for arg in board_configs([a.replace('"', "") for a in _list(test.get("extra_args"))], zephyr_board):
         name, _, value = arg.partition("=")
         if name in lists:
             lists[name] += value.split(";")

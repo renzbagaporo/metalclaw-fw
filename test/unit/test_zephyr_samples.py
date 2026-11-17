@@ -187,3 +187,10 @@ def test_no_zephyr_pattern_asks_for_a_literal_backslash():
     patterns = [p for spec in OWN.values() for p in spec.console]
     patterns += [p for fields in OVERRIDES.values() for p in fields.get("console", ())]
     assert not [p for p in patterns if "\\\\" in p], "a doubled backslash matches a literal backslash"
+
+
+def test_a_quoted_list_entry_loses_its_quotes_as_in_twister(tmp_path):
+    test = {"extra_args": ['CONF_FILE="prj_ram.conf"', 'EXTRA_DTC_OVERLAY_FILE="ramdisk.overlay"']}
+    args = cmake_args(Build("x"), test, tmp_path, "rpi_pico")
+    assert "-DCONF_FILE=prj_ram.conf" in args
+    assert "-DEXTRA_DTC_OVERLAY_FILE=ramdisk.overlay" in args

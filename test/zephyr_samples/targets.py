@@ -286,6 +286,11 @@ OWN: dict[str, Spec] = {
                                      r"/boot_count write new boot count 1: \[wr:1\]$",
                                      forbidden=(*FORBIDDEN, r"FAIL"), seconds=30.0,
                                      source="samples/subsys/fs/littlefs/src/main.c"),
+    # samples/subsys/fs/format/src/main.c:45-52: formats its file system
+    # (fs_mkfs) and logs the result, through the minimal logger.
+    **{t: own(r"Format successful$", forbidden=(*FORBIDDEN, r"Format failed"),
+              source="samples/subsys/fs/format/src/main.c")
+       for t in ("zephyr/subsys/fs/format", "zephyr/subsys/fs/format@fat_fs")},
     # samples/subsys/display/cfb/src/main.c:35-60: initialises the 128x64
     # panel's framebuffer, lists its fonts and its geometry; the part's
     # GDDRAM is checked too. Its printf lines come straight out, while the
