@@ -100,6 +100,12 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("bme280", "env", {"spi": (18, 19, 16, 17)}, {},
                {"spi_mode": 3, "pressure": 99887, "temperature": 21370, "humidity": 45670}),
     ),
+    # sw0 on GP15 pressed for 100 ms each second: the harness's square_wave
+    # (period and high time in ns) holds the line high and pulls it low, as
+    # a button to ground would.
+    **{f"zephyr/{target}": (Attach("square_wave", "button", {"out": (15,)},
+                                   properties={"period": 1_000_000_000, "high": 900_000_000}),)
+       for target in ("basic/button", "drivers/gpio/button_interrupt")},
     # DS18B20 on GP15: 21.375 °C is 342 sixteenths, exact at 12 bits. Open
     # drain with no pull-up of its own, so only the carrier's lines carry it.
     **{f"zephyr/{target}": (Attach("ds18b20", "thermo", {"dq": (15,)},

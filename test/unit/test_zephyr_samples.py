@@ -144,3 +144,9 @@ def test_every_overlay_and_conf_a_build_names_exists():
 def test_the_banner_may_follow_what_came_before_the_reset():
     spec = zephyr_spec(metadata(config={"type": "one_line", "regex": ["^Enter a line$"]}))
     assert spec.match(" \x08 \x08*** Booting Zephyr OS build v4.4.0 ***\r\nEnter a line\r\n")[0] == []
+
+
+def test_button_interrupt_reads_its_set_up_line():
+    spec = OWN["zephyr/drivers/gpio/button_interrupt"]
+    text = BOOT + "Set up button at gpio-port@0 pin 15\r\nButton pressed at 1\r\nButton pressed at 2\r\n"
+    assert spec.match(text) == ([], [])

@@ -161,6 +161,17 @@ OWN: dict[str, Spec] = {
         r"^Bus: 5\.12[0-4]\d* \[V\] -- Power: \S+ \[W\] -- Current: 0\.123[3-5]\d* \[A\]$",
         forbidden=(*FORBIDDEN, r"Could not fetch"),
         source="samples/sensor/ina219/src/main.c; harness_config none"),
+    # samples/basic/button/src/main.c:20-41: each sw0 event, with its key
+    # code (INPUT_KEY_0, 11), pressed and released, as the harness presses.
+    "zephyr/basic/button": own(r"^Press the button$", r"^Button 11 pressed at \d+$", r"^Button 11 released at \d+$",
+                               r"^Button 11 pressed at \d+$",
+                               source="samples/basic/button/src/main.c"),
+    # samples/drivers/gpio/button_interrupt/src/main.c:36-68: a line per
+    # press, from sw0's interrupt; its yaml's harness is "button".
+    "zephyr/drivers/gpio/button_interrupt": own(
+        r"^Set up button at \S+ pin 15$", r"^Button pressed at \d+$", r"^Button pressed at \d+$",
+        forbidden=(*FORBIDDEN, r"^Error"),
+        source="samples/drivers/gpio/button_interrupt/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.
