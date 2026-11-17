@@ -1,0 +1,29 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A 32 x 40 LED-strip matrix display in ARGB8888 (led-strip-matrix, as
+ * Zephyr's adafruit_neopixel_grid_bff shield builds one) over the WS2812
+ * chain on GP6 (ws2812_pio_gp6.overlay), lengthened to 1280 LEDs: the
+ * zephyr,display of an LVGL sample that needs ARGB8888
+ * (samples/modules/lvgl/screen_transparency). Rows run left to right,
+ * row 0 first.
+ */
+#include <zephyr/dt-bindings/display/panel.h>
+
+/ {
+	chosen {
+		zephyr,display = &led_matrix;
+	};
+
+	led_matrix: led-matrix {
+		compatible = "led-strip-matrix";
+		status = "okay";
+		led-strips = <&ws2812>;
+		width = <32>;
+		height = <40>;
+		pixel-format = <PANEL_PIXEL_FORMAT_ARGB_8888>;
+	};
+};
+
+&ws2812 {
+	chain-length = <1280>;
+};

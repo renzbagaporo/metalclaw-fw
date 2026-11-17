@@ -187,6 +187,23 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         )),
     ) for s in ("subsys/display/cfb", "subsys/display/cfb_shell", "subsys/display/cfb_custom_font",
                 "subsys/display/lvgl", "modules/lvgl/demos")},
+    # screen_transparency: the WS2812 chain under the 32 x 40 LED matrix
+    # (overlays/led_matrix_32x40.overlay), 1280 LEDs, 3840 bytes a frame.
+    # The model keeps the first 256, rows 0-7, where the sample's "Hello,
+    # world!" (0xff00ff, 20 px above the centre in a 14 px font) lies; the
+    # transparent screen leaves the rest dark. A magenta LED there is green
+    # 0 with red and blue equal.
+    "zephyr/modules/lvgl/screen_transparency": (
+        Attach("ws2812b", "strip", {"din": (6,)}, properties={"count": 256}, checks=(
+            Check("(part.bad_frames - globals().get('_m_bad', 0), part.length, (lambda b: any("
+                  "b[i] == 0 and b[i + 1] > 0 and b[i + 1] == b[i + 2] for i in range(0, 768, 3)))"
+                  "(part.read_region('leds', 0, 768)))",
+                  lambda v: v == (0, 3840, True),
+                  "whole 1280-LED frames, none out of the datasheet's windows, magenta text in rows 0-7", 4.0,
+                  setup="import time\n_f = part.frames\nwhile part.frames < _f + 2:\n    time.sleep_ms(1)\n"
+                        "_m_bad = part.bad_frames\n"),
+        )),
+    ),
     # multi_display: the same SSD1306, and a second on I2C1.
     "zephyr/modules/lvgl/multi_display": tuple(
         Attach("ssd1306", name, {"i2c": (sda, scl, 0x3C)}, {"i2c": 2}, checks=(
