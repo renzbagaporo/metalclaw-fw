@@ -116,6 +116,14 @@ OVERRIDES: dict[str, dict] = {
     # samples/subsys/kvss/zms runs CONFIG_MAX_ITERATIONS (300) rounds of
     # writes before its line; on the carrier about 14 a second.
     "zephyr/subsys/kvss/zms": {"seconds": 60.0},
+    # samples/subsys/sensing/simple/src/main.c:23-85: its yaml's line comes
+    # once the sensors are opened, before any data; a sample from a 3D
+    # sensor must follow, through the data callback.
+    "zephyr/subsys/sensing/simple": {
+        "console": (BANNER, r"sensing subsystem run successfully",
+                    r"<inf> main: .*Sensor:.* data:\(x:-?\d+, y:-?\d+, z:-?\d+\)"),
+        "seconds": 15.0,
+    },
     # samples/subsys/logging/syst sends printk through its MIPI SyS-T log
     # backend, the boot banner too, which then reaches the console encoded
     # ("SYS-T RAW DATA: ..."): only the yaml's own lines can be asked for.

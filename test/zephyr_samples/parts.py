@@ -208,6 +208,12 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
                   "the sample's greeting in the display's DDRAM", 3.0),
         )),
     ),
+    # The sensing sample's base (MPU-6050) and lid (LIS3DH) sensors.
+    "zephyr/subsys/sensing/simple": (
+        Attach("mpu6050", "imu", {"i2c": (4, 5, 0x68)}, {"i2c": 2},
+               {"acceleration": (250, -500, 1125), "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
+        Attach("lis3dh", "accel", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"acceleration": (252, -500, 1020)}),
+    ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),
