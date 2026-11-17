@@ -315,6 +315,7 @@ BUILDS: dict[str, Build] = {
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
+    "zephyr/subsys/testsuite/pytest/basic": Build("subsys/testsuite/pytest/basic", test="sample.twister.pytest"),
     "zephyr/subsys/testsuite/benchmark": Build("subsys/testsuite/benchmark", test="sample.testing.ztest.benchmark"),
     # samples/net/sockets/socketpair: its first test, on a "net" harness with
     # no patterns (judged by our own criterion).

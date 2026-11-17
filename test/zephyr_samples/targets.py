@@ -446,6 +446,12 @@ OWN: dict[str, Spec] = {
                (PROMPT, b"devmem 0x20030000 32\n")),
         seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
         source="samples/subsys/shell/devmem_load; subsys/shell/modules/devmem_service.c"),
+    # samples/subsys/testsuite/pytest/basic: a ztest suite whose one test
+    # prints Hello world; its yaml's host pytest script checks only the
+    # host side's options, so the suite's own summary judges it.
+    "zephyr/subsys/testsuite/pytest/basic": own(r"Hello world$", r"^PROJECT EXECUTION SUCCESSFUL$",
+                                                forbidden=(*FORBIDDEN, r"PROJECT EXECUTION FAILED"),
+                                                source="samples/subsys/testsuite/pytest/basic/src/main.c"),
     # samples/net/sockets/socketpair/src/main.c:230-257: three threads write
     # their names through socketpairs that main polls; it prints SUCCESS or
     # FAILURE after tearing down, and a short or wrong read on the way. Its
