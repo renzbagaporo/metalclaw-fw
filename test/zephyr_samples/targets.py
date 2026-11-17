@@ -323,12 +323,15 @@ OWN: dict[str, Spec] = {
         r"input event: dev=qdec .*type= 2 code=  8 value=-?[1-9]", ordered=False,
         source="samples/subsys/input/input_dump; subsys/input/input_utils.c"),
     # samples/sensor/sensor_shell (harness keyboard): `sensor get` on the
-    # INA237 prints each channel, value after its timestamp
-    # (drivers/sensor/sensor_shell.c:528-531): the part's 3.3 V bus and
-    # 200 mA, in the overlay's 500 uA current steps.
-    "zephyr/sensor/sensor_shell": shell_spec({"sample": "sensor/sensor_shell", "boot_banner": False, "shell_commands": [
-        {"command": "sensor get ina237@40",
-         "expected": r"channel type=\d+\(voltage\) index=0 shift=\d+ num_samples=1 value=\d+ns, 3\.(29|30)\d*"}]},
+    # INA237 prints each channel, the value in parentheses after its
+    # timestamp (drivers/sensor/sensor_shell.c:528-531): the part's 3.3 V
+    # bus and 200 mA, in the overlay's 500 uA current steps.
+    "zephyr/sensor/sensor_shell": shell_spec(
+        {"sample": "sensor/sensor_shell", "boot_banner": False, "shell_commands": [
+            {"command": "sensor get ina237@40",
+             "expected": r"channel type=\d+\(voltage\) index=0 shift=\d+ num_samples=1 value=\d+ns \(3\.(29|30)\d*\)"},
+            {"command": "sensor get ina237@40 current",
+             "expected": r"channel type=\d+\(current\) index=0 shift=\d+ num_samples=1 value=\d+ns \(0\.(199|200)\d*\)"}]},
         "drivers/sensor/sensor_shell.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
