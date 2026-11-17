@@ -290,6 +290,10 @@ setup-zephyr-samples: setup-rig
         git -C "{{zephyr_samples_base}}" -c user.name=metalclaw -c user.email=metalclaw@localhost am --quiet "{{zephyr_patch}}"
     fi
     "{{rig_python}}" -m pip install --quiet -r "{{zephyr_samples_base}}/scripts/requirements-base.txt"
+    # Host tools some samples' builds run: nanopb's generator (protobuf and
+    # grpcio-tools' protoc) and Pillow for subsys/display/cfb_custom_font's
+    # font header (scripts/build/gen_cfb_font_header.py).
+    "{{rig_python}}" -m pip install --quiet -r "{{zephyr_samples_workspace}}/modules/lib/nanopb/requirements.txt" Pillow
     "{{venv}}/bin/west" -v list
 
 # Build upstream Zephyr samples (test/zephyr_samples/builds.py, "all" for

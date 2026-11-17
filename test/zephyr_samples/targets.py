@@ -220,6 +220,12 @@ OWN: dict[str, Spec] = {
                                         r"<inf> main: Displaying pattern on strip",
                                         forbidden=(*FORBIDDEN, r"<err>"),
                                         source="samples/drivers/led/led_strip/src/main.c"),
+    # samples/basic/rgb_led and servo_motor: a banner, then PWM changes that
+    # print only on an error.
+    "zephyr/basic/rgb_led": own(r"^PWM-based RGB LED control$", forbidden=(*FORBIDDEN, r"Error"), seconds=3.0,
+                                source="samples/basic/rgb_led/src/main.c"),
+    "zephyr/basic/servo_motor": own(r"^Servomotor control$", forbidden=(*FORBIDDEN, r"Error"), seconds=3.0,
+                                    source="samples/basic/servo_motor/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

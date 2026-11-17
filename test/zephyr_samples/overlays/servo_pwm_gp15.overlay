@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * samples/basic/servo_motor's pwm-servo on GP15 (PWM 7B): a 20 ms period
+ * and 0.7-2.5 ms pulses, as the sample's bbc_microbit overlay.
+ */
+#include <zephyr/dt-bindings/pwm/pwm.h>
+
+/ {
+	servo: servo {
+		compatible = "pwm-servo";
+		pwms = <&pwm 15 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
+		min-pulse = <PWM_USEC(700)>;
+		max-pulse = <PWM_USEC(2500)>;
+	};
+};
+
+&pinctrl {
+	pwm_gp15: pwm_gp15 {
+		group1 {
+			pinmux = <PWM_7B_P15>;
+		};
+	};
+};
+
+&pwm {
+	status = "okay";
+	pinctrl-0 = <&pwm_gp15>;
+	pinctrl-names = "default";
+	divider-int-7 = <255>;
+};

@@ -86,6 +86,10 @@ BUILDS: dict[str, Build] = {
         "drivers/watchdog",
         "drivers/led/pwm",
     ),
+    # Wave 1a samples that need modules of the samples workspace
+    # (test/zephyr_samples/west.yml): mipi-sys-t, mbedtls and
+    # tf-psa-crypto, cmsis-dsp, nanopb.
+    **_console("subsys/logging/syst", "subsys/uuid", "modules/cmsis_dsp/moving_average", "modules/nanopb"),
     # samples/kernel/bootargs: the tokenization test is the one that runs
     # outside QEMU (its extra_configs set the boot arguments).
     "zephyr/kernel/bootargs": Build("kernel/bootargs", test="sample.kernel.bootargs.tokenization"),
@@ -120,6 +124,13 @@ BUILDS: dict[str, Build] = {
     "zephyr/basic/threads": Build("basic/threads", overlays=("test/zephyr_samples/overlays/threads_led1.overlay",)),
     "zephyr/basic/custom_dts_binding": Build(
         "basic/custom_dts_binding", overlays=("test/zephyr_samples/overlays/load_switch_gp25.overlay",)),
+    # basic/rgb_led (harness led) and servo_motor (harness motor): PWM
+    # outputs of ours on GP13-15; nothing on the bench reads PWM yet, so the
+    # console judges them.
+    "zephyr/basic/rgb_led": Build("basic/rgb_led", test="sample.basic.rgb_led",
+                                  overlays=("test/zephyr_samples/overlays/rgb_pwm_gp13_15.overlay",)),
+    "zephyr/basic/servo_motor": Build("basic/servo_motor", test="sample.basic.servo_motor",
+                                      overlays=("test/zephyr_samples/overlays/servo_pwm_gp15.overlay",)),
     # Wave 1d: parts whose models a Zephyr driver already runs against (the
     # rig's device images), on the nodes those images use
     # (devices/<part>/test/dut/rp2.overlay), with the sample's alias.
