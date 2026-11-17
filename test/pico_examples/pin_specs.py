@@ -120,9 +120,11 @@ PIN_SPECS: dict[str, PinSpec] = {
     # s, 16 changes, less the two its stretches' ends may cut: 14 each way.
     "hello_7segment": PinSpec(9.0, (Segments(2, 9, toggles(9.0, 0.25), 14),), "gpio/hello_7segment/hello_7segment.c"),
     # pio/hello_pio/hello.c:48-55: PIO blinks the LED at 500 ms half periods
-    # while no key has come in, checked once a second; a key at 3 s ends it
-    # by 4 s at the latest, and nothing changes the LED after.
-    "hello_pio": PinSpec(7.0, (Toggle(LED, 6, half(0.5), until=4.2),), "pio/hello_pio/hello.c",
+    # while no key has come in, checked once a second, just before each on;
+    # a key at 3 s ends it by 4 s at the latest, and nothing changes the LED
+    # after. The checks fall on whole seconds of the watch, so the key may
+    # make the one at 3 s, after the off at 2.5 s: at least 5 changes.
+    "hello_pio": PinSpec(7.0, (Toggle(LED, 5, half(0.5), until=4.2),), "pio/hello_pio/hello.c",
                          send=((3.0, b"q"),)),
     # picoboard/button/button.c:26-58, 66-74: every 10 ms the LED shows the
     # BOOTSEL button, read from QSPI_SS while it floats. No harness pin
