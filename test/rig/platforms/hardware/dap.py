@@ -26,7 +26,7 @@ USB_TIMEOUT_MS = 1000
 # The variable patched probe-rs reads, so one setting covers both clients.
 USB_TIMEOUT_ENV = "CMSIS_DAP_USB_TIMEOUT_MS"
 DRAIN_TIMEOUT_MS = 20
-# Selections of a multidrop DP a connect makes, MULTIDROP_RETRY_S apart.
+# Connects to a multidrop DP a link makes, MULTIDROP_RETRY_S apart.
 MULTIDROP_ATTEMPTS = 3
 MULTIDROP_RETRY_S = 0.05
 
@@ -354,7 +354,7 @@ class _Link:
         try:
             self._drain()
             if self.connect:
-                self._connect()
+                self._connect_settled()
         except Exception:
             self._close()
             raise
@@ -401,6 +401,22 @@ class _Link:
         if reply[1] != DAP_OK:
             raise DapError("SWJ sequence failed", "sequence")
 
+    # Just after a reset on RUN a multidrop DP can stop answering part way
+    # through the connect: on the RP2040 RUN low holds the debug port in
+    # reset with the chip, and the power-on state machine releases the
+    # processor subsystem's, debug included, as it starts the chip up
+    # (RP2040 datasheet 2.12.1, 2.4.2). The connect starts again a moment
+    # later.
+    def _connect_settled(self):
+        for attempt in range(MULTIDROP_ATTEMPTS):
+            try:
+                self._connect()
+                return
+            except DapError:
+                if self.port.targetsel is None or attempt + 1 == MULTIDROP_ATTEMPTS:
+                    raise
+                time.sleep(MULTIDROP_RETRY_S)
+
     def _connect(self):
         if self._command(bytes([DAP_CONNECT, PORT_SWD]))[1] != PORT_SWD:
             raise DapError("the probe refused SWD", "swd_refused")
@@ -418,20 +434,9 @@ class _Link:
                 self._wake()
                 self._dp_read(DP_DPIDR)
         else:
-            # A multidrop DP answers nothing until it is selected. Just after
-            # a reset on RUN it can still be held: on the RP2040 RUN low holds
-            # the debug port in reset with the chip, and the power-on state
-            # machine releases it as it starts the chip up (RP2040 datasheet
-            # 2.12.1, 2.4.2), so the selection is tried again a moment later.
-            for attempt in range(MULTIDROP_ATTEMPTS):
-                self._wake()
-                try:
-                    self._dp_read(DP_DPIDR)
-                    break
-                except DapError:
-                    if attempt + 1 == MULTIDROP_ATTEMPTS:
-                        raise
-                    time.sleep(MULTIDROP_RETRY_S)
+            # A multidrop DP answers nothing until it is selected.
+            self._wake()
+            self._dp_read(DP_DPIDR)
         self._dp_write(DP_ABORT, self.port.abort)
         if self.port.targetsel is None:
             self._dp_write(DP_SELECT, DP_SELECT1_BANK)
