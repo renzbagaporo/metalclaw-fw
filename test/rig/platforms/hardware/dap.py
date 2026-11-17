@@ -26,6 +26,9 @@ USB_TIMEOUT_MS = 1000
 # The variable patched probe-rs reads, so one setting covers both clients.
 USB_TIMEOUT_ENV = "CMSIS_DAP_USB_TIMEOUT_MS"
 DRAIN_TIMEOUT_MS = 20
+# Selections of a multidrop DP a connect makes, MULTIDROP_RETRY_S apart.
+MULTIDROP_ATTEMPTS = 3
+MULTIDROP_RETRY_S = 0.05
 
 DAP_CONNECT = 0x02
 DAP_DISCONNECT = 0x03
@@ -415,9 +418,20 @@ class _Link:
                 self._wake()
                 self._dp_read(DP_DPIDR)
         else:
-            # A multidrop DP answers nothing until it is selected.
-            self._wake()
-            self._dp_read(DP_DPIDR)
+            # A multidrop DP answers nothing until it is selected. Just after
+            # a reset on RUN it can still be held: on the RP2040 RUN low holds
+            # the debug port in reset with the chip, and the power-on state
+            # machine releases it as it starts the chip up (RP2040 datasheet
+            # 2.12.1, 2.4.2), so the selection is tried again a moment later.
+            for attempt in range(MULTIDROP_ATTEMPTS):
+                self._wake()
+                try:
+                    self._dp_read(DP_DPIDR)
+                    break
+                except DapError:
+                    if attempt + 1 == MULTIDROP_ATTEMPTS:
+                        raise
+                    time.sleep(MULTIDROP_RETRY_S)
         self._dp_write(DP_ABORT, self.port.abort)
         if self.port.targetsel is None:
             self._dp_write(DP_SELECT, DP_SELECT1_BANK)
