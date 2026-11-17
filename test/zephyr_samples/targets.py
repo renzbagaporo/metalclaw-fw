@@ -298,8 +298,11 @@ OWN: dict[str, Spec] = {
     # samples/subsys/display/cfb_shell: the cfb shell commands
     # (subsys/fb/cfb_shell.c:430-505): initialise the framebuffer, read its
     # width, print text; its yaml (harness display) has no commands. The
-    # part's GDDRAM must then hold something.
-    "zephyr/subsys/display/cfb_shell": shell_spec({"sample": "subsys/display/cfb_shell", "shell_commands": [
+    # part's GDDRAM must then hold something. The replies show the run; the
+    # banner is not asked for, as a stale prompt's escapes from before the
+    # restart can run into it.
+    "zephyr/subsys/display/cfb_shell": shell_spec({"sample": "subsys/display/cfb_shell", "boot_banner": False,
+                                                   "shell_commands": [
         {"command": "cfb init", "expected": r"Framebuffer initialized: ssd1306@3c"},
         {"command": "cfb get_param width", "expected": r"param: width=128"},
         {"command": "cfb print 0 0 metalclaw"}]}, "subsys/fb/cfb_shell.c"),
