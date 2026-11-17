@@ -112,7 +112,7 @@ def test_a_shell_test_types_each_command_at_a_prompt_and_reads_its_reply():
         {"command": "kernel version", "expected": "Zephyr version .*"},
         {"command": "kernel sleep 100"}]}
     spec = zephyr_spec(m)
-    assert [data for _, data in spec.input] == [b"kernel cycles\n", b"kernel version\n", b"kernel sleep 100\n"]
+    assert [data for _, data in spec.input] == [b"\n", b"kernel cycles\n", b"kernel version\n", b"kernel sleep 100\n"]
     text = (BOOT + "\x1b[1;32muart:~$ \x1b[mkernel cycles\r\ncycles: 123 hw cycles\r\n"
             "\x1b[1;32muart:~$ \x1b[mkernel version\r\nZephyr version 4.4.0\r\n")
     assert spec.match(text)[0] == []

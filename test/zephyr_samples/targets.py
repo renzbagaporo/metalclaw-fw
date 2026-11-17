@@ -151,13 +151,16 @@ PROMPT = r"^uart:~\$ "
 
 
 def shell_spec(metadata: dict, source: str, prompt: str = PROMPT) -> Spec:
-    # As twister's Shell harness (scripts/pylib/shell-twister-harness): at
-    # each prompt the next command goes in with a line end, and a line of
-    # its response must match its `expected` from the line's start.
+    # As twister's Shell harness (scripts/pylib/shell-twister-harness): an
+    # Enter until a prompt answers, then at each prompt the next command
+    # with a line end, and a line of its response must match its `expected`
+    # from the line's start. The Enter goes in at the first prompt seen,
+    # which may be one from before the restart still in the bridge; the
+    # commands start at the prompt after it.
     commands = metadata.get("shell_commands") or []
     return Spec(console=(*banner(metadata), prompt,
                          *(f"^(?:{c['expected']})" for c in commands if c.get("expected"))),
-                input=tuple((prompt, f"{c['command']}\n".encode()) for c in commands),
+                input=((prompt, b"\n"), *((prompt, f"{c['command']}\n".encode()) for c in commands)),
                 seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
                 source=f"{source}; samples/{metadata['sample']}/test_shell.yml")
 
@@ -319,6 +322,14 @@ OWN: dict[str, Spec] = {
         r"input event: dev=buttons .*type= 1 code= 11 value=1", r"input event: dev=buttons .*type= 1 code= 11 value=0",
         r"input event: dev=qdec .*type= 2 code=  8 value=-?[1-9]", ordered=False,
         source="samples/subsys/input/input_dump; subsys/input/input_utils.c"),
+    # samples/sensor/sensor_shell (harness keyboard): `sensor get` on the
+    # INA237 prints each channel, value after its timestamp
+    # (drivers/sensor/sensor_shell.c:528-531): the part's 3.3 V bus and
+    # 200 mA, in the overlay's 500 uA current steps.
+    "zephyr/sensor/sensor_shell": shell_spec({"sample": "sensor/sensor_shell", "boot_banner": False, "shell_commands": [
+        {"command": "sensor get ina237@40",
+         "expected": r"channel type=\d+\(voltage\) index=0 shift=\d+ num_samples=1 value=\d+ns, 3\.(29|30)\d*"}]},
+        "drivers/sensor/sensor_shell.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

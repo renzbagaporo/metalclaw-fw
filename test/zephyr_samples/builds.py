@@ -264,6 +264,9 @@ BUILDS: dict[str, Build] = {
     # input event, from sw0 on GP15 and a gpio-qdec wheel on GP10/GP11.
     "zephyr/subsys/input/input_dump": Build("subsys/input/input_dump", test="sample.input.input_dump", overlays=(
         "test/zephyr_samples/overlays/sw0_gp15.overlay", "test/zephyr_samples/overlays/qdec_gp10_11.overlay")),
+    # samples/sensor/sensor_shell: the keyboard test, with an INA237 of ours.
+    "zephyr/sensor/sensor_shell": Build("sensor/sensor_shell", test="sample.sensor.shell", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ina237_40.overlay")),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

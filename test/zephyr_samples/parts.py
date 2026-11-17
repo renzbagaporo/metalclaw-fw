@@ -184,6 +184,11 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("bme280", "env", {"i2c": (4, 5, 0x76)}, {"i2c": 2},
                {"pressure": 99887, "temperature": 21370, "humidity": 45670}),
     ),
+    # INA237 at 0x40: bus voltage in mV, current in uA, the 15 mohm shunt.
+    "zephyr/sensor/sensor_shell": (
+        Attach("ina237", "power", {"i2c": (4, 5, 0x40)}, {"i2c": 2},
+               {"bus_voltage": 3300, "current": 200000, "shunt_resistance": 15000, "temperature": 31250}),
+    ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),

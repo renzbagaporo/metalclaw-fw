@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* An INA237 at 0x40 on I2C0 (i2c0.overlay), with the 15 mohm shunt and
+ * 500 uA current LSB of Zephyr's adafruit_ina237 shield
+ * (boards/shields/adafruit_ina237/adafruit_ina237.overlay). */
+&i2c0 {
+	ina237@40 {
+		compatible = "ti,ina237";
+		reg = <0x40>;
+		rshunt-micro-ohms = <15000>;
+		current-lsb-microamps = <500>;
+		status = "okay";
+	};
+};
