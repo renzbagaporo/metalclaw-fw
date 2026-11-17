@@ -240,6 +240,9 @@ BUILDS: dict[str, Build] = {
     "zephyr/subsys/fs/format": Build("subsys/fs/format", test="sample.filesystem.format.littlefs", storage=True),
     "zephyr/subsys/fs/format@fat_fs": Build("subsys/fs/format", test="sample.filesystem.format.fat_fs",
                                             variant="fat_fs"),
+    # samples/subsys/shell/fs: the file-system shell over littlefs on the
+    # storage partition (judged by commands of ours).
+    "zephyr/subsys/shell/fs": Build("subsys/shell/fs", test="sample.filesystem.shell", storage=True),
     # samples/basic/minimal: its runtime test, which upstream runs on ARC
     # (common-runtime.conf, no-timers.conf): no kernel timers, one printk.
     "zephyr/basic/minimal": Build("basic/minimal", test="sample.minimal.arc.runtime"),

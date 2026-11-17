@@ -311,6 +311,16 @@ OWN: dict[str, Spec] = {
         {"command": "cfb init", "expected": r"Framebuffer initialized: ssd1306@3c"},
         {"command": "cfb get_param width", "expected": r"param: width=128"},
         {"command": "cfb print 0 0 metalclaw"}]}, "subsys/fb/cfb_shell.c"),
+    # samples/subsys/shell/fs: its yaml's harness is keyboard, with no
+    # commands. The fs shell (subsys/fs/shell.c:877-905, 542-600, 180-210,
+    # 425-456) mounts littlefs on the erased storage partition, writes a
+    # file of the bytes given, lists it, and dumps it as hex and text.
+    "zephyr/subsys/shell/fs": shell_spec({"sample": "subsys/shell/fs", "shell_commands": [
+        {"command": "fs mount littlefs /lfs", "expected": r"Successfully mounted littlefs at /lfs"},
+        {"command": "fs write /lfs/mc.txt 6d 65 74 61 6c 63 6c 61 77"},
+        {"command": "fs ls /lfs", "expected": r".*\bmc\.txt$"},
+        {"command": "fs read /lfs/mc.txt", "expected": r"00000000  6D 65 74 61 6C 63 6C 61 77 .*metalclaw$"}]},
+        "subsys/fs/shell.c"),
     # samples/subsys/display/lvgl: its yaml's harness is "none"; it logs
     # only failures (LVGL's own warnings too, CONFIG_LV_USE_LOG). The panel's
     # GDDRAM judges it (test/zephyr_samples/parts.py).
