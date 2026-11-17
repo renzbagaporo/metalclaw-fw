@@ -81,6 +81,14 @@ def test_a_test_for_other_platforms_is_passed_over():
     assert choose_test(Build("x"), tests, "rpi_pico2/rp2350a/m33")[0] == "not_pico"
 
 
+def test_a_sample_upstream_runs_only_elsewhere_still_builds_unless_excluded():
+    tests = {"nrf": {"harness": "console", "platform_allow": ["nrf52840dk/nrf52840"]},
+             "pico_excluded": {"harness": "console", "platform_allow": ["qemu_x86"], "platform_exclude": ["rpi_pico"]}}
+    assert choose_test(Build("x"), tests, "rpi_pico")[0] == "nrf"
+    assert choose_test(Build("x"), {"pico_excluded": tests["pico_excluded"]}, "rpi_pico2/rp2350a/m33")[0] == \
+        "pico_excluded"
+
+
 def test_every_build_is_named_for_its_sample():
     for target, build in BUILDS.items():
         assert target == f"zephyr/{build.sample}", target

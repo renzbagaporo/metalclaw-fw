@@ -76,11 +76,20 @@ def board_configs(configs: list[str], zephyr_board: str) -> list[str]:
 
 
 def choose_test(build: Build, tests: dict[str, dict], zephyr_board: str) -> tuple[str, dict]:
+    # The named test, else the first console, ztest or shell test that is
+    # not build_only and whose platform filters let it run on the board;
+    # failing that, the first such test whose platform_exclude does not name
+    # the board: a platform_allow lists the boards upstream runs the sample
+    # on, which leaves out boards it would run on as well.
     if build.test is not None:
         return build.test, tests[build.test]
-    for name, test in tests.items():
-        if (not test.get("build_only") and test.get("harness", "") in ("console", "ztest", "shell", "")
-                and runs_on(test, zephyr_board)):
+    runnable = [(name, test) for name, test in tests.items()
+                if not test.get("build_only") and test.get("harness", "") in ("console", "ztest", "shell", "")]
+    for name, test in runnable:
+        if runs_on(test, zephyr_board):
+            return name, test
+    for name, test in runnable:
+        if runs_on({**test, "platform_allow": None}, zephyr_board):
             return name, test
     raise LookupError(f"samples/{build.sample} has no test that runs on a console on {zephyr_board}")
 
@@ -176,6 +185,8 @@ def build_one(target: str, board: str, base: Path, out: Path) -> tuple[bool, str
         "cmake_args": command[command.index("--") + 1:],
         "zephyr": zephyr_commit(base),
         # Whether the image prints the boot banner (a sample may turn it off).
+        # Whether upstream's platform filters list the board for this test.
+        "upstream_board": runs_on(test, zephyr_board),
         "boot_banner": "CONFIG_BOOT_BANNER=y" in (work / "build" / "zephyr" / ".config").read_text().splitlines(),
     }
     (image / "example.json").write_text(json.dumps(metadata, indent=2) + "\n")
