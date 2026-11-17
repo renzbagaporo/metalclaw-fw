@@ -240,7 +240,7 @@ OWN: dict[str, Spec] = {
     # the case's restart reads 1 or more and writes the next.
     "zephyr/subsys/fs/littlefs": own(r"/boot_count read count:[1-9]\d* \(bytes: 1\)$",
                                      r"/boot_count write new boot count [2-9]\d*: \[wr:1\]$",
-                                     forbidden=(*FORBIDDEN, r"FAIL"),
+                                     forbidden=(*FORBIDDEN, r"FAIL"), seconds=30.0,
                                      source="samples/subsys/fs/littlefs/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
