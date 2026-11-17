@@ -27,6 +27,10 @@ zephyr_base := zephyr_workspace / "zephyr"
 # A fix to Zephyr that the workspace carries on top of the pinned release
 # until upstream has it; see test/rig/dut/README.md.
 zephyr_patch := project_dir / "test/rig/dut/zephyr_modem_cellular_registered_race.patch"
+# Upstream Zephyr samples (test/zephyr_samples) build in a workspace of their
+# own: the same release and patch, with the modules the samples need.
+zephyr_samples_workspace := env_var_or_default("METALCLAW_ZEPHYR_SAMPLES_WORKSPACE", project_dir / "../.zephyr-samples-workspace")
+zephyr_samples_base := zephyr_samples_workspace / "zephyr"
 zephyr_sdk := env_var_or_default("ZEPHYR_SDK_INSTALL_DIR", env_var("HOME") / "zephyr-sdk-1.0.1")
 zephyr_sdk_url := "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v1.0.1/zephyr-sdk-1.0.1_linux-x86_64_minimal.tar.xz"
 zephyr_sdk_sha256 := "ca9bc0ff66fafca1dac9d592a36d953cf16d096a9d09b1c0357f021cf9f6a7eb"
@@ -263,6 +267,42 @@ build-dut DEVICE="": setup-rig
         -DMETALCLAW_DUT_IMAGE_NAME="$name" "${extra[@]}"
     cmake --build "$build"
     ls -l "$build/zephyr/zephyr.elf"
+
+# Create the Zephyr workspace for upstream samples from
+# test/zephyr_samples/west.yml, with the rig's Zephyr patch.
+# METALCLAW_ZEPHYR_REFERENCE works as for setup-dut.
+setup-zephyr-samples: setup-rig
+    #!/usr/bin/env bash
+    set -euo pipefail
+    "{{rig_python}}" -m pip install --quiet west
+    mkdir -p "{{zephyr_samples_workspace}}/manifest"
+    cp "{{project_dir}}/test/zephyr_samples/west.yml" "{{zephyr_samples_workspace}}/manifest/west.yml"
+    if [[ ! -f "{{zephyr_samples_workspace}}/.west/config" ]]; then
+        "{{venv}}/bin/west" init -l "{{zephyr_samples_workspace}}/manifest"
+    fi
+    ref="${METALCLAW_ZEPHYR_REFERENCE:-}"
+    if [[ -n "$ref" && ! -d "{{zephyr_samples_base}}/.git" ]]; then
+        git clone --quiet --reference-if-able "$ref/zephyr" https://github.com/zephyrproject-rtos/zephyr.git "{{zephyr_samples_base}}"
+    fi
+    cd "{{zephyr_samples_workspace}}" && "{{venv}}/bin/west" update --narrow --fetch-opt=--filter=blob:none
+    want=$(git patch-id --stable < "{{zephyr_patch}}" | cut -d' ' -f1)
+    if [[ "$(git -C "{{zephyr_samples_base}}" show HEAD | git patch-id --stable | cut -d' ' -f1)" != "$want" ]]; then
+        git -C "{{zephyr_samples_base}}" -c user.name=metalclaw -c user.email=metalclaw@localhost am --quiet "{{zephyr_patch}}"
+    fi
+    "{{rig_python}}" -m pip install --quiet -r "{{zephyr_samples_base}}/scripts/requirements-base.txt"
+    "{{venv}}/bin/west" -v list
+
+# Build upstream Zephyr samples (test/zephyr_samples/builds.py, "all" for
+# every one) for a bench BOARD (pico or pico2) into OUT, staged for the rig:
+# OUT/images/<board>/<target>/{zephyr.elf,example.json}.
+build-zephyr-samples BOARD OUT +TARGETS: setup-rig
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -f "{{zephyr_samples_base}}/VERSION" || { echo "no Zephyr workspace at {{zephyr_samples_workspace}}; run 'just setup-zephyr-samples'" >&2; exit 2; }
+    test -d "{{zephyr_sdk}}" || { echo "no Zephyr SDK at {{zephyr_sdk}}; set ZEPHYR_SDK_INSTALL_DIR" >&2; exit 2; }
+    export ZEPHYR_BASE="{{zephyr_samples_base}}" ZEPHYR_SDK_INSTALL_DIR="{{zephyr_sdk}}" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
+    export PATH="{{venv}}/bin:$PATH"
+    cd "{{project_dir}}" && "{{rig_python}}" -m test.zephyr_samples.build --board "{{BOARD}}" --out "{{OUT}}" {{TARGETS}}
 
 # Remove build output.
 clean:

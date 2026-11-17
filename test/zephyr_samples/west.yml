@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# The Zephyr workspace upstream samples build in (test/zephyr_samples): the
+# rig's Zephyr release (test/rig/dut/west.yml) with the modules the samples
+# need besides the rig's own, kept apart so the rig's DUT workspace stays
+# small. `just setup-zephyr-samples` initialises it at
+# METALCLAW_ZEPHYR_SAMPLES_WORKSPACE (default ../.zephyr-samples-workspace).
+manifest:
+  remotes:
+    - name: zephyrproject
+      url-base: https://github.com/zephyrproject-rtos
+  projects:
+    - name: zephyr
+      remote: zephyrproject
+      revision: v4.4.0
+      import:
+        name-allowlist:
+          # The rig's own.
+          - cmsis
+          - cmsis_6
+          - hal_rpi_pico
+          - picolibc
+          - littlefs
+          - loramac-node
+          # Crypto (subsys/uuid, psa, drivers/crypto): mbedtls's CMake also
+          # reads tf-psa-crypto and mldsa-native
+          # (modules/mbedtls/CMakeLists.txt).
+          - mbedtls
+          - tf-psa-crypto
+          - mldsa-native
+          # logging/syst.
+          - mipi-sys-t
+          # FAT file systems (fs samples).
+          - fatfs
+          # modules/cmsis_dsp, modules/nanopb, LVGL samples.
+          - cmsis-dsp
+          - nanopb
+          - lvgl
