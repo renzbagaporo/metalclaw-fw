@@ -607,7 +607,9 @@ class Example(Target):
 
     def __init__(self, harness: Harness, image: Path, toolchain_dir: str, recorder=None):
         metadata = example_metadata(image)
-        super().__init__(harness, image, recorder, f"pico-examples/{metadata['target']}")
+        # A Zephyr sample's target already reads "zephyr/<path>".
+        name = metadata["target"] if metadata.get("kind") == "zephyr" else f"pico-examples/{metadata['target']}"
+        super().__init__(harness, image, recorder, name)
         self.metadata = metadata
         self.target = self.metadata["target"]
         self.elf = image.read_bytes()

@@ -66,7 +66,7 @@ def test_nothing_on_the_harness_drives_hello_pwms_pins():
         assert not console & set(idle_levels({**fixture, "idle": fixture.get("idle", {})}))
     fixture_function = getattr(cases.console, "_get_wrapped_function", lambda: cases.console.__wrapped__)()
     with pytest.raises(pytest.skip.Exception, match="no completion criteria for hello_pwm"):
-        next(fixture_function(None, types.SimpleNamespace(target="hello_pwm"), {}, ()))
+        next(fixture_function(None, types.SimpleNamespace(target="hello_pwm", metadata={"target": "hello_pwm"}), {}, ()))
 
 
 def test_pio_squarewave_runs_its_loop_at_two_and_a_half():

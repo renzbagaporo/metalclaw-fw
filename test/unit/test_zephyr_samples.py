@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# Zephyr sample criteria from a build's example.json, and how a sample.yaml
+# test becomes CMake arguments.
+
+from test.zephyr_samples.build import cmake_args, choose_test
+from test.zephyr_samples.builds import BUILDS, Build
+from test.zephyr_samples.targets import OWN, zephyr_spec
+
+BOOT = "*** Booting Zephyr OS build v4.4.0 ***\r\n"
+
+
+def metadata(harness="console", config=None, target="zephyr/x"):
+    return {"target": target, "kind": "zephyr", "sample": "x", "test": "sample.x", "harness": harness,
+            "harness_config": config or {}}
+
+
+def test_a_pico_examples_program_has_no_zephyr_spec():
+    assert zephyr_spec({"target": "blink", "kind": "bare_board"}) is None
+    assert zephyr_spec(None) is None
+
+
+def test_one_line_takes_the_first_regex_after_the_banner():
+    spec = zephyr_spec(metadata(config={"type": "one_line", "regex": ["Hello World! (.*)", "never"]}))
+    assert spec.match(BOOT + "Hello World! rpi_pico/rp2040\r\n")[0] == []
+    assert spec.match("Hello World! rpi_pico/rp2040\r\n")[0] != []
+
+
+def test_multi_line_is_ordered_unless_the_yaml_says_otherwise():
+    config = {"type": "multi_line", "regex": ["a", "b"]}
+    assert zephyr_spec(metadata(config=config)).match(BOOT + "b\r\na\r\n")[0] == ["b"]
+    config["ordered"] = False
+    assert zephyr_spec(metadata(config=config)).match(BOOT + "b\r\na\r\n")[0] == []
+
+
+def test_a_second_banner_or_a_fatal_error_fails():
+    spec = zephyr_spec(metadata(config={"type": "one_line", "regex": ["ok"]}))
+    assert spec.match(BOOT + "ok\r\n" + BOOT)[1]
+    assert spec.match(BOOT + "ok\r\n>>> ZEPHYR FATAL ERROR 0: CPU exception\r\n")[1]
+    assert spec.match(BOOT + "ok\r\n")[1] == []
+
+
+def test_ztest_takes_the_project_summary():
+    spec = zephyr_spec(metadata(harness="ztest"))
+    assert spec.match(BOOT + "PROJECT EXECUTION SUCCESSFUL\r\n") == ([], [])
+    assert spec.match(BOOT + "PROJECT EXECUTION FAILED\r\n")[1]
+
+
+def test_another_harness_without_criteria_of_ours_is_not_judged():
+    assert zephyr_spec(metadata(harness="pytest")) is None
+
+
+def test_own_criteria_replace_the_yaml():
+    for target in OWN:
+        assert zephyr_spec(metadata(harness="led", target=target)) is OWN[target]
+
+
+def test_a_test_becomes_twisters_cmake_arguments(tmp_path):
+    test = {"extra_args": "DEBUG_PRINTF=1 EXTRA_CONF_FILE=prj_x.conf", "extra_configs": ["CONFIG_A=y"],
+            "extra_dtc_overlay_files": ["a.overlay"]}
+    args = cmake_args(Build("x", args=("CONFIG_B=n",)), test, tmp_path)
+    assert args[0] == "-DDEBUG_PRINTF=1"
+    assert f"-DEXTRA_CONF_FILE=prj_x.conf;{tmp_path / 'testsuite_extra.conf'}" in args
+    assert sum(a.startswith("-DEXTRA_CONF_FILE=") for a in args) == 1
+    assert (tmp_path / "testsuite_extra.conf").read_text() == "CONFIG_A=y\n"
+    assert "-DEXTRA_DTC_OVERLAY_FILE=a.overlay" in args
+    assert args[-1] == "-DCONFIG_B=n"
+
+
+def test_the_first_console_test_is_chosen():
+    tests = {"a": {"build_only": True, "harness": "console"}, "b": {"harness": "pytest"}, "c": {"harness": "console"}}
+    assert choose_test(Build("x"), tests)[0] == "c"
+    assert choose_test(Build("x", test="b"), tests)[0] == "b"
+
+
+def test_every_build_is_named_for_its_sample():
+    for target, build in BUILDS.items():
+        assert target == f"zephyr/{build.sample}", target

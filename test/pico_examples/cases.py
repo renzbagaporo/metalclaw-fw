@@ -20,6 +20,14 @@ from test.pico_examples.parts import PinError, parts_for
 from test.pico_examples.pin_specs import BOOTSEL_SPECS, PIN_SPECS, REGISTER_SPECS
 from test.pico_examples.targets import SPECS
 from test.pico_examples.usb_devices import usb_device
+from test.zephyr_samples.targets import zephyr_spec
+
+
+# The console criteria of the program under test: a pico-examples program's
+# from its tables, an upstream Zephyr sample's from its own sample.yaml
+# (test/zephyr_samples).
+def console_spec(example):
+    return SPECS.get(example.target) or PART_SPECS.get(example.target) or zephyr_spec(example.metadata)
 
 NAME = "example_console"
 INTERFACE = "Metalclaw DUT console"
@@ -59,7 +67,7 @@ def parts(harness, example, fixture):
 # else (pio_hub75's R0 and G0).
 @pytest.fixture(scope="module")
 def console(harness, example, fixture, parts):
-    if not any(example.target in specs for specs in (SPECS, PART_SPECS, PIN_SPECS)):
+    if console_spec(example) is None and example.target not in PIN_SPECS:
         pytest.skip(f"no completion criteria for {example.target} yet")
     uart = fixture["uart"]
     harness.run(DETACH + f"metalclaw.attach('console_bridge', {NAME!r}, uart={(uart['tx'], uart['rx'])})\n")
@@ -173,7 +181,7 @@ def _read_console(harness, port, spec, patterns, typist, arrivals, log) -> str:
 
 
 def test_the_example_completes(harness, example, fixture, console, record_property):
-    spec = SPECS.get(example.target) or PART_SPECS.get(example.target)
+    spec = console_spec(example)
     if spec is None:
         pytest.skip(f"no completion criteria for {example.target} yet")
     board = example.metadata.get("board")
@@ -394,7 +402,7 @@ def test_the_example_presents_its_usb_device(example, dut_usb):
 
 
 def test_the_example_completes_on_its_usb_console(harness, example, fixture, dut_usb):
-    spec = SPECS.get(example.target) or PART_SPECS.get(example.target)
+    spec = console_spec(example)
     if spec is None or not spec.usb_console:
         pytest.skip(f"no USB console criteria for {example.target}")
     board = example.metadata.get("board")
