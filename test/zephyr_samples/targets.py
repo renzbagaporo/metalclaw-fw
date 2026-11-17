@@ -96,8 +96,16 @@ OVERRIDES: dict[str, dict] = {
         "seconds": 20.0,
     },
     # samples/subsys/task_wdt: the control thread gets stuck and the task
-    # watchdog resets the chip.
-    "zephyr/subsys/task_wdt": {"forbidden": FAULTS, "seconds": 20.0},
+    # watchdog's callback resets the chip right after printing
+    # (src/main.c:46-58), so the reset cuts the UART's transmit FIFO short: the
+    # callback line ends early and "Resetting device..." never reaches the
+    # console, which the yaml's last two patterns need. The callback line's
+    # start, then the second boot, show the same run.
+    "zephyr/subsys/task_wdt": {
+        "console": (BANNER, r"Task watchdog sample application\.", r"Control thread started\.",
+                    r"Main thread still alive\.\.\.", r"Control thread getting stuck\.\.\.",
+                    r"Task watchdog channel 1 callback, thread: c", BANNER),
+        "forbidden": FAULTS, "seconds": 20.0},
 }
 
 
