@@ -165,6 +165,13 @@ BUILDS: dict[str, Build] = {
     # BME280 on SPI0 (SCK GP18, MOSI GP19, MISO GP16) with CS on GP17.
     "zephyr/sensor/bme280": Build("sensor/bme280", test="sample.sensor.bme280", boards=("pico",),
                                   other_boards="the sample's rpi_pico2 build needs an SPI0 overlay of ours"),
+    # samples/sensor/ds18b20 and drivers/w1/scanner: a DS18B20 on a GPIO
+    # 1-Wire bus on GP15; upstream runs them on serial or I2C bus masters.
+    # The scanner's max test is the one that adds no overlay of its own.
+    "zephyr/sensor/ds18b20": Build("sensor/ds18b20", test="sample.sensor.ds18b20.w1_serial",
+                                   overlays=("test/zephyr_samples/overlays/w1_gp15_ds18b20.overlay",)),
+    "zephyr/drivers/w1/scanner": Build("drivers/w1/scanner", test="sample.drivers.w1.scanner.max",
+                                       overlays=("test/zephyr_samples/overlays/w1_gp15_ds18b20.overlay",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

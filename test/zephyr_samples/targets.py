@@ -59,6 +59,15 @@ OVERRIDES: dict[str, dict] = {
         "console": (BANNER, r'Found device "bme280@0", getting sensor data',
                     r"temp: 21\.3[67]\d*; press: 99\.88[6-8]\d*; humidity: 45\.6[67]\d*"),
     },
+    # samples/sensor/ds18b20/src/main.c:61: its yaml's "Temp: (.*)" as the
+    # part's 21.375 °C.
+    "zephyr/sensor/ds18b20": {"console": (BANNER, r"^Temp: 21\.375000$")},
+    # samples/drivers/w1/scanner/src/main.c:16-31: its yaml's count line, as
+    # the one part, which it reports by its family code first.
+    "zephyr/drivers/w1/scanner": {
+        "console": (BANNER, r"Device found; family: 0x28, serial: 0x[0-9a-f]+",
+                    r"Number of devices found on bus: 1$"),
+    },
     # samples/sensor/thermometer: its yaml's lines, then the part's 25.25 °C
     # as the sample prints it, %0.1lf.
     "zephyr/sensor/thermometer": {

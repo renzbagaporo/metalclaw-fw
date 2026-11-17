@@ -100,6 +100,11 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("bme280", "env", {"spi": (18, 19, 16, 17)}, {},
                {"spi_mode": 3, "pressure": 99887, "temperature": 21370, "humidity": 45670}),
     ),
+    # DS18B20 on GP15: 21.375 °C is 342 sixteenths, exact at 12 bits. Open
+    # drain with no pull-up of its own, so only the carrier's lines carry it.
+    **{f"zephyr/{target}": (Attach("ds18b20", "thermo", {"dq": (15,)},
+                                   properties={"temperature": 21375, "serial": 0xC0FFEE}, needs_line_pullups=True),)
+       for target in ("sensor/ds18b20", "drivers/w1/scanner")},
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),
