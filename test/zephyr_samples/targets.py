@@ -311,6 +311,10 @@ OWN: dict[str, Spec] = {
         {"command": "cfb init", "expected": r"Framebuffer initialized: ssd1306@3c"},
         {"command": "cfb get_param width", "expected": r"param: width=128"},
         {"command": "cfb print 0 0 metalclaw"}]}, "subsys/fb/cfb_shell.c"),
+    # samples/drivers/auxdisplay_digits/src/main.c: logs only failures; its
+    # pins judge it (test/zephyr_samples/pin_specs.py).
+    "zephyr/drivers/auxdisplay_digits": own(forbidden=(*FORBIDDEN, r"<err>"), seconds=5.0,
+                                            source="samples/drivers/auxdisplay_digits/src/main.c"),
     # samples/subsys/shell/fs: its yaml's harness is keyboard, with no
     # commands. The fs shell (subsys/fs/shell.c:877-905, 542-600, 180-210,
     # 425-456) mounts littlefs on the erased storage partition, writes a

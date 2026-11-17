@@ -122,3 +122,14 @@ def test_a_dut_that_restarts_under_the_watch_is_watched_from_its_restart():
 def test_an_output_only_pin_is_read_from_what_drives_it():
     samples = pins.watch(None, "rp2350", 2.0, (25,), link=OutputOnlyLink())
     assert 7 <= len(pins.edges(samples, 25)) <= 9
+
+
+def test_a_count_steps_up_by_its_programs_own_table():
+    from test.zephyr_samples.pin_specs import GPIO_7SEG_DIGITS
+    shown = [GPIO_7SEG_DIGITS[d % 10] << 2 for d in range(7, 13)]
+    samples = [pins.Sample(i * 10_000, shown[i // 10], 0) for i in range(60)]
+    assert pins.Count(2, 5, GPIO_7SEG_DIGITS).check(samples) == []
+    assert pins.Count(2, 5).check(samples) != []
+    assert pins.Count(2, 5, GPIO_7SEG_DIGITS).pins == (2, 3, 4, 5, 6, 7, 8)
+    backwards = list(reversed(samples))
+    assert pins.Count(2, 1, GPIO_7SEG_DIGITS).check(backwards)

@@ -243,6 +243,11 @@ BUILDS: dict[str, Build] = {
     # samples/subsys/shell/fs: the file-system shell over littlefs on the
     # storage partition (judged by commands of ours).
     "zephyr/subsys/shell/fs": Build("subsys/shell/fs", test="sample.filesystem.shell", storage=True),
+    # samples/drivers/auxdisplay_digits: build-only upstream (native_sim);
+    # one digit of ours, judged by its pins.
+    "zephyr/drivers/auxdisplay_digits": Build("drivers/auxdisplay_digits", test="sample.drivers.auxdisplay_digits",
+                                              overlays=("test/zephyr_samples/overlays/"
+                                                        "auxdisplay_digits_gp2_10.overlay",)),
     # samples/basic/minimal: its runtime test, which upstream runs on ARC
     # (common-runtime.conf, no-timers.conf): no kernel timers, one printk.
     "zephyr/basic/minimal": Build("basic/minimal", test="sample.minimal.arc.runtime"),

@@ -246,7 +246,7 @@ def test_the_example_drives_its_pins(example, parts, console, record_property):
     if spec is None:
         pytest.skip(f"no pin criteria for {example.target}")
     chip = example.metadata["chip"]
-    watched = sorted({check.pin for check in spec.toggles})
+    watched = sorted({p for check in spec.toggles for p in getattr(check, "pins", (check.pin,))})
     with serial.Serial(console, BAUD, timeout=0.1, exclusive=True) as port:
         example.restart()
         try:

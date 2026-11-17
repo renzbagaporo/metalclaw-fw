@@ -1,0 +1,21 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * samples/drivers/auxdisplay_digits: one gpio-7-segment digit, segments A
+ * to G on GP2 to GP8 (the pins pico-examples' hello_7segment drives), DP
+ * on GP9 and the digit's common line on GP10, all lit high. One digit, so
+ * the driver's refresh rewrites the same digit and the segment pins hold
+ * it, where several digits would be multiplexed faster than a pin watch
+ * over SWD can follow.
+ */
+/ {
+	auxdisplay_0: auxdisplay {
+		compatible = "gpio-7-segment";
+		status = "okay";
+		columns = <1>;
+		rows = <1>;
+		segment-gpios = <&gpio0 2 0>, <&gpio0 3 0>, <&gpio0 4 0>, <&gpio0 5 0>,
+				<&gpio0 6 0>, <&gpio0 7 0>, <&gpio0 8 0>, <&gpio0 9 0>;
+		digit-gpios = <&gpio0 10 0>;
+		refresh-period-ms = <1>;
+	};
+};

@@ -255,16 +255,16 @@ def digits(samples, first, lit_low=True):
     return [(samples[i].us / 1e6, d) for _, i, d in _digit_changes(samples, first, lit_low)]
 
 
-def _digit_changes(samples, first, lit_low):
+def _digit_changes(samples, first, lit_low, table=SEGMENT_DIGITS):
     # (index of the last sample that showed the digit before, index of the
-    # first that shows this one, digit).
+    # first that shows this one, digit), by the program's own `table`.
     out, last = [], None
     for i, s in enumerate(samples):
         pattern = (s.levels >> first) & 0x7F
         if lit_low:
             pattern ^= 0x7F
-        if pattern in SEGMENT_DIGITS:
-            d = SEGMENT_DIGITS.index(pattern)
+        if pattern in table:
+            d = table.index(pattern)
             if not out or out[-1][2] != d:
                 out.append((last, i, d))
             last = i
@@ -314,6 +314,35 @@ class Segments:
             problems.append(f"the display changed {len(shown) - 1} times, expected at least {self.steps}")
         if min(ups, downs) < self.each_way:
             problems.append(f"the display counted up {ups} and down {downs} times, expected {self.each_way} each")
+        return problems
+
+
+@dataclass(frozen=True)
+class Count:
+    # A seven-segment digit on the pins from `first` (A) up that counts up
+    # by one, 9 wrapping to 0: at least `steps` changes, every one up.
+    # `table` is the program's own patterns for 0..9, segment A in bit 0;
+    # the segments are lit high unless `lit_low`. All seven pins are
+    # watched, so a pin whose pad input is off is read from its output.
+    first: int
+    steps: int
+    table: tuple[int, ...] = SEGMENT_DIGITS
+    lit_low: bool = False
+
+    @property
+    def pin(self) -> int:
+        return self.first
+
+    @property
+    def pins(self) -> tuple[int, ...]:
+        return tuple(range(self.first, self.first + 7))
+
+    def check(self, samples) -> list[str]:
+        shown = _digit_changes(samples, self.first, self.lit_low, self.table)
+        problems = [f"the display went from {a} to {b} at {samples[i].us / 1e6:.3f} s"
+                    for (_, _, a), (_, i, b) in zip(shown, shown[1:]) if (b - a) % 10 != 1]
+        if len(shown) - 1 < self.steps:
+            problems.append(f"the display changed {len(shown) - 1} times, expected at least {self.steps}")
         return problems
 
 
