@@ -48,6 +48,14 @@ OVERRIDES: dict[str, dict] = {
     # samples/drivers/watchdog: feeds the watchdog five times, then lets it
     # reset the chip; its yaml expects the second boot.
     "zephyr/drivers/watchdog": {"forbidden": FAULTS, "seconds": 20.0},
+    # samples/drivers/modem/at_client: its yaml's three lines, then an AT
+    # typed on the console comes back from the modem part as OK.
+    "zephyr/drivers/modem/at_client": {
+        "console": (BANNER, r"Console UART pipe registered", r"Modem pipe initialized and opened",
+                    r"Console <-> Modem communication established", r"^OK$"),
+        "input": ((r"Ready to forward AT commands", b"AT\r"),),
+        "seconds": 20.0,
+    },
     # samples/drivers/lora/receive/src/main.c:72-89: its yaml asks only for
     # the "Synchronous reception" line, after which the sample blocks in
     # lora_recv four times. The radio part puts a frame on air at each, and

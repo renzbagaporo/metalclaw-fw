@@ -137,6 +137,9 @@ BUILDS: dict[str, Build] = {
                                          overlays=("devices/sx126x/test/dut/rp2.overlay",),
                                          confs=("devices/sx126x/test/dut/rp2.conf",))
        for s in ("send", "receive")},
+    # samples/drivers/modem/at_client: console on uart0, the modem on uart1.
+    "zephyr/drivers/modem/at_client": Build("drivers/modem/at_client",
+                                            overlays=("test/zephyr_samples/overlays/at_client_uart1.overlay",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

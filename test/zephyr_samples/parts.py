@@ -46,6 +46,13 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
                               setup="while part.tx_pending:\n    part.tx_next = True\n"),)),
     ),
     "zephyr/drivers/lora/receive": (_sx1262(),),
+    # samples/drivers/modem/at_client on uart1 (DUT TX GP8, RX GP9), so the
+    # part's TX is GP9. The sample never presses PWRKEY, which the model's
+    # pin would need to power on (devices/cellular/modem.h): unbound, the
+    # part is powered by setting `powered`, as a person would press the key.
+    "zephyr/drivers/modem/at_client": (
+        Attach("sim7000", "modem", {"uart": (9, 8)}, {}, {"powered": True}),
+    ),
     # The neo_m8n node of devices/neo_m8n/test/dut/uart1/rp2.overlay: uart1,
     # DUT TX GP8 and RX GP9, so the part's TX (the binding's first pin) is
     # GP9. A 3D fix (fix=3) with 8 satellites, as test/pico_examples/parts.py
