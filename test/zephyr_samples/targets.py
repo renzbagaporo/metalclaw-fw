@@ -76,11 +76,13 @@ OVERRIDES: dict[str, dict] = {
                     r"Temperature is 25\.[23]°C"),
     },
     # samples/drivers/modem/at_client: its yaml's three lines, then an AT
-    # typed on the console comes back from the modem part as OK.
+    # typed on the console comes back from the modem part as OK. The part
+    # boots as the sample starts and takes commands once it reports SMS
+    # Ready, which the bridge carries to the console too.
     "zephyr/drivers/modem/at_client": {
         "console": (BANNER, r"Console UART pipe registered", r"Modem pipe initialized and opened",
-                    r"Console <-> Modem communication established", r"^OK$"),
-        "input": ((r"Ready to forward AT commands", b"AT\r"),),
+                    r"Console <-> Modem communication established", r"^SMS Ready$", r"^OK$"),
+        "input": ((r"^SMS Ready$", b"AT\r"),),
         "seconds": 20.0,
     },
     # samples/drivers/lora/receive/src/main.c:72-89: its yaml asks only for
