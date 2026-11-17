@@ -612,8 +612,9 @@ class Example(Target):
         super().__init__(harness, image, recorder, name)
         # A build may name an image to download in place of the ELF, beside
         # it: a Zephyr sample's Intel HEX that also erases its storage
-        # partition (test/zephyr_samples/build.py). The ELF stays what the
-        # rig reads symbols and segments from.
+        # partition (test/zephyr_samples/build.py), downloaded at each
+        # restart too. The ELF stays what the rig reads symbols and segments
+        # from.
         if metadata.get("flash_image"):
             self.image = image.parent / metadata["flash_image"]
         self.metadata = metadata
@@ -654,6 +655,11 @@ class Example(Target):
         if self.ram_only:
             with self.memory.link() as link:
                 start_from_ram(link, self.elf, self.vectors)
+            return
+        # An image that erases its storage partition (flash_image) is
+        # downloaded again, so each restart starts from empty storage.
+        if self.metadata.get("flash_image"):
+            Target.flash(self)
             return
         try:
             self.reset()

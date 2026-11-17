@@ -108,6 +108,9 @@ OVERRIDES: dict[str, dict] = {
     # CONFIG_NVS_SAMPLE_MAX_REBOOT (5) times (src/main.c:189-231): a second
     # banner is the sample's own.
     "zephyr/subsys/kvss/nvs": {"forbidden": FAULTS, "seconds": 30.0},
+    # samples/subsys/kvss/zms runs CONFIG_MAX_ITERATIONS (300) rounds of
+    # writes before its line; on the carrier about 14 a second.
+    "zephyr/subsys/kvss/zms": {"seconds": 60.0},
     # samples/subsys/logging/syst sends printk through its MIPI SyS-T log
     # backend, the boot banner too, which then reaches the console encoded
     # ("SYS-T RAW DATA: ..."): only the yaml's own lines can be asked for.
@@ -235,11 +238,11 @@ OWN: dict[str, Spec] = {
     "zephyr/basic/servo_motor": own(r"^Servomotor control$", forbidden=(*FORBIDDEN, r"Error"), seconds=3.0,
                                     source="samples/basic/servo_motor/src/main.c"),
     # samples/subsys/fs/littlefs/src/main.c:68-102: mounts the storage
-    # partition and counts boots in a file. Erased at each flash (the image's
-    # erased storage block), the count is 0 at the boot after the flash, so
-    # the case's restart reads 1 or more and writes the next.
-    "zephyr/subsys/fs/littlefs": own(r"/boot_count read count:[1-9]\d* \(bytes: 1\)$",
-                                     r"/boot_count write new boot count [2-9]\d*: \[wr:1\]$",
+    # partition and counts boots in a file. The partition is erased at each
+    # restart (the image's erased storage block), so the sample formats it,
+    # finds no count and writes 1.
+    "zephyr/subsys/fs/littlefs": own(r"/boot_count read count:0 \(bytes: 0\)$",
+                                     r"/boot_count write new boot count 1: \[wr:1\]$",
                                      forbidden=(*FORBIDDEN, r"FAIL"), seconds=30.0,
                                      source="samples/subsys/fs/littlefs/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
