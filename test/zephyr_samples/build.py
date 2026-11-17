@@ -24,7 +24,7 @@ import sys
 import time
 from pathlib import Path
 
-from test.zephyr_samples.builds import BOARDS, BUILDS, Build
+from test.zephyr_samples.builds import BOARDS, BUILDS, STORAGE, Build
 
 
 def yaml_tests(sample_dir: Path) -> dict[str, dict]:
@@ -106,6 +106,10 @@ ROOT = Path(__file__).resolve().parents[2]
 LISTS = ("EXTRA_CONF_FILE", "EXTRA_DTC_OVERLAY_FILE")
 
 
+def board_name(zephyr_board: str) -> str:
+    return next(b for b, (z, _) in BOARDS.items() if z == zephyr_board)
+
+
 def cmake_args(build: Build, test: dict, work: Path, zephyr_board: str) -> list[str]:
     args, lists = [], {name: [] for name in LISTS}
     for arg in board_configs(_list(test.get("extra_args")), zephyr_board):
@@ -122,6 +126,9 @@ def cmake_args(build: Build, test: dict, work: Path, zephyr_board: str) -> list[
         args.append("-DCONF_FILE=" + ";".join(_list(test["extra_conf_files"])))
     lists["EXTRA_CONF_FILE"] += _list(test.get("extra_overlay_confs"))
     lists["EXTRA_DTC_OVERLAY_FILE"] += _list(test.get("extra_dtc_overlay_files"))
+    if build.storage:
+        lists["EXTRA_DTC_OVERLAY_FILE"].append(
+            str(ROOT / f"test/zephyr_samples/overlays/storage_{board_name(zephyr_board)}.overlay"))
     lists["EXTRA_DTC_OVERLAY_FILE"] += [str(ROOT / o) for o in build.overlays]
     lists["EXTRA_CONF_FILE"] += [str(ROOT / c) for c in build.confs]
     args += [f"-D{name}=" + ";".join(values) for name, values in lists.items() if values]
@@ -140,6 +147,33 @@ def shell_commands(test: dict, sample_dir: Path) -> list[dict]:
         return []
     import yaml
     return list(yaml.safe_load(path.read_text()) or [])
+
+
+def ihex_records(address: int, data: bytes) -> list[str]:
+    # Intel HEX data records for `data` at `address`, with an extended linear
+    # address record at each 64 KiB boundary.
+    def record(kind: int, offset: int, payload: bytes) -> str:
+        body = bytes((len(payload), offset >> 8, offset & 0xFF, kind)) + payload
+        return ":" + body.hex().upper() + f"{-sum(body) & 0xFF:02X}"
+    lines, upper = [], None
+    for at in range(0, len(data), 16):
+        here = address + at
+        if here >> 16 != upper:
+            upper = here >> 16
+            lines.append(record(4, 0, upper.to_bytes(2, "big")))
+        lines.append(record(0, here & 0xFFFF, data[at:at + 16]))
+    return lines
+
+
+def write_flash_image(elf: Path, hex_path: Path, board: str, objcopy: str) -> None:
+    # The image as Intel HEX with an erased (0xff) block over the storage
+    # partition after it, so a download of it erases what an earlier run
+    # left there; the rig flashes it in place of the ELF (flash_image).
+    subprocess.run([objcopy, "-O", "ihex", str(elf), str(hex_path)], check=True)
+    lines = [line for line in hex_path.read_text().splitlines() if line and not line.startswith(":00000001")]
+    address, size = STORAGE[board]
+    lines += ihex_records(address, b"\xff" * size) + [":00000001FF"]
+    hex_path.write_text("\n".join(lines) + "\n")
 
 
 def zephyr_commit(base: Path) -> str:
@@ -171,6 +205,9 @@ def build_one(target: str, board: str, base: Path, out: Path) -> tuple[bool, str
     image = out / "images" / board / target
     image.mkdir(parents=True, exist_ok=True)
     shutil.copy2(elf, image / "zephyr.elf")
+    if build.storage:
+        objcopy = Path(os.environ["ZEPHYR_SDK_INSTALL_DIR"]) / "gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-objcopy"
+        write_flash_image(image / "zephyr.elf", image / "zephyr.hex", board, str(objcopy))
     metadata = {
         "target": target,
         "kind": "zephyr",
@@ -187,6 +224,8 @@ def build_one(target: str, board: str, base: Path, out: Path) -> tuple[bool, str
         # Whether the image prints the boot banner (a sample may turn it off).
         # Whether upstream's platform filters list the board for this test.
         "upstream_board": runs_on(test, zephyr_board),
+        # What the rig downloads in place of zephyr.elf, beside it.
+        **({"flash_image": "zephyr.hex"} if build.storage else {}),
         "boot_banner": "CONFIG_BOOT_BANNER=y" in (work / "build" / "zephyr" / ".config").read_text().splitlines(),
     }
     (image / "example.json").write_text(json.dumps(metadata, indent=2) + "\n")

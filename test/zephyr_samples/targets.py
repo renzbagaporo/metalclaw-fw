@@ -104,6 +104,10 @@ OVERRIDES: dict[str, dict] = {
     # comes after more than 10 s.
     "zephyr/subsys/zbus/confirmed_channel": {"seconds": 30.0},
     "zephyr/subsys/zbus/priority_boost": {"seconds": 30.0},
+    # samples/subsys/kvss/nvs reboots itself, counting down each time, up to
+    # CONFIG_NVS_SAMPLE_MAX_REBOOT (5) times (src/main.c:189-231): a second
+    # banner is the sample's own.
+    "zephyr/subsys/kvss/nvs": {"forbidden": FAULTS, "seconds": 30.0},
     # samples/subsys/logging/syst sends printk through its MIPI SyS-T log
     # backend, the boot banner too, which then reaches the console encoded
     # ("SYS-T RAW DATA: ..."): only the yaml's own lines can be asked for.
@@ -230,6 +234,14 @@ OWN: dict[str, Spec] = {
                                 source="samples/basic/rgb_led/src/main.c"),
     "zephyr/basic/servo_motor": own(r"^Servomotor control$", forbidden=(*FORBIDDEN, r"Error"), seconds=3.0,
                                     source="samples/basic/servo_motor/src/main.c"),
+    # samples/subsys/fs/littlefs/src/main.c:68-102: mounts the storage
+    # partition and counts boots in a file. Erased at each flash (the image's
+    # erased storage block), the count is 0 at the boot after the flash, so
+    # the case's restart reads 1 or more and writes the next.
+    "zephyr/subsys/fs/littlefs": own(r"/boot_count read count:[1-9]\d* \(bytes: 1\)$",
+                                     r"/boot_count write new boot count [2-9]\d*: \[wr:1\]$",
+                                     forbidden=(*FORBIDDEN, r"FAIL"),
+                                     source="samples/subsys/fs/littlefs/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

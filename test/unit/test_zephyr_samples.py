@@ -171,3 +171,12 @@ def test_every_zephyr_part_finds_its_pins_on_both_benches():
         for part in parts:
             for fixture in (FIXTURE, METALCLAW_PICO_RP2_FIXTURE):
                 part.code(fixture)
+
+
+def test_the_erased_storage_block_is_valid_intel_hex():
+    from test.zephyr_samples.build import ihex_records
+    lines = ihex_records(0x101FFFF0, b"\xff" * 32)
+    assert lines[0] == ":02000004101FCB"
+    assert lines[1].startswith(":10FFF000") and lines[2] == ":020000041020CA"
+    for line in lines:
+        assert sum(bytes.fromhex(line[1:])) & 0xFF == 0

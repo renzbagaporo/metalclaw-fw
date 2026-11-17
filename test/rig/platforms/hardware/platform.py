@@ -610,6 +610,12 @@ class Example(Target):
         # A Zephyr sample's target already reads "zephyr/<path>".
         name = metadata["target"] if metadata.get("kind") == "zephyr" else f"pico-examples/{metadata['target']}"
         super().__init__(harness, image, recorder, name)
+        # A build may name an image to download in place of the ELF, beside
+        # it: a Zephyr sample's Intel HEX that also erases its storage
+        # partition (test/zephyr_samples/build.py). The ELF stays what the
+        # rig reads symbols and segments from.
+        if metadata.get("flash_image"):
+            self.image = image.parent / metadata["flash_image"]
         self.metadata = metadata
         self.target = self.metadata["target"]
         self.elf = image.read_bytes()

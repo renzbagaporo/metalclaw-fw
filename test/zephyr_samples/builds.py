@@ -15,6 +15,13 @@ BOARDS = {
     "pico2": ("rpi_pico2/rp2350a/m33", "rp2350"),
 }
 
+# The storage partition test/zephyr_samples/overlays/storage_<board>.overlay
+# makes, as the flash address and size the image's erased block covers.
+STORAGE = {
+    "pico": (0x101F0000, 0x10000),
+    "pico2": (0x103F0000, 0x10000),
+}
+
 
 @dataclass(frozen=True)
 class Build:
@@ -30,6 +37,9 @@ class Build:
     # the parts' nodes and the aliases the sample looks them up by.
     overlays: tuple[str, ...] = ()
     confs: tuple[str, ...] = ()
+    # A storage partition (overlays/storage_<board>.overlay), erased by
+    # each flash of the image.
+    storage: bool = False
     # The boards (BOARDS keys) it builds for, and why the others are left out.
     boards: tuple[str, ...] = ("pico", "pico2")
     other_boards: str = ""
@@ -212,6 +222,11 @@ BUILDS: dict[str, Build] = {
     "zephyr/drivers/i2c/rtio_loopback": Build("drivers/i2c/rtio_loopback", test="sample.drivers.i2c.rtio_loopback",
                                               overlays=("test/zephyr_samples/overlays/i2c0.overlay",
                                                         "test/zephyr_samples/overlays/i2c_loopback.overlay")),
+    # Storage samples: a storage partition of ours, empty at each flash.
+    # kvss/nvs's reboot counter and littlefs's boot count then start from 0
+    # in every session, not from wherever the last one left them.
+    "zephyr/subsys/kvss/nvs": Build("subsys/kvss/nvs", test="sample.nvs.basic", storage=True),
+    "zephyr/subsys/fs/littlefs": Build("subsys/fs/littlefs", test="sample.filesystem.littlefs", storage=True),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
