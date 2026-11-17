@@ -432,6 +432,19 @@ OWN: dict[str, Spec] = {
     "zephyr/boards/raspberrypi/rpi_pico/uart_pio": Spec(
         console=(r"metalclaw",), input=((r"", "import time\ntime.sleep_ms(500)\n"), (r"", b"metalclaw")),
         seconds=5.0, forbidden=FAULTS, source="samples/boards/raspberrypi/rpi_pico/uart_pio/src/main.c"),
+    # samples/subsys/shell/devmem_load (harness keyboard): `devmem load`
+    # takes hex text until Ctrl-X Ctrl-Q and reports the bytes read
+    # (subsys/shell/modules/devmem_service.c:166-206); `devmem <addr> 32`
+    # then reads the first word back, little endian. 0x20030000 is SRAM the
+    # sample leaves alone. No banner (its prj.conf).
+    "zephyr/subsys/shell/devmem_load": Spec(
+        console=(PROMPT, r"^press ctrl-x ctrl-q to escape$", r"^Number of bytes read: 8$",
+                 r"^Read value 0xefbeadde$"),
+        input=((PROMPT, b"\n"), (PROMPT, b"devmem load 0x20030000\n"),
+               (r"^press ctrl-x ctrl-q to escape$", b"deadbeef0badcafe\x18\x11"),
+               (PROMPT, b"devmem 0x20030000 32\n")),
+        seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
+        source="samples/subsys/shell/devmem_load; subsys/shell/modules/devmem_service.c"),
     # samples/net/sockets/socketpair/src/main.c:230-257: three threads write
     # their names through socketpairs that main polls; it prints SUCCESS or
     # FAILURE after tearing down, and a short or wrong read on the way. Its
