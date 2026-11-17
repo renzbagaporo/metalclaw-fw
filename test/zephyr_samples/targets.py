@@ -26,11 +26,26 @@ FORBIDDEN = (
     r"\*\*\* Booting Zephyr OS[^\n]*\n[\s\S]*\*\*\* Booting Zephyr OS",
 )
 
+# For a sample that resets the chip on purpose, whose yaml expects it to
+# boot again: the fault reports only.
+FAULTS = FORBIDDEN[:2]
+
 # Bench seconds a sample gets to print its patterns, unless it overrides.
 SECONDS = 10.0
 
 # By target: Spec fields that replace the ones the yaml gives.
-OVERRIDES: dict[str, dict] = {}
+OVERRIDES: dict[str, dict] = {
+    # samples/drivers/led/pwm/src/main.c:80-140: on, off, a fade up and down
+    # (CONFIG_FADE_DELAY steps), then blinking, with one-second pauses: on
+    # the carrier the blinking starts 7 s in, so the loop ends after 10 s.
+    "zephyr/drivers/led/pwm": {"seconds": 30.0},
+    # samples/drivers/watchdog: feeds the watchdog five times, then lets it
+    # reset the chip; its yaml expects the second boot.
+    "zephyr/drivers/watchdog": {"forbidden": FAULTS, "seconds": 20.0},
+    # samples/subsys/task_wdt: the control thread gets stuck and the task
+    # watchdog resets the chip.
+    "zephyr/subsys/task_wdt": {"forbidden": FAULTS, "seconds": 20.0},
+}
 
 
 def own(*console: str, source: str, **fields) -> Spec:
