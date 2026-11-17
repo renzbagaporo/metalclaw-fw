@@ -103,7 +103,12 @@ BUILDS: dict[str, Build] = {
     # Wave 1a samples that need modules of the samples workspace
     # (test/zephyr_samples/west.yml): mipi-sys-t, mbedtls and
     # tf-psa-crypto, cmsis-dsp, nanopb.
-    **_console("subsys/logging/syst", "subsys/uuid", "modules/cmsis_dsp/moving_average", "modules/nanopb"),
+    **_console("subsys/logging/syst", "modules/cmsis_dsp/moving_average", "modules/nanopb"),
+    # subsys/uuid runs upstream only on native_sim and qemu_x86. On the
+    # Picos its PSA SHA-1 and base64 overrun the boards' 1 KiB main stack
+    # (CONFIG_STACK_SENTINEL reports it), and the thread switched to next
+    # faults at PC 0: built with 4 KiB.
+    "zephyr/subsys/uuid": Build("subsys/uuid", args=("CONFIG_MAIN_STACK_SIZE=4096",)),
     # samples/kernel/bootargs: the tokenization test is the one that runs
     # outside QEMU (its extra_configs set the boot arguments).
     "zephyr/kernel/bootargs": Build("kernel/bootargs", test="sample.kernel.bootargs.tokenization"),
