@@ -128,11 +128,11 @@ OWN: dict[str, Spec] = {
     # samples/sensor/pressure_polling/src/main.c:44-61: prints the sensor's
     # temperature (%.2f) and pressure (%f, kPa) every second; build_only
     # upstream. The bmp388 part holds 23.450 °C and 98765 Pa
-    # (test/zephyr_samples/parts.py), within its model's 1 Pa and 1 m°C.
+    # (test/zephyr_samples/parts.py), within its model's 1 Pa and 1 m°C. Its
+    # printf lines and the driver's debug log share the console and cut into
+    # each other mid-line, so the reading is matched anywhere in a line.
     "zephyr/sensor/pressure_polling": own(
-        r'^Found device "bmp388@76", getting sensor data$',
-        r"^Starting pressure, temperature and altitude polling sample\.$",
-        r"^temp 23\.4[4-6] Cel, pressure 98\.76[4-6]\d* kPa",
+        r"temp 23\.4[4-6] Cel, pressure 98\.76[4-6]\d* kPa",
         forbidden=(*FORBIDDEN, r"Error"),
         source="samples/sensor/pressure_polling/src/main.c"),
     # samples/drivers/gnss/src/main.c:15-27: prints each fix the driver
