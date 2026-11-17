@@ -41,6 +41,26 @@ names the probe-rs executable when it is not on `PATH`.
   arrival can tell. A program that prints nothing skips its console case,
   since an empty read shows nothing, and a build a Spec cannot judge skips
   with the reason the Spec gives (`other_boards`).
+- `test/zephyr_samples/` for an unmodified upstream Zephyr sample, which the
+  same cases judge. `builds.py` lists the samples and how each builds: the
+  sample.yaml test's own `extra_args` and `extra_configs`, as twister builds
+  it, plus devicetree overlays and Kconfig fragments of ours
+  (`overlays/`) for the parts on the bench and the aliases the sample looks
+  them up by. `just setup-zephyr-samples` makes the samples' Zephyr
+  workspace (`west.yml`: the rig's release with the samples' modules), and
+  `just build-zephyr-samples BOARD OUT TARGETS` (`build.py`) builds them
+  for a bench board and stages each as `OUT/images/<board>/zephyr/<sample>/`
+  with an `example.json` that carries the test's harness and criteria.
+  `targets.py` turns those into a Spec: the yaml's console patterns
+  matched line by line as twister matches them, after the boot banner, a
+  shell test's commands typed at the prompt, a ztest suite's summary, and
+  Zephyr's fault reports forbidden; a sample whose yaml judges it some
+  other way has criteria of ours read from its source (`OWN`), and
+  `OVERRIDES` holds what a sample needs beyond its yaml, each with its
+  reason. `parts.py` names the Metalclaw parts each sample talks to. A
+  sample that keeps data in flash builds with a storage partition, and
+  its image is downloaded again at each restart as Intel HEX with that
+  partition erased, so it starts from empty storage.
 
 A case is a pytest function taking `harness`, `dut`, `probe` or `fixture`:
 
