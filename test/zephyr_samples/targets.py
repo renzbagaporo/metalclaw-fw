@@ -49,15 +49,17 @@ OVERRIDES: dict[str, dict] = {
     # reset the chip; its yaml expects the second boot.
     "zephyr/drivers/watchdog": {"forbidden": FAULTS, "seconds": 20.0},
     # samples/sensor/accel_polling: its yaml's line, which a reading in any
-    # range matches, as the part's 252, -500, 1020 mg in m/s^2 (%12.6f).
+    # range matches, as the part's 252, -500, 1020 mg in m/s^2 (%12.6f),
+    # through the LIS2DH driver's 1/1024 g digit (see lis2dh above).
     "zephyr/sensor/accel_polling": {
-        "console": (BANNER, r"^\s*lis2dh@18 \[m/s\^2\]:    \(\s*2\.4[67]\d*,\s*-4\.9[01]\d*,\s*10\.0[0-2]\d*\)$"),
+        "console": (BANNER, r"^\s*lis2dh@18 \[m/s\^2\]:    \(\s*2\.41\d*,\s*-4\.78\d*,\s*9\.76\d*\)$"),
     },
     # samples/sensor/bme280: its yaml's line, which any reading matches, as
-    # the part's 21.37 °C, 99.887 kPa and 45.67 %RH (src/main.c:95-98).
+    # the part's 21.37 °C, 99.887 kPa and 45.67 %RH (src/main.c:95-98),
+    # within the decoder's fixed-point steps (it prints 99.882812 kPa).
     "zephyr/sensor/bme280": {
         "console": (BANNER, r'Found device "bme280@0", getting sensor data',
-                    r"temp: 21\.3[67]\d*; press: 99\.88[6-8]\d*; humidity: 45\.6[67]\d*"),
+                    r"temp: 21\.3[67]\d*; press: 99\.88\d*; humidity: 45\.6[67]\d*"),
     },
     # samples/sensor/ds18b20/src/main.c:61: its yaml's "Temp: (.*)" as the
     # part's 21.375 °C.
@@ -164,10 +166,13 @@ OWN: dict[str, Spec] = {
         r"^\[[0-9:.]+\]:26\.5[23]\d* Cel$", r"^  accel 2\.45\d* -4\.90\d* 11\.03\d* m/s/s$",
         r"^  gyro  0\.174\d* -0\.034\d* 0\.052\d* rad/s$",
         source="samples/sensor/mpu6050/src/main.c; harness_config none"),
-    # samples/sensor/lis2dh/src/main.c:36-54: acceleration, %f m/s/s: 252,
-    # -500, 1020 mg in the 4 mg steps of normal mode.
+    # samples/sensor/lis2dh/src/main.c:36-54: acceleration, %f m/s/s, of
+    # the part's 252, -500, 1020 mg. Zephyr's LIS2DH driver scales a digit
+    # as 1/1024 g at +-2 g (ACCEL_SCALE(1600), drivers/sensor/st/lis2dh/
+    # lis2dh.c:20-28), not the datasheet's typical 1 mg, so it reads 2.3 %
+    # low, on silicon as here: 2.4133, -4.7884, 9.7679.
     "zephyr/sensor/lis2dh": own(
-        r"x 2\.4[67]\d* , y -4\.9[01]\d* , z 10\.0[0-2]\d*",
+        r"x 2\.41\d* , y -4\.78\d* , z 9\.76\d*",
         forbidden=(*FORBIDDEN, r"ERROR"),
         source="samples/sensor/lis2dh/src/main.c; harness_config none"),
     # samples/sensor/ina219/src/main.c:30-37: bus voltage in 4 mV steps,
