@@ -91,7 +91,7 @@ def test_a_sample_upstream_runs_only_elsewhere_still_builds_unless_excluded():
 
 def test_every_build_is_named_for_its_sample():
     for target, build in BUILDS.items():
-        assert target == f"zephyr/{build.sample}", target
+        assert target == f"zephyr/{build.sample}" + (f"@{build.variant}" if build.variant else ""), target
 
 
 def test_arch_and_platform_configs_apply_only_there(tmp_path):
