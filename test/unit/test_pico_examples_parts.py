@@ -289,3 +289,27 @@ def test_a_failed_part_check_reports_its_whole_value_and_the_parts_bus_counters(
         cases.test_the_example_parts_saw_the_program(Harness(), example, [part], recorded.__setitem__)
     assert recorded["part_check_0_oled"] == repr(bytes(range(256)) * 4)
     assert recorded["part_oled_spi_stats"] == "{'short_windows': 3}"
+
+
+def test_a_failed_uart_part_check_reports_the_harness_uarts_registers():
+    from test.pico_examples import cases
+    from test.pico_examples.parts import Check
+
+    class Harness:
+        def run(self, code):
+            if code == cases.HARNESS_UARTS:
+                return ("uart0 fr=0x90 ris=0x0 mis=0x0 imsc=0x0 dr=empty\n"
+                        "uart1 fr=0x80 ris=0x40 mis=0x40 imsc=0x50 dr=0x42\n")
+            if ".stats('uart')" in code:
+                return "{'bytes_rx': 1}\n"
+            return "1\n"
+
+        def sleep(self, seconds):
+            pass
+
+    part = Attach("lcd_backpack", "lcd", {"uart": (9, 8)}, checks=(Check("1", lambda v: False, "two bytes", 1.0),))
+    example = types.SimpleNamespace(target="lcd_uart", restart=lambda: None)
+    recorded = {}
+    with pytest.raises(AssertionError):
+        cases.test_the_example_parts_saw_the_program(Harness(), example, [part], recorded.__setitem__)
+    assert recorded["harness_uart_registers"].endswith("uart1 fr=0x80 ris=0x40 mis=0x40 imsc=0x50 dr=0x42")

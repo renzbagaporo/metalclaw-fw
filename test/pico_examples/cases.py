@@ -275,6 +275,19 @@ def test_the_example_enters_bootsel_on_a_double_reset(harness, example, parts):
 # The buses whose engine counters a failed part check reports.
 COUNTED_BUSES = ("spi", "i2c", "uart")
 
+# The harness's two PL011s as a failed UART part check leaves them: per
+# block FR, RIS, MIS and IMSC, then DR when FR.RXFE says a byte is waiting
+# (reading it takes the byte). RP2040 UART0/1 at 0x40034000/0x40038000,
+# RP2350 at 0x40070000/0x40078000.
+HARNESS_UARTS = """import machine, sys
+bases = (0x40070000, 0x40078000) if 'RP2350' in sys.implementation._machine else (0x40034000, 0x40038000)
+for n, b in enumerate(bases):
+    fr = machine.mem32[b + 0x18]
+    dr = machine.mem32[b] if not fr & 0x10 else None
+    print('uart%d fr=%#x ris=%#x mis=%#x imsc=%#x dr=%s' % (n, fr, machine.mem32[b + 0x3c], machine.mem32[b + 0x40],
+          machine.mem32[b + 0x38], 'empty' if dr is None else '%#x' % dr))
+"""
+
 
 def test_the_example_parts_saw_the_program(harness, example, parts, record_property):
     checks = [(part, check) for part in parts for check in part.checks]
@@ -300,6 +313,8 @@ def test_the_example_parts_saw_the_program(harness, example, parts, record_prope
             if bus in part.bindings:
                 record_property(f"part_{name}_{bus}_stats",
                                 harness.run(f"print(repr({name}.stats('{bus}')))\n").strip())
+        if "uart" in part.bindings:
+            record_property("harness_uart_registers", harness.run(HARNESS_UARTS).strip())
     assert not problems, f"{example.target}: {problems}"
 
 
