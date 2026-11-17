@@ -340,6 +340,18 @@ OWN: dict[str, Spec] = {
                                           r"<inf> stepper_generic: mode: ping pong relative",
                                           forbidden=(*FORBIDDEN, r"<err>"),
                                           source="samples/drivers/stepper/generic/src/main.c"),
+    # samples/sensor/grove_temperature/src/main.c:78 and light_polling's
+    # src/main.c:35 print what the Grove drivers make of ADC input 0
+    # (drivers/sensor/seeed/grove): at half of full scale the thermistor
+    # reads 25 °C, and the light sensor 10000 / (10 * 15)^(4/3) = 12.6 lux,
+    # within the carrier's ripple. Their yaml harness is "grove". On a bench
+    # without RC filters the input sits high: no such reading.
+    "zephyr/sensor/grove_temperature": own(r"^Temperature: 2[3-7]\.\d+ C$", analog_pins=(26,),
+                                           without_analog={"console": (BANNER, r"^Temperature: -?\d+\.\d+ C$")},
+                                           source="samples/sensor/grove_temperature/src/main.c"),
+    "zephyr/sensor/light_polling": own(r"^lux: 1[12]\.\d+$", analog_pins=(26,),
+                                       without_analog={"console": (BANNER, r"^lux: \d+\.\d+$")},
+                                       source="samples/sensor/light_polling/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.

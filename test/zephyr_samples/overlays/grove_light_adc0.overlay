@@ -1,0 +1,17 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* A Grove light sensor on ADC input 0, GP26, as light-sensor, as the
+ * sample's nrf52dk overlay puts it on that board's first analog pin. */
+/ {
+	aliases {
+		light-sensor = &grove_light;
+	};
+
+	grove_light: grove_light {
+		compatible = "seeed,grove-light";
+		io-channels = <&adc 0>;
+	};
+};
+
+&adc {
+	status = "okay";
+};

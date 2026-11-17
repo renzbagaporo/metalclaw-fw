@@ -68,6 +68,10 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     # sample polls every 2 s, so its readings cycle through both levels.
     "zephyr/sensor/sm351lt": (Attach("square_wave", "magnet", {"out": (15,)},
                                      properties={"period": 3_000_000_000, "high": 1_500_000_000}),),
+    # The Grove sensors' output on ADC input 0 at half of 3.3 V: the
+    # thermistor at its 25 °C resistance, the light sensor's divider at
+    # 12.6 lux by its driver's formula.
+    **{f"zephyr/sensor/{s}": (adc_level("grove", 26, 500, True),) for s in ("grove_temperature", "light_polling")},
     # ADC input 0 (GP26) at 25 % of 3.3 V, input 1 (GP27) at 75 %.
     "zephyr/drivers/adc/adc_dt": (adc_level("ain0", 26, 250, False),),
     "zephyr/drivers/adc/adc_sequence": (adc_level("ain0", 26, 250, False), adc_level("ain1", 27, 750, True)),

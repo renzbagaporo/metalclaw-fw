@@ -272,6 +272,14 @@ BUILDS: dict[str, Build] = {
     "zephyr/drivers/stepper/generic": Build("drivers/stepper/generic", test="sample.drivers.stepper.generic",
                                             overlays=("test/zephyr_samples/overlays/sw0_gp15.overlay",
                                                       "test/zephyr_samples/overlays/stepper_gp10_14.overlay")),
+    # samples/sensor/grove_temperature and light_polling's grove test
+    # (harness grove): the Grove sensors on ADC input 0, GP26.
+    "zephyr/sensor/grove_temperature": Build(
+        "sensor/grove_temperature", test="sample.sensor.grove_temperature",
+        overlays=("test/zephyr_samples/overlays/grove_temperature_adc0.overlay",)),
+    "zephyr/sensor/light_polling": Build(
+        "sensor/light_polling", test="sample.sensor.light_polling.grove",
+        overlays=("test/zephyr_samples/overlays/grove_light_adc0.overlay",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* A Grove temperature sensor (an NTC thermistor) on ADC input 0, GP26, as
+ * the sample's nrf52dk overlay puts it on that board's first analog pin. */
+/ {
+	ntc {
+		compatible = "seeed,grove-temperature";
+		io-channels = <&adc 0>;
+	};
+};
+
+&adc {
+	status = "okay";
+};
