@@ -299,6 +299,14 @@ OWN: dict[str, Spec] = {
     "zephyr/sensor/jc42": own(r"^\d+:\d{2}:\d{2}\.\d{3}: 25\.25 C$",
                               forbidden=(*FORBIDDEN, r"error", r"failed", r"not ready", r"not found"),
                               source="samples/sensor/jc42/src/main.c"),
+    # samples/subsys/logging/logger's user-mode test: its yaml's harness is
+    # keyboard, with no patterns. src/main.c:245-300 runs the logger demo
+    # from a user thread, under its own banner, through the same showcases
+    # the basic test's yaml names.
+    "zephyr/subsys/logging/logger@usermode": own(
+        r"---=< RUNNING LOGGER DEMO FROM USER THREAD >=---", r"Instance level logging showcase",
+        r"Severity levels showcase", r"Logs from external logging system showcase",
+        source="samples/subsys/logging/logger/src/main.c"),
     # samples/subsys/fs/format/src/main.c:45-52: formats its file system
     # (fs_mkfs) and logs the result, through the minimal logger.
     **{t: own(r"Format successful$", forbidden=(*FORBIDDEN, r"Format failed"),
