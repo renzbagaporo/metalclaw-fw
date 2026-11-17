@@ -229,6 +229,11 @@ BUILDS: dict[str, Build] = {
     "zephyr/subsys/fs/littlefs": Build("subsys/fs/littlefs", test="sample.filesystem.littlefs", storage=True),
     "zephyr/subsys/settings": Build("subsys/settings", test="sample.subsys.settings.nvs", storage=True),
     "zephyr/subsys/kvss/zms": Build("subsys/kvss/zms", test="sample.zms.basic", storage=True),
+    # samples/psa/{its,persistent_key}: PSA secure storage on the storage
+    # partition. Zephyr has no entropy driver for the RP2 chips, so their
+    # entropy_not_secure tests.
+    **{f"zephyr/psa/{s}": Build(f"psa/{s}", test=f"sample.psa.{s}.secure_storage.entropy_not_secure", storage=True)
+       for s in ("its", "persistent_key")},
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
