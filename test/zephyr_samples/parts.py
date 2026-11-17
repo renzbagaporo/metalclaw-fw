@@ -15,14 +15,12 @@ from test.pico_examples.parts import Attach, Check, _i2c_jumpers, _ws2812_frames
 # from one PIO window (on the carrier, BUSY takes the GPIO22 branch); NRESET
 # is a plain input and takes its own. What it receives is set to the
 # lora samples' channel (samples/drivers/lora/*/src/main.c: 865.1 MHz,
-# SF10, 125 kHz, CR 4/5, preamble 8, private network), with a signal of
-# -73 dBm at 7 dB SNR.
+# SF10, 125 kHz, CR 4/5, preamble 8, private network).
 def _sx1262(**checks) -> Attach:
     return Attach("sx1262", "radio", {"spi": (18, 19, 16, 21), "busy": (10,), "dio1": (20,), "nreset": (6,)},
                   one_window=("spi", "busy", "dio1"),
                   properties={"rx_frequency": 865100000, "rx_sf": 10, "rx_bw": 125000, "rx_cr": 1, "rx_preamble": 8,
-                              "rx_crc": True, "rx_iq_inverted": False, "rx_sync_word": 0x1424, "rx_rssi": -73,
-                              "rx_snr": 700},
+                              "rx_crc": True, "rx_iq_inverted": False, "rx_sync_word": 0x1424},
                   **checks)
 
 
@@ -42,9 +40,12 @@ def tx_frames(test, description: str, after_seconds: float) -> Check:
 
 
 # Puts one frame on air for the radio to receive, a little after the sample
-# says it listens (it logs before it calls lora_recv).
+# says it listens (it logs before it calls lora_recv). The model takes a
+# frame's signal as set for that frame alone, so it is set with each, as
+# the rig's radio cases do (devices/sx126x/test/cases.py Radio.inject).
 def lora_frame(payload: bytes) -> str:
-    return f"import time\ntime.sleep_ms(300)\nradio.write_region('rx', 0, {payload!r})\n"
+    return (f"import time\ntime.sleep_ms(300)\nradio.rx_rssi = -73\nradio.rx_snr = 700\n"
+            f"radio.write_region('rx', 0, {payload!r})\n")
 
 
 ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
