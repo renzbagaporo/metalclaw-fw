@@ -366,6 +366,10 @@ BUILDS: dict[str, Build] = {
     # alias (boards/raspberrypi/rpi_pico/rpi_pico-common.dtsi); upstream's
     # platform_allow runs the sample on RP2040 boards only with an external
     # RTC shield. The RP2350 has no RTC: its build needs a pcf8523 part.
+    # On the Pico 1 its yaml's second line (04:19:01, a second after it sets
+    # 04:19:00) does not come: read over SWD without halting, the on-chip
+    # RTC reaches :01 within 68 ms of boot, after a RUN reset too, and then
+    # ticks every second, so the read a second later finds :02.
     "zephyr/drivers/rtc": Build("drivers/rtc", test="sample.drivers.rtc", boards=("pico",),
                                 other_boards="the RP2350 has no RTC; its build takes a pcf8523 part (wave 1e)"),
     # samples/drivers/adc/adc_dt: its rpi_pico overlay's ADC channels;
