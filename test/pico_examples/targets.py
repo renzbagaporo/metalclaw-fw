@@ -14,6 +14,18 @@ from test.pico_examples.lights import newlib_rand
 FORBIDDEN = (r"\*\*\* PANIC \*\*\*", r"assertion \".*\" failed", r"HardFault")
 
 
+# VT100 escape sequences (the Zephyr shell's colours and cursor moves), as
+# twister's harnesses strip them from a line.
+ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+
+def console_lines(text: str, start: int = 0) -> list[tuple[int, str]]:
+    # Each line of `text` from `start`, the last one even unfinished: where it
+    # ends in `text`, and its content without the line end or VT100 sequences.
+    return [(start + m.end(), ANSI_ESCAPE.sub("", m.group(0)).rstrip("\r\n"))
+            for m in re.finditer(r"[^\n]*\n|[^\n]+$", text[start:])]
+
+
 @dataclass(frozen=True)
 class Spec:
     # Regular expressions, each matched after the previous one's match.
@@ -63,8 +75,9 @@ class Spec:
     # for a program whose source prints them a set time apart (every()).
     intervals: tuple[tuple[int, int, float, float], ...] = ()
     # Each pattern matched against one console line at a time, its line end
-    # stripped, as Zephyr's twister console harness does (`^` and `$` anchor
-    # to that line), and each on a later line than the one before.
+    # and VT100 sequences stripped, as Zephyr's twister harnesses do (`^` and
+    # `$` anchor to that line), and each on a later line than the one before.
+    # `input` patterns then match the same way.
     lines: bool = False
     # With `lines`: each pattern matched on any line, in any order (twister's
     # multi_line with `ordered: false`).
@@ -112,7 +125,7 @@ class Spec:
 
     def _line_ends(self, text: str, patterns: tuple[str, ...]) -> list[int | None]:
         # Per line: where the line a pattern matched ends in `text`.
-        spans = [(m.end(), m.group(0).rstrip("\r\n")) for m in re.finditer(r"[^\n]*\n|[^\n]+$", text)]
+        spans = console_lines(text)
         ends, after = [], 0
         for pattern in patterns:
             rx = re.compile(pattern)

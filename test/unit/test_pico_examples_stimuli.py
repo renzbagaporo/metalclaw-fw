@@ -611,3 +611,18 @@ def test_a_count_that_goes_the_wrong_way_after_a_button_edge_fails():
     honest = [pins.Sample(s.us, (s.levels & ~(1 << 9)) | (int(((s.us / 1e6 + 0.02) % period) < high) << 9), s.driven)
               for s in shifted]
     assert any("with GP9" in p for p in check.check(honest))
+
+
+def test_line_inputs_wait_for_a_shell_prompt_through_its_colours():
+    port = FakePort()
+    t = Typist(port, ((r"^uart:~\$ $", b"kernel version\r"), (r"^uart:~\$ $", b"kernel cycles\r")), lines=True)
+    t("*** Booting Zephyr OS build v4.4.0 ***\r\n\x1b[1;32muart:~")
+    assert port.written == []
+    text = "*** Booting Zephyr OS build v4.4.0 ***\r\n\x1b[1;32muart:~$ \x1b[m"
+    t(text)
+    assert port.written == [b"kernel version\r"]
+    text += "kernel version\r\nZephyr version 4.4.0\r\n"
+    t(text)
+    assert port.written == [b"kernel version\r"]
+    t(text + "\x1b[1;32muart:~$ \x1b[m")
+    assert port.written == [b"kernel version\r", b"kernel cycles\r"]

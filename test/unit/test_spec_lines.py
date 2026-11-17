@@ -33,3 +33,8 @@ def test_a_line_match_ends_where_its_line_ends():
 def test_an_unfinished_last_line_counts():
     spec = Spec(console=(r"uart:~\$ $",), lines=True)
     assert spec.match("boot\nuart:~$ ")[0] == []
+
+
+def test_vt100_sequences_are_stripped_from_a_line():
+    spec = Spec(console=(r"^Zephyr version \d",), lines=True)
+    assert spec.match("\x1b[1;32mZephyr version 4.4.0\x1b[m\r\n")[0] == []

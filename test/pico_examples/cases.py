@@ -18,7 +18,7 @@ from test.pico_examples import pins
 from test.pico_examples.part_targets import PART_SPECS
 from test.pico_examples.parts import PinError, parts_for
 from test.pico_examples.pin_specs import BOOTSEL_SPECS, PIN_SPECS, REGISTER_SPECS
-from test.pico_examples.targets import SPECS
+from test.pico_examples.targets import SPECS, console_lines
 from test.pico_examples.usb_devices import usb_device
 from test.zephyr_samples.targets import zephyr_spec
 
@@ -103,19 +103,29 @@ class Typist:
     # Sends each of a Spec's inputs once its pattern has come in, after where
     # the one before it matched: bytes to the console, a str to the harness
     # as code, for a part that is to act then, (name, bytes) to the port of
-    # that name in `ports`.
-    def __init__(self, port, inputs, harness=None, ports=None):
+    # that name in `ports`. With `lines`, a pattern matches one line at a
+    # time, as the Spec's own (Spec.lines), the unfinished last line (a
+    # prompt) too.
+    def __init__(self, port, inputs, harness=None, ports=None, lines=False):
         self.port = port
         self.harness = harness
         self.ports = ports or {}
         self.inputs = list(inputs)
+        self.lines = lines
         self.at = 0
+
+    def _match_end(self, pattern: str, text: str) -> int | None:
+        rx = re.compile(pattern)
+        if self.lines:
+            return next((end for end, line in console_lines(text, self.at) if rx.search(line)), None)
+        m = rx.search(text, self.at)
+        return None if m is None else m.end()
 
     def __call__(self, text: str) -> None:
         while self.inputs:
             pattern, data = self.inputs[0]
-            m = re.compile(pattern).search(text, self.at)
-            if m is None:
+            end = self._match_end(pattern, text)
+            if end is None:
                 return
             if isinstance(data, str):
                 self.harness.run(data)
@@ -126,7 +136,7 @@ class Typist:
                     port = self.ports[name]
                 port.write(data)
                 port.flush()
-            self.at = m.end()
+            self.at = end
             self.inputs.pop(0)
 
 
@@ -139,7 +149,7 @@ class Typist:
 # had returned, and before the next clock reading; the bridge's own delay
 # is taken as the same for every line.
 def read_console(harness, port, spec, patterns=None, inputs=None, ports=None, arrivals=None) -> str:
-    typist = Typist(port, spec.input if inputs is None else inputs, harness, ports)
+    typist = Typist(port, spec.input if inputs is None else inputs, harness, ports, lines=spec.lines)
     with console_log() as log:
         return _read_console(harness, port, spec, patterns, typist, arrivals, log)
 
