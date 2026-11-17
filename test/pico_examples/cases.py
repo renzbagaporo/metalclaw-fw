@@ -156,6 +156,9 @@ def read_console(harness, port, spec, patterns=None, inputs=None, ports=None, ar
 
 def _read_console(harness, port, spec, patterns, typist, arrivals, log) -> str:
     got = bytearray()
+    # An input whose pattern matches nothing yet goes in at once: a program
+    # that prints nothing before it reads (a UART echo on the console pins).
+    typist("")
     last = harness.clock()
     deadline = last + max(spec.seconds, MIN_SECONDS)
     quiet, pending = last, []

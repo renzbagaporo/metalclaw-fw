@@ -409,6 +409,13 @@ OWN: dict[str, Spec] = {
             "samples/arch/mpu/mpu_test/test_shell.yml"),
         per_board={"pico": {"input": shell_spec({"sample": "arch/mpu/mpu_test", "shell_commands": [
             {"command": "mpu mtest 0"}, {"command": "mpu mtest 4"}]}, "").input}}),
+    # samples/boards/raspberrypi/rpi_pico/uart_pio/src/main.c: echoes what
+    # each of two PIO UARTs receives; the first takes GP0/GP1, the console's
+    # pins, before the boot banner, so nothing comes before the echo. Text
+    # typed once the chip is up must come back. No sample.yaml.
+    "zephyr/boards/raspberrypi/rpi_pico/uart_pio": Spec(
+        console=(r"metalclaw",), input=((r"", "import time\ntime.sleep_ms(500)\n"), (r"", b"metalclaw")),
+        seconds=5.0, forbidden=FAULTS, source="samples/boards/raspberrypi/rpi_pico/uart_pio/src/main.c"),
     # samples/net/sockets/socketpair/src/main.c:230-257: three threads write
     # their names through socketpairs that main polls; it prints SUCCESS or
     # FAILURE after tearing down, and a short or wrong read on the way. Its

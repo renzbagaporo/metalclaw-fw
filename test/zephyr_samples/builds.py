@@ -28,7 +28,8 @@ class Build:
     # The sample's directory under samples/.
     sample: str
     # The yaml test to build, or None for its first test that runs on a
-    # console, ztest or shell harness and is not build_only.
+    # console, ztest or shell harness and is not build_only; "" for a
+    # sample with no yaml, built as it is.
     test: str | None = None
     # Extra CMake cache entries ("NAME=value"), after the test's own.
     args: tuple[str, ...] = ()
@@ -299,6 +300,11 @@ BUILDS: dict[str, Build] = {
         "test/zephyr_samples/overlays/i2c0.overlay", "devices/icm4268x/test/dut/rp2.overlay",
         "test/zephyr_samples/overlays/sensing_mpu6050_icm42688.overlay"),
         confs=("devices/icm4268x/test/dut/rp2.conf", "test/zephyr_samples/overlays/sensing_simple.conf")),
+    # samples/boards/raspberrypi/rpi_pico/uart_pio: no sample.yaml; its own
+    # rpi_pico overlay's PIO UARTs (judged by our own criterion).
+    "zephyr/boards/raspberrypi/rpi_pico/uart_pio": Build("boards/raspberrypi/rpi_pico/uart_pio", test="",
+                                                         boards=("pico",),
+                                                         other_boards="its Pico 2 overlay's pins need checking"),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

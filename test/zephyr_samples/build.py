@@ -28,6 +28,8 @@ from test.zephyr_samples.builds import BOARDS, BUILDS, STORAGE, Build
 
 
 def yaml_tests(sample_dir: Path) -> dict[str, dict]:
+    if not any((sample_dir / n).is_file() for n in ("sample.yaml", "testcase.yaml")):
+        return {}
     # The sample's tests, each with the yaml's common section folded in.
     # PyYAML comes with Zephyr's build requirements, not the rig's.
     import yaml
@@ -76,6 +78,9 @@ def board_configs(configs: list[str], zephyr_board: str) -> list[str]:
 
 
 def choose_test(build: Build, tests: dict[str, dict], zephyr_board: str) -> tuple[str, dict]:
+    if build.test == "":
+        # A sample without a yaml: built as it is, judged by our criteria.
+        return "", {}
     # The named test, else the first console, ztest or shell test that is
     # not build_only and whose platform filters let it run on the board;
     # failing that, the first such test whose platform_exclude does not name
