@@ -40,13 +40,23 @@ def yaml_tests(sample_dir: Path) -> dict[str, dict]:
     raise FileNotFoundError(f"no sample.yaml or testcase.yaml in {sample_dir}")
 
 
-def choose_test(build: Build, tests: dict[str, dict]) -> tuple[str, dict]:
+def runs_on(test: dict, zephyr_board: str) -> bool:
+    # Whether the test's platform_allow / platform_exclude let it run on the
+    # board: an entry names the board alone or with its qualifiers.
+    def names(entry: str) -> bool:
+        return zephyr_board == entry or zephyr_board.startswith(entry + "/") or entry.startswith(zephyr_board + "/")
+    allow, exclude = _list(test.get("platform_allow")), _list(test.get("platform_exclude"))
+    return (not allow or any(names(e) for e in allow)) and not any(names(e) for e in exclude)
+
+
+def choose_test(build: Build, tests: dict[str, dict], zephyr_board: str) -> tuple[str, dict]:
     if build.test is not None:
         return build.test, tests[build.test]
     for name, test in tests.items():
-        if not test.get("build_only") and test.get("harness", "") in ("console", "ztest", ""):
+        if (not test.get("build_only") and test.get("harness", "") in ("console", "ztest", "")
+                and runs_on(test, zephyr_board)):
             return name, test
-    raise LookupError(f"samples/{build.sample} has no test that runs on a console")
+    raise LookupError(f"samples/{build.sample} has no test that runs on a console on {zephyr_board}")
 
 
 def _list(value) -> list[str]:
@@ -89,7 +99,7 @@ def build_one(target: str, board: str, base: Path, out: Path) -> tuple[bool, str
         return False, f"skipped: {build.other_boards or 'not built for this board'}"
     zephyr_board, chip = BOARDS[board]
     sample_dir = base / "samples" / build.sample
-    test_name, test = choose_test(build, yaml_tests(sample_dir))
+    test_name, test = choose_test(build, yaml_tests(sample_dir), zephyr_board)
     work = out / "build" / board / target
     if work.exists():
         shutil.rmtree(work)

@@ -68,8 +68,17 @@ def test_a_test_becomes_twisters_cmake_arguments(tmp_path):
 
 def test_the_first_console_test_is_chosen():
     tests = {"a": {"build_only": True, "harness": "console"}, "b": {"harness": "pytest"}, "c": {"harness": "console"}}
-    assert choose_test(Build("x"), tests)[0] == "c"
-    assert choose_test(Build("x", test="b"), tests)[0] == "b"
+    assert choose_test(Build("x"), tests, "rpi_pico")[0] == "c"
+    assert choose_test(Build("x", test="b"), tests, "rpi_pico")[0] == "b"
+
+
+def test_a_test_for_other_platforms_is_passed_over():
+    tests = {"nrf": {"harness": "console", "platform_allow": ["nrf52840dk/nrf52840"]},
+             "not_pico": {"harness": "console", "platform_exclude": "rpi_pico"},
+             "pico2": {"harness": "console", "platform_allow": ["rpi_pico2/rp2350a/m33"]},
+             "any": {"harness": "console"}}
+    assert choose_test(Build("x"), tests, "rpi_pico")[0] == "any"
+    assert choose_test(Build("x"), tests, "rpi_pico2/rp2350a/m33")[0] == "not_pico"
 
 
 def test_every_build_is_named_for_its_sample():

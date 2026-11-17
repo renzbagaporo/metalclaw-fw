@@ -92,8 +92,11 @@ BUILDS: dict[str, Build] = {
     # samples/philosophers prints its states only with DEBUG_PRINTF=1, as
     # its first test sets in extra_args.
     "zephyr/philosophers": Build("philosophers", test="sample.kernel.philosopher"),
-    # samples/sensor/clock: the system clock source, as its yaml selects.
-    "zephyr/sensor/clock": Build("sensor/clock"),
+    # samples/sensor/clock: its system-clock test, which twister builds only
+    # where CONFIG_SENSOR_CLOCK_SYSTEM is on; the RP2 boards leave it off,
+    # and the counter and RTC tests are for nRF52 boards.
+    "zephyr/sensor/clock": Build("sensor/clock", test="sample.sensor.clock.system",
+                                 args=("CONFIG_SENSOR_CLOCK_SYSTEM=y",)),
     # samples/basic/blinky: its one test, on an LED harness (judged by our
     # own criterion, test/zephyr_samples/targets.py OWN).
     "zephyr/basic/blinky": Build("basic/blinky", test="sample.basic.blinky"),
