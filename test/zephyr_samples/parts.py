@@ -6,7 +6,7 @@
 # unlike the models' defaults, so what the sample prints shows it came from
 # the part.
 
-from test.pico_examples.parts import Attach, Check, _ws2812_frames
+from test.pico_examples.parts import Attach, Check, _i2c_jumpers, _ws2812_frames
 
 
 # The sx1262 node of devices/sx126x/test/dut/rp2.overlay: SPI0 SCK GP18, MOSI
@@ -145,6 +145,9 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             _ws2812_frames("strip", 48, "frames of 48 bytes, none with a pulse out of the datasheet's windows"),
         )),
     ),
+    # rtio_loopback's bus: open-drain jumpers GP4 <-> GP6 (SDA) and GP5 <->
+    # GP7 (SCL), as pico-examples' slave_mem_i2c is wired.
+    "zephyr/drivers/i2c/rtio_loopback": _i2c_jumpers(),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),

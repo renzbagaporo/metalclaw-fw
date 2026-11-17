@@ -197,6 +197,10 @@ BUILDS: dict[str, Build] = {
                                           boards=("pico",),
                                           other_boards="the Pico 2 build must also free GP6 from I2C1",
                                           overlays=("test/zephyr_samples/overlays/ws2812_pio_gp6.overlay",)),
+    # samples/drivers/i2c/rtio_loopback: I2C1 controller, I2C0 target.
+    "zephyr/drivers/i2c/rtio_loopback": Build("drivers/i2c/rtio_loopback", test="sample.drivers.i2c.rtio_loopback",
+                                              overlays=("test/zephyr_samples/overlays/i2c0.overlay",
+                                                        "test/zephyr_samples/overlays/i2c_loopback.overlay")),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
