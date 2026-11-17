@@ -3,7 +3,10 @@
  * samples/drivers/i2c/rtio_loopback: I2C1 (GP6 SDA, GP7 SCL) as the
  * controller and I2C0 (GP4 SDA, GP5 SCL, i2c0.overlay) as the target, at
  * the standard rate. The harness joins SDA to SDA and SCL to SCL with
- * open-drain jumpers, as the sample's i2c_bus_short fixture does.
+ * open-drain jumpers, as the sample's i2c_bus_short fixture does. Both
+ * buses take the pads' pull-ups, as pico-examples' slave_mem_i2c does on
+ * the same pins (gpio_pull_up); without them the controller's first
+ * transfer fails on the carrier.
  */
 #include <zephyr/dt-bindings/i2c/i2c.h>
 
@@ -20,7 +23,14 @@
 			pinmux = <I2C1_SDA_P6>, <I2C1_SCL_P7>;
 			input-enable;
 			input-schmitt-enable;
+			bias-pull-up;
 		};
+	};
+};
+
+&i2c0_gp4_gp5 {
+	group1 {
+		bias-pull-up;
 	};
 };
 
