@@ -344,11 +344,14 @@ OWN: dict[str, Spec] = {
     # As at any shell, an Enter first at a login: prompt, which may be one
     # from before the restart: it ends stray input there, and the password
     # goes in at the prompt after it. The boot's hint is not needed. Then
-    # the welcome, and a command at the ordinary prompt.
+    # the welcome, and a command at the ordinary prompt. The Enter may
+    # submit stray input as a password, which the sample refuses
+    # ("Incorrect password!"); the password is typed once, so the welcome
+    # shows it was taken.
     "zephyr/subsys/shell/shell_module@login": Spec(
         console=(r"^login: ", r"^Shell Login Demo$", PROMPT, r"^Zephyr version \d"),
         input=((r"^login: ", b"\n"), (r"^login: ", b"zephyr\n"), (PROMPT, b"kernel version\n")),
-        seconds=SECONDS, forbidden=(*FORBIDDEN, r"Incorrect password"), lines=True,
+        seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
         source="samples/subsys/shell/shell_module/src/login_cmd.c"),
     # samples/subsys/shell/fs: its yaml's harness is keyboard, with no
     # commands. The fs shell (subsys/fs/shell.c:877-905, 542-600, 180-210,
