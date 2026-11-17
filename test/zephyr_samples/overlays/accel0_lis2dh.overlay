@@ -1,0 +1,16 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* samples/sensor/accel_polling reads accel0..N: the LIS2DH node of
+ * lis2dh_18.overlay as accel0. */
+/ {
+	aliases {
+		accel0 = &accel0_lis2dh;
+	};
+};
+
+&i2c0 {
+	accel0_lis2dh: lis2dh@18 {
+		compatible = "st,lis2dh";
+		reg = <0x18>;
+		status = "okay";
+	};
+};

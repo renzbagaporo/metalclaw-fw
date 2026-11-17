@@ -90,6 +90,16 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("ina219", "power", {"i2c": (4, 5, 0x40)}, {"i2c": 2},
                {"bus_voltage": 5124, "current": 123400, "shunt_resistance": 100000}),
     ),
+    "zephyr/sensor/accel_polling": (
+        Attach("lis3dh", "accel", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"acceleration": (252, -500, 1020)}),
+    ),
+    # BME280 on the sample's rpi_pico SPI0: spi=(SCK, MOSI, MISO, CS); the
+    # Zephyr driver clocks SPI mode 3 (drivers/sensor/bosch/bme280/bme280.h).
+    # Pressure in Pa, temperature in m°C, humidity in 0.001 %RH.
+    "zephyr/sensor/bme280": (
+        Attach("bme280", "env", {"spi": (18, 19, 16, 17)}, {},
+               {"spi_mode": 3, "pressure": 99887, "temperature": 21370, "humidity": 45670}),
+    ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),

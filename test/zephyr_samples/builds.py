@@ -158,6 +158,13 @@ BUILDS: dict[str, Build] = {
                                   ("lis2dh", "sample.sensor.lis2dh", "lis2dh_18"),
                                   ("ina219", "sample.drivers.ina219", "ina219_40"),
                                   ("thermometer", "sample.sensor.thermometer", "mcp9808_ambient"))},
+    # samples/sensor/accel_polling: a LIS2DH-family part as accel0.
+    "zephyr/sensor/accel_polling": Build("sensor/accel_polling", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/accel0_lis2dh.overlay")),
+    # samples/sensor/bme280: on the Pico 1 its own boards/rpi_pico.overlay, a
+    # BME280 on SPI0 (SCK GP18, MOSI GP19, MISO GP16) with CS on GP17.
+    "zephyr/sensor/bme280": Build("sensor/bme280", test="sample.sensor.bme280", boards=("pico",),
+                                  other_boards="the sample's rpi_pico2 build needs an SPI0 overlay of ours"),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

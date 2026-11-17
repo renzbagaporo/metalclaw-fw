@@ -48,6 +48,17 @@ OVERRIDES: dict[str, dict] = {
     # samples/drivers/watchdog: feeds the watchdog five times, then lets it
     # reset the chip; its yaml expects the second boot.
     "zephyr/drivers/watchdog": {"forbidden": FAULTS, "seconds": 20.0},
+    # samples/sensor/accel_polling: its yaml's line, which a reading in any
+    # range matches, as the part's 252, -500, 1020 mg in m/s^2 (%12.6f).
+    "zephyr/sensor/accel_polling": {
+        "console": (BANNER, r"^\s*lis2dh@18 \[m/s\^2\]:    \(\s*2\.4[67]\d*,\s*-4\.9[01]\d*,\s*10\.0[0-2]\d*\)$"),
+    },
+    # samples/sensor/bme280: its yaml's line, which any reading matches, as
+    # the part's 21.37 °C, 99.887 kPa and 45.67 %RH (src/main.c:95-98).
+    "zephyr/sensor/bme280": {
+        "console": (BANNER, r'Found device "bme280@0", getting sensor data',
+                    r"temp: 21\.3[67]\d*; press: 99\.88[6-8]\d*; humidity: 45\.6[67]\d*"),
+    },
     # samples/sensor/thermometer: its yaml's lines, then the part's 25.25 °C
     # as the sample prints it, %0.1lf.
     "zephyr/sensor/thermometer": {
