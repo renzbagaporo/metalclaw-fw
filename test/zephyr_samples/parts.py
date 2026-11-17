@@ -179,13 +179,14 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     # rtio_loopback's bus: open-drain jumpers GP4 <-> GP6 (SDA) and GP5 <->
     # GP7 (SCL), as pico-examples' slave_mem_i2c is wired.
     "zephyr/drivers/i2c/rtio_loopback": _i2c_jumpers(),
-    # The cfb samples draw text on the same SSD1306.
-    **{f"zephyr/subsys/display/{s}": (
+    # The cfb and LVGL samples draw on the same SSD1306.
+    **{f"zephyr/{s}": (
         Attach("ssd1306", "oled", {"i2c": (4, 5, 0x3C)}, {"i2c": 2}, checks=(
             Check("(part.display_on, any(part.read_region('gddram', 0, 1024)))", lambda v: v == (True, True),
                   "the display on, with text drawn in its GDDRAM", 3.0),
         )),
-    ) for s in ("cfb", "cfb_shell", "cfb_custom_font", "lvgl")},
+    ) for s in ("subsys/display/cfb", "subsys/display/cfb_shell", "subsys/display/cfb_custom_font",
+                "subsys/display/lvgl", "modules/lvgl/demos")},
     # BME280 at 0x76 on I2C0 as dht_polling's dht0: humidity in m%RH.
     "zephyr/sensor/dht_polling": (
         Attach("bme280", "env", {"i2c": (4, 5, 0x76)}, {"i2c": 2},
