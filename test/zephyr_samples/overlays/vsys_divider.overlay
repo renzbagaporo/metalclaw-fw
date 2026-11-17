@@ -1,0 +1,33 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * samples/sensor/soc_voltage reads volt-sensor0: the Picos measure VSYS
+ * through a divider of 200 k over 100 k on GP29, ADC input 3 (the Pico and
+ * Pico 2 datasheets), a voltage-divider sensor here.
+ */
+/ {
+	aliases {
+		volt-sensor0 = &vsys;
+	};
+
+	vsys: vsys {
+		compatible = "voltage-divider";
+		io-channels = <&adc 3>;
+		output-ohms = <100000>;
+		full-ohms = <300000>;
+	};
+};
+
+&adc {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	channel@3 {
+		reg = <3>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+		zephyr,vref-mv = <3300>;
+	};
+};

@@ -247,6 +247,13 @@ BUILDS: dict[str, Build] = {
     # upstream lists other boards.
     "zephyr/drivers/adc/adc_sequence": Build("drivers/adc/adc_sequence", test="sample.drivers.adc.adc_sequence",
                                              overlays=("test/zephyr_samples/overlays/adc0_ch0_ch1.overlay",)),
+    # samples/sensor/sm351lt (harness sensor): a magnetic switch on GP15
+    # that the harness opens and closes.
+    "zephyr/sensor/sm351lt": Build("sensor/sm351lt", test="sample.sensor.sm351lt",
+                                   overlays=("test/zephyr_samples/overlays/sm351lt_gp15.overlay",)),
+    # samples/sensor/soc_voltage: the Picos' own VSYS divider on ADC input 3.
+    "zephyr/sensor/soc_voltage": Build("sensor/soc_voltage",
+                                       overlays=("test/zephyr_samples/overlays/vsys_divider.overlay",)),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

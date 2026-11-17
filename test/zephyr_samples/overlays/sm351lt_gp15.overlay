@@ -1,0 +1,12 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* A Honeywell SM351LT magnetic switch on GP15, open drain and active low:
+ * its output pulls the line low near a magnet. */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	sm351lt: sm351lt {
+		compatible = "honeywell,sm351lt";
+		gpios = <&gpio0 15 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
+};

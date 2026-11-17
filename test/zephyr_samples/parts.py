@@ -57,6 +57,10 @@ def adc_level(name: str, pin: int, high_ns: int, level: bool) -> Attach:
 
 
 ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
+    # The SM351LT's output on GP15, closed (low) half of every 3 s: the
+    # sample polls every 2 s, so its readings cycle through both levels.
+    "zephyr/sensor/sm351lt": (Attach("square_wave", "magnet", {"out": (15,)},
+                                     properties={"period": 3_000_000_000, "high": 1_500_000_000}),),
     # ADC input 0 (GP26) at 25 % of 3.3 V, input 1 (GP27) at 75 %.
     "zephyr/drivers/adc/adc_dt": (adc_level("ain0", 26, 250, False),),
     "zephyr/drivers/adc/adc_sequence": (adc_level("ain0", 26, 250, False), adc_level("ain1", 27, 750, True)),

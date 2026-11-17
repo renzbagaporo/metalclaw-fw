@@ -278,6 +278,11 @@ OWN: dict[str, Spec] = {
                                     r"^- adc@[0-9a-f]+, channel 1, \d+ sequence samples:$",
                                     r"^- - \d+ = (32[4-9]\d|33\d\d)mV$")},
         source="samples/drivers/adc/adc_sequence/src/main.c"),
+    # samples/sensor/sm351lt/src/main.c:20-87: polls every 2 s and prints
+    # the switch's state; the harness's wave shows both.
+    "zephyr/sensor/sm351lt": own(r"^Polling at 0\.5 Hz$", r"^#\d+ @ \d+ ms: [01]$", r"^#\d+ @ \d+ ms: 1$",
+                                 r"^#\d+ @ \d+ ms: 0$", ordered=False, seconds=15.0,
+                                 forbidden=(*FORBIDDEN, r"ERROR"), source="samples/sensor/sm351lt/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.
     # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
     # adding a line feed after a carriage return.
