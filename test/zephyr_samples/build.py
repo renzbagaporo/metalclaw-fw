@@ -156,6 +156,8 @@ def build_one(target: str, board: str, base: Path, out: Path) -> tuple[bool, str
         "harness_config": test.get("harness_config", {}),
         "cmake_args": command[command.index("--") + 1:],
         "zephyr": zephyr_commit(base),
+        # Whether the image prints the boot banner (a sample may turn it off).
+        "boot_banner": "CONFIG_BOOT_BANNER=y" in (work / "build" / "zephyr" / ".config").read_text().splitlines(),
     }
     (image / "example.json").write_text(json.dumps(metadata, indent=2) + "\n")
     return True, f"built {test_name}"

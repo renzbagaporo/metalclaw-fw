@@ -91,3 +91,8 @@ def test_arch_and_platform_configs_apply_only_there(tmp_path):
                               "platform:rpi_pico:CONFIG_P=y", "platform:frdm_k64f:CONFIG_K=y"]}
     cmake_args(Build("x"), test, tmp_path, "rpi_pico")
     assert (tmp_path / "testsuite_extra.conf").read_text() == "CONFIG_A=y\nCONFIG_ARM_MPU=n\nCONFIG_P=y\n"
+
+
+def test_an_image_without_the_banner_is_not_asked_for_it():
+    m = {**metadata(config={"type": "one_line", "regex": [".*success"]}), "boot_banner": False}
+    assert zephyr_spec(m).match("<inf> hashmap_sample: success\r\n")[0] == []

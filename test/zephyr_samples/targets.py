@@ -69,6 +69,12 @@ OWN: dict[str, Spec] = {
 }
 
 
+def banner(metadata: dict) -> tuple[str, ...]:
+    # The banner pattern, for an image built with the banner on (a sample may
+    # turn CONFIG_BOOT_BANNER off: basic/hash_map).
+    return (BANNER,) if metadata.get("boot_banner", True) else ()
+
+
 def is_zephyr(metadata: dict | None) -> bool:
     return bool(metadata) and metadata.get("kind") == "zephyr"
 
@@ -85,7 +91,7 @@ def zephyr_spec(metadata: dict | None) -> Spec | None:
         # A ztest image's summary line (TC_END_REPORT,
         # subsys/testsuite/include/zephyr/tc_util.h), which twister's Test
         # harness reads.
-        spec = Spec(console=(BANNER, r"^PROJECT EXECUTION SUCCESSFUL$"), seconds=SECONDS,
+        spec = Spec(console=(*banner(metadata), r"^PROJECT EXECUTION SUCCESSFUL$"), seconds=SECONDS,
                     forbidden=(*FORBIDDEN, r"PROJECT EXECUTION FAILED"), lines=True, source=source)
         return replace(spec, **OVERRIDES.get(metadata["target"], {}))
     if metadata.get("harness") != "console":
@@ -96,6 +102,6 @@ def zephyr_spec(metadata: dict | None) -> Spec | None:
         patterns, ordered = regex[:1], True
     else:
         patterns, ordered = regex, config.get("ordered", True)
-    spec = Spec(console=(BANNER, *patterns), seconds=SECONDS, forbidden=FORBIDDEN, lines=True, ordered=ordered,
-                source=source)
+    spec = Spec(console=(*banner(metadata), *patterns), seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
+                ordered=ordered, source=source)
     return replace(spec, **OVERRIDES.get(metadata["target"], {}))
