@@ -70,6 +70,11 @@ OVERRIDES: dict[str, dict] = {
         "console": (BANNER, r"Device found; family: 0x28, serial: 0x[0-9a-f]+",
                     r"Number of devices found on bus: 1$"),
     },
+    # samples/sensor/dht_polling: its yaml's line, which any reading
+    # matches, as the BME280's 21.37 °C and 45.67 %RH.
+    "zephyr/sensor/dht_polling": {
+        "console": (BANNER, r"bme280@76: temp is 21\.3[67]\d* °C humidity is 45\.6[67]\d* %RH"),
+    },
     # samples/sensor/thermometer: its yaml's lines, then the part's 25.25 °C
     # as the sample prints it, %0.1lf.
     "zephyr/sensor/thermometer": {

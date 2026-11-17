@@ -254,6 +254,9 @@ BUILDS: dict[str, Build] = {
     # samples/sensor/soc_voltage: the Picos' own VSYS divider on ADC input 3.
     "zephyr/sensor/soc_voltage": Build("sensor/soc_voltage",
                                        overlays=("test/zephyr_samples/overlays/vsys_divider.overlay",)),
+    # samples/sensor/dht_polling: a BME280 on I2C0 as dht0.
+    "zephyr/sensor/dht_polling": Build("sensor/dht_polling", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/dht0_bme280_76.overlay")),
     # samples/subsys/testsuite: ztest images that upstream builds only for
     # native_sim (integration, build_only) and qemu_x86 (benchmark).
     "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),

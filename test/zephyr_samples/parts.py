@@ -172,6 +172,11 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
                   "the display on, with text drawn in its GDDRAM", 3.0),
         )),
     ) for s in ("cfb", "cfb_custom_font")},
+    # BME280 at 0x76 on I2C0 as dht_polling's dht0: humidity in m%RH.
+    "zephyr/sensor/dht_polling": (
+        Attach("bme280", "env", {"i2c": (4, 5, 0x76)}, {"i2c": 2},
+               {"pressure": 99887, "temperature": 21370, "humidity": 45670}),
+    ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     "zephyr/sensor/thermometer": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),

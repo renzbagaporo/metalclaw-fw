@@ -1,0 +1,16 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* samples/sensor/dht_polling reads dht0..N for temperature and humidity: a
+ * BME280 at 0x76 on I2C0 (i2c0.overlay) as dht0. */
+/ {
+	aliases {
+		dht0 = &bme280_76;
+	};
+};
+
+&i2c0 {
+	bme280_76: bme280@76 {
+		compatible = "bosch,bme280";
+		reg = <0x76>;
+		status = "okay";
+	};
+};
