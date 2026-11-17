@@ -231,7 +231,12 @@ BUILDS: dict[str, Build] = {
     # kvss/nvs's reboot counter and littlefs's boot count then start from 0
     # in every session, not from wherever the last one left them.
     "zephyr/subsys/kvss/nvs": Build("subsys/kvss/nvs", test="sample.nvs.basic", storage=True),
-    "zephyr/subsys/fs/littlefs": Build("subsys/fs/littlefs", test="sample.filesystem.littlefs", storage=True),
+    # littlefs's prj.conf turns on CONFIG_DEBUG (-Og), and so built the
+    # RP2040 hangs in littlefs's first format of the partition, where the
+    # same build without it formats, mounts and counts (and fs/format,
+    # built without it, formats the same partition): built without it.
+    "zephyr/subsys/fs/littlefs": Build("subsys/fs/littlefs", test="sample.filesystem.littlefs", storage=True,
+                                       args=("CONFIG_DEBUG=n",)),
     "zephyr/subsys/settings": Build("subsys/settings", test="sample.subsys.settings.nvs", storage=True),
     "zephyr/subsys/kvss/zms": Build("subsys/kvss/zms", test="sample.zms.basic", storage=True),
     # samples/subsys/fs/format: both its tests, build-only upstream (judged
