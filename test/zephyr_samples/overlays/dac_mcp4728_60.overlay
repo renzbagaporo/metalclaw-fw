@@ -1,0 +1,24 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * The adafruit_mcp4728 shield's node on I2C0 (i2c0.overlay): an MCP4728
+ * at 0x60 on its internal 2.048 V reference, channel A the sample's.
+ */
+
+/ {
+	zephyr,user {
+		dac = <&dac_mcp4728>;
+		dac-channel-id = <0>;
+		dac-resolution = <12>;
+	};
+};
+
+&i2c0 {
+	dac_mcp4728: dac@60 {
+		status = "okay";
+		compatible = "microchip,mcp4728";
+		reg = <0x60>;
+		#io-channel-cells = <1>;
+		voltage-reference = <01 01 01 01>;
+		power-down-mode = <00 00 00 00>;
+	};
+};

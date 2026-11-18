@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An HTS221 at 0x5F, its only address (DocID026333 5.1.1), on I2C0
+ * (i2c0.overlay); no DRDY line, so the driver polls.
+ */
+
+&i2c0 {
+	hts221@5f {
+		compatible = "st,hts221";
+		reg = <0x5f>;
+		status = "okay";
+	};
+};

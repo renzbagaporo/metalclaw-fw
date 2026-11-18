@@ -48,6 +48,12 @@ SPI, as the model `w25q16jv`;
 model `at24c02`;
 [`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
 I2C;
+[`ad5693r`](../devices/ad5693r/README.md), Analog Devices' AD5693R 16-bit DAC
+on I2C;
+[`hts221`](../devices/hts221/README.md), ST's HTS221 humidity and temperature
+sensor on I2C;
+[`lsm303dlhc`](../devices/lsm303dlhc/README.md), the magnetometer of ST's
+LSM303DLHC on I2C, as the model `lsm303dlhc_magn`;
 [`drv2605`](../devices/drv2605/README.md), TI's DRV2605L haptic driver on I2C,
 as the model `drv2605l`;
 [`max6675`](../devices/max6675/README.md), Maxim's MAX6675 thermocouple
@@ -56,6 +62,8 @@ converter on SPI;
 I2C with its INT/SQW pin;
 [`zfm20`](../devices/zfm20/README.md), ZhianTec's ZFM-20 fingerprint module
 on a UART;
+[`mcp4728`](../devices/mcp4728/README.md), Microchip's MCP4728 quad 12-bit
+DAC on I2C;
 [`lsm6dso`](../devices/lsm6dso/README.md), ST's LSM6DSO and LSM6DSL 6-axis
 IMUs on I2C with their INT1 pin, two models;
 [`veml60xx`](../devices/veml60xx/README.md), Vishay's VEML6031X00 and

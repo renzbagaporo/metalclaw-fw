@@ -154,6 +154,33 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('templates')", lambda v: v == 1, "template 2 left after the delete", 3.0),
         )),
     ),
+    # The MCP4728 at 0x60 on I2C0: the sawtooth's 1 ms steps on channel A.
+    "zephyr/drivers/dac@mcp4728": (
+        Attach("mcp4728", "dac", {"i2c": (4, 5, 0x60)}, {"i2c": 2}, checks=(
+            Check("part.get('writes')", lambda v: v > 300, "the sawtooth's steps written", 3.0),
+            Check("part.get('codes')", lambda v: 0 < v[0] <= 4095 and list(v[1:]) == [0, 0, 0],
+                  "channel A climbing, the rest at their EEPROM's 0", 3.0),
+        )),
+    ),
+    # The AD5693R at 0x4C on I2C0: the driver's reset (read back as 0) and
+    # configuration, then the 16-bit sawtooth's 1 ms steps.
+    "zephyr/drivers/dac@ad5693r": (
+        Attach("ad5693r", "dac", {"i2c": (4, 5, 0x4c)}, {"i2c": 2}, checks=(
+            Check("part.get('writes')", lambda v: v > 300, "the sawtooth's steps written", 3.0),
+            Check("part.get('code')", lambda v: 0 < v < 65536, "the output climbing", 3.0),
+        )),
+    ),
+    # The HTS221 at 0x5F on I2C0 at 23.5 C and 47.5 %RH, values its
+    # coefficients represent exactly.
+    "zephyr/sensor/hts221": (
+        Attach("hts221", "rh", {"i2c": (4, 5, 0x5f)}, {"i2c": 2}, {"temperature": 23500, "humidity": 47500}),
+    ),
+    # The LSM303DLHC's magnetometer at 0x1E on I2C0: 0.25, -0.1 and 0.5
+    # gauss, whole counts at the driver's default +-1.3 gauss gain.
+    "zephyr/sensor/magn_polling@lsm303dlhc": (
+        Attach("lsm303dlhc_magn", "magn", {"i2c": (4, 5, 0x1e)}, {"i2c": 2},
+               {"magnetic_field": (25000, -10000, 50000)}),
+    ),
     # The AT24C02C at 0x50 on I2C0, erased at attach: the sample writes its
     # boot counter at offset 0.
     "zephyr/drivers/eeprom": (

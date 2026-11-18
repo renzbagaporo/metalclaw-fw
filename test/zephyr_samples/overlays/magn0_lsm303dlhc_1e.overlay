@@ -1,0 +1,19 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An LSM303DLHC's magnetometer at 0x1E, its fixed address (Doc ID 018771
+ * Table 16), on I2C0 (i2c0.overlay), as magn0.
+ */
+
+/ {
+	aliases {
+		magn0 = &magn0_lsm303dlhc;
+	};
+};
+
+&i2c0 {
+	magn0_lsm303dlhc: lsm303dlhc-magn@1e {
+		compatible = "st,lsm303dlhc-magn";
+		reg = <0x1e>;
+		status = "okay";
+	};
+};

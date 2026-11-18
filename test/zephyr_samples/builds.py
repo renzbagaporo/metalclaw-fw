@@ -285,6 +285,10 @@ BUILDS: dict[str, Build] = {
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/magn0_mpu9250_68.overlay"))
        for sample, test in (("magn_polling", "sample.sensor.magn_polling"),
                             ("magn_trig", "sample.sensor.magn_trigger"))},
+    # magn_polling again with an LSM303DLHC's magnetometer at 0x1E as magn0.
+    "zephyr/sensor/magn_polling@lsm303dlhc": Build(
+        "sensor/magn_polling", test="sample.sensor.magn_polling", variant="lsm303dlhc", overlays=(
+            "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/magn0_lsm303dlhc_1e.overlay")),
     # samples/drivers/counter/maxim_ds3231: build_only upstream (judged by
     # our own criterion); a DS3231 at 0x68 on I2C0, INT/SQW on GP15.
     "zephyr/drivers/counter/maxim_ds3231": Build(
@@ -297,6 +301,17 @@ BUILDS: dict[str, Build] = {
         "drivers/biometrics/fingerprint", test="sample.drivers.biometrics.fingerprint", overlays=(
             "test/zephyr_samples/overlays/uart1_gp8_gp9.overlay",
             "test/zephyr_samples/overlays/fingerprint_zfm20_uart1.overlay")),
+    # samples/drivers/dac: the adafruit_mcp4728 shield's node, an MCP4728
+    # at 0x60 on I2C0, as zephyr,user's dac (the shield itself targets the
+    # Feather's zephyr_i2c).
+    "zephyr/drivers/dac@mcp4728": Build("drivers/dac", test="sample.drivers.dac", variant="mcp4728", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/dac_mcp4728_60.overlay")),
+    # The same with the adafruit_ad5693r shield's node, an AD5693R at 0x4C.
+    "zephyr/drivers/dac@ad5693r": Build("drivers/dac", test="sample.drivers.dac", variant="ad5693r", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/dac_ad5693r_4c.overlay")),
+    # samples/sensor/hts221: ST's HTS221 at 0x5F on I2C0, polled.
+    "zephyr/sensor/hts221": Build("sensor/hts221", test="sample.sensor.hts221", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/hts221_5f.overlay")),
     # samples/drivers/eeprom: an AT24C02C at 0x50 on I2C0 as eeprom-0.
     "zephyr/drivers/eeprom": Build("drivers/eeprom", test="sample.drivers.eeprom", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/eeprom0_at24c02_50.overlay")),

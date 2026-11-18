@@ -554,6 +554,12 @@ OWN: dict[str, Spec] = {
         r"uptime \d+:\d\d:\d\d\.\d{3}, clk err -?\d{1,3} ppm$",
         forbidden=(*FORBIDDEN, r"not ready", r"failed"), seconds=80.0,
         source="samples/drivers/counter/maxim_ds3231/src/main.c"),
+    # samples/sensor/hts221/src/main.c:33-40: an observation every 2 s. Its
+    # yaml takes any number; the part holds 23.5 C and 47.5 %RH.
+    "zephyr/sensor/hts221": own(
+        *(r"^Observation:\d+$", r"^Temperature:23\.5 C$", r"^Relative Humidity:47\.5%$") * 2,
+        forbidden=(*FORBIDDEN, r"error", r"Cannot", r"not ready"), seconds=8.0,
+        source="samples/sensor/hts221/src/main.c"),
     # samples/sensor/max6675/src/main.c:45: a reading a second. Its yaml
     # takes any number; the part holds 123.25 C, a whole count of 0.25 C.
     "zephyr/sensor/max6675": own(*(r"^Temperature: 123\.25 C$",) * 2,
@@ -567,6 +573,13 @@ OWN: dict[str, Spec] = {
     "zephyr/sensor/magn_polling": own(*(r"\( x y z \) = \( 0\.299800  -0\.149900  0\.449700 \)",) * 3,
                                       forbidden=(*FORBIDDEN, r"failed", r"not ready"), seconds=6.0,
                                       source="samples/sensor/magn_polling/src/main.c"),
+    # The same with an LSM303DLHC's magnetometer: 275, -110 and 490 counts
+    # at 1100 LSB/gauss for X and Y and 980 for Z (Doc ID 018771 Table 75,
+    # the driver's default range).
+    "zephyr/sensor/magn_polling@lsm303dlhc": own(
+        *(r"\( x y z \) = \( 0\.250000  -0\.100000  0\.500000 \)",) * 3,
+        forbidden=(*FORBIDDEN, r"failed", r"not ready", r"not available"), seconds=6.0,
+        source="samples/sensor/magn_polling/src/main.c"),
     # samples/sensor/lps22hb/src/main.c:34-40: each observation's pressure
     # and temperature. Its yaml asks for a "Relative Humidity" line the
     # source never prints, so these are the source's lines; the part holds
