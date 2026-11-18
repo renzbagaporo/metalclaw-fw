@@ -142,3 +142,41 @@ def test_a_count_passes_over_a_sample_read_across_a_change():
     levels = [zero] * 10 + [torn] + [one] * 10
     samples = [pins.Sample(i * 4_000, v, 0) for i, v in enumerate(levels)]
     assert pins.Count(2, 1, GPIO_7SEG_DIGITS).check(samples) == []
+
+
+def test_a_count_from_a_digit_leaves_out_what_came_before_it():
+    # auxdisplay_digits: all segments (an 8), blank, then 0, 1, 2, ...
+    from test.zephyr_samples.pin_specs import GPIO_7SEG_DIGITS
+    shown = [GPIO_7SEG_DIGITS[8] << 2, 0, *(GPIO_7SEG_DIGITS[d % 10] << 2 for d in range(0, 8))]
+    samples = [pins.Sample(i * 10_000, shown[i // 10], 0) for i in range(100)]
+    assert pins.Count(2, 5, GPIO_7SEG_DIGITS).check(samples) != []
+    assert pins.Count(2, 5, GPIO_7SEG_DIGITS, from_digit=0).check(samples) == []
+
+
+
+class SteppedLink(FakeLink):
+    # The native platform's monitor: the DUT stands still unless advanced,
+    # and the watch holds it from the first read to the last.
+    def __init__(self):
+        super().__init__(step_us=0)
+        self.calls = []
+
+    def hold(self):
+        self.calls.append("hold")
+
+    def advance(self, seconds):
+        self.calls.append("advance")
+        self.now = (self.now + int(seconds * 1e6)) % (1 << 32)
+        self.elapsed += int(seconds * 1e6)
+
+    def release(self):
+        self.calls.append("release")
+
+
+def test_a_link_that_steps_the_dut_is_sampled_at_even_dut_times():
+    link = SteppedLink()
+    samples = pins.watch(None, "rp2350", 1.0, (25,), link=link)
+    gaps = {b.us - a.us for a, b in zip(samples, samples[1:])}
+    assert gaps == {int(pins.STEP_S * 1e6)}
+    assert link.calls[0] == "hold" and link.calls[-1] == "release"
+    assert len(pins.edges(samples, 25)) == 4
