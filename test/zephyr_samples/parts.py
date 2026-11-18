@@ -114,6 +114,12 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("mpu6050", "imu", {"i2c": (4, 5, 0x68)}, {"i2c": 2},
                {"acceleration": (250, -500, 1125), "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
     ),
+    # spi_flash: the W25Q16JV, answering Read JEDEC ID, which Zephyr's
+    # spi-nor driver checks at boot, and holding the sector the sample
+    # erases and writes at 0xff000.
+    "zephyr/drivers/spi_flash": (
+        Attach("w25q16jv", "flash", {"spi": (18, 19, 16, 17)}, {}, {"id_read": True, "held_base": 0xff000}),
+    ),
     # accel_trig: the same part, its INT pin on GP15.
     "zephyr/sensor/accel_trig": (
         Attach("mpu6050", "imu", {"i2c": (4, 5, 0x68), "int": (15,)}, {"i2c": 2},

@@ -242,6 +242,9 @@ BUILDS: dict[str, Build] = {
     # ours as zephyr,display.
     "zephyr/drivers/display": Build("drivers/display", test="sample.display.builtin", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),
+    # samples/drivers/spi_flash: a W25Q16JV on SPI0, its sector at 0xff000.
+    "zephyr/drivers/spi_flash": Build("drivers/spi_flash", test="sample.drivers.spi.flash",
+                                      overlays=("test/zephyr_samples/overlays/w25q16jv_spi0.overlay",)),
     # samples/drivers/spi_bitbang: spibb0 on GP12-15, MOSI looped to MISO.
     "zephyr/drivers/spi_bitbang": Build("drivers/spi_bitbang",
                                         overlays=("test/zephyr_samples/overlays/spibb0_gp12_15.overlay",)),

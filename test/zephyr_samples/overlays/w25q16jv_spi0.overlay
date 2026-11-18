@@ -1,0 +1,37 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A W25Q16JV on SPI0 (SCK GP18, MOSI GP19, MISO GP16), chip select on GP17
+ * as a GPIO so it stays low for a whole instruction. 1 MHz, the clock the
+ * harness serves the part at while it answers Read JEDEC ID; the ID is the
+ * part's (W25Q16JV datasheet 8.1), 16 Mbit.
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&pinctrl {
+	spi0_gpio_cs: spi0_gpio_cs {
+		group1 {
+			pinmux = <SPI0_SCK_P18>, <SPI0_TX_P19>;
+		};
+
+		group2 {
+			pinmux = <SPI0_RX_P16>;
+			input-enable;
+		};
+	};
+};
+
+&spi0 {
+	pinctrl-0 = <&spi0_gpio_cs>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio0 17 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	w25q16jv: flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <DT_FREQ_M(1)>;
+		jedec-id = [ef 40 15];
+		size = <DT_SIZE_M(16)>;
+		status = "okay";
+	};
+};
