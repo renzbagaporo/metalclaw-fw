@@ -46,6 +46,8 @@ enum {
     PROP_LOST,
     PROP_IGNORED,
     PROP_SPI_MODE,
+    PROP_ID_READ,
+    PROP_HELD_BASE,
 };
 
 enum {
@@ -70,6 +72,10 @@ struct w25q_state {
     uint32_t erases;
     uint32_t lost;
     uint32_t ignored;
+    // Whether the image answers Read JEDEC ID, and the address of the first
+    // held byte.
+    bool id_read;
+    uint32_t held_base;
 };
 
 static const struct mclw_property_desc w25q_properties[] = {
@@ -94,6 +100,10 @@ static const struct mclw_property_desc w25q_properties[] = {
     { .name = "ignored", .type = MCLW_TYPE_U32, .count = 1, .access = MCLW_ACCESS_RO, .unit = NULL,
       .min = 0, .max = UINT32_MAX },
     MCLW_PROPERTY_SPI_MODE,
+    { .name = "id_read", .type = MCLW_TYPE_BOOL, .count = 1, .access = MCLW_ACCESS_RW, .unit = NULL,
+      .min = 0, .max = 1 },
+    { .name = "held_base", .type = MCLW_TYPE_U32, .count = 1, .access = MCLW_ACCESS_RW, .unit = NULL,
+      .min = 0, .max = CAPACITY_BYTES - W25Q_HELD_BYTES },
 };
 
 static const struct mclw_region_desc w25q_regions[] = {
@@ -120,10 +130,10 @@ static uint32_t address_of(const uint8_t *bytes) {
     return ((uint32_t)bytes[0] << 16) | ((uint32_t)bytes[1] << 8) | bytes[2];
 }
 
-// The image holds the array's first pages at addresses 0x0000 upward; a
-// byte beyond them has nowhere to go.
+// The image holds the pages from held_base on, named by address bits
+// 15..8 as the engine serves them; a byte outside them has nowhere to go.
 static uint8_t *held(struct w25q_state *s, uint32_t address) {
-    if (address >= W25Q_HELD_BYTES) {
+    if (address < s->held_base || address - s->held_base >= W25Q_HELD_BYTES) {
         return NULL;
     }
     return mclw_command_register(&s->image, (uint16_t)address);
@@ -170,8 +180,10 @@ static void page_program(struct w25q_state *s, const uint8_t *bytes, size_t len)
 static void erase(struct w25q_state *s, uint32_t address, uint32_t size, uint32_t duration_us) {
     uint32_t first = address & ~(size - 1u);
 
-    for (uint32_t at = first; at < first + size && at < W25Q_HELD_BYTES; at++) {
-        *held(s, at) = 0xff;
+    for (uint32_t at = 0; at < W25Q_HELD_BYTES; at++) {
+        if (s->held_base + at >= first && s->held_base + at < first + size) {
+            *held(s, s->held_base + at) = 0xff;
+        }
     }
     s->erases++;
     start(s, duration_us);
@@ -211,6 +223,11 @@ static void w25q_on_window(struct mclw_command_image *image, const uint8_t *byte
                 break;
             case W25Q_READ_DATA:
                 s->reads++;
+                break;
+            case W25Q_READ_JEDEC_ID:
+                if (!s->id_read) {
+                    s->ignored++;
+                }
                 break;
             case W25Q_PAGE_PROGRAM:
                 if (wel && len >= 5) {
@@ -287,10 +304,30 @@ static void build_image(struct w25q_state *s) {
         mclw_command_add_busy_opcode(&s->image, busy_opcodes[i]);
     }
     for (uint8_t page = 0; page < W25Q_HELD_PAGES; page++) {
-        (void)mclw_command_add_page(&s->image, page);
-        memset(mclw_command_register(&s->image, (uint16_t)(page * W25Q_PAGE_SIZE)), 0xff, W25Q_PAGE_SIZE);
+        uint8_t number = (uint8_t)((s->held_base >> 8) + page);
+
+        (void)mclw_command_add_page(&s->image, number);
+        memset(mclw_command_register(&s->image, (uint16_t)(number << 8)), 0xff, W25Q_PAGE_SIZE);
+    }
+    // 8.2, Read JEDEC ID (9Fh): the manufacturer and the two device ID bytes
+    // follow the instruction at once.
+    if (s->id_read) {
+        static const uint8_t id[] = { JEDEC_ID >> 16, (JEDEC_ID >> 8) & 0xffu, JEDEC_ID & 0xffu };
+
+        mclw_command_set_immediate_response(&s->image);
+        (void)mclw_command_add_response(&s->image, W25Q_READ_JEDEC_ID);
+        (void)mclw_command_set_response(&s->image, W25Q_READ_JEDEC_ID, id, sizeof(id));
     }
     mclw_command_set_on_window(&s->image, w25q_on_window, s);
+}
+
+// The image again, for a new id_read or held_base: the held pages read
+// erased, as at attach.
+static int rebuild(struct w25q_state *s) {
+    mclw_hal_spi_target_disarm(s->spi);
+    build_image(s);
+    publish(s);
+    return mclw_hal_spi_target_arm_command(s->spi, &s->image, NULL);
 }
 
 static void power_on(struct w25q_state *s) {
@@ -305,6 +342,8 @@ static int w25q_init(struct mclw_instance *inst, const struct mclw_binding *bind
 
     s->spi = bindings[BINDING_SPI].spi;
     s->now_us = mclw_now_us();
+    s->id_read = false;
+    s->held_base = 0;
     power_on(s);
     build_image(s);
     return mclw_hal_spi_target_arm_command(s->spi, &s->image, NULL);
@@ -324,7 +363,7 @@ static int w25q_reset(struct mclw_instance *inst, bool factory) {
     power_on(s);
     if (factory) {
         for (uint32_t at = 0; at < W25Q_HELD_BYTES; at++) {
-            *held(s, at) = 0xff;
+            *held(s, s->held_base + at) = 0xff;
         }
     }
     s->reads = 0;
@@ -372,16 +411,41 @@ static int w25q_get(struct mclw_instance *inst, size_t property, struct mclw_val
             return 0;
         case PROP_SPI_MODE:
             return mclw_spi_mode_get(inst, BINDING_SPI, out);
+        case PROP_ID_READ:
+            out->v[0] = s->id_read;
+            return 0;
+        case PROP_HELD_BASE:
+            out->v[0] = s->held_base;
+            return 0;
         default:
             return -EINVAL;
     }
 }
 
+// held_base is a page boundary whose held pages stay within one 64 KiB
+// block, since the engine names a page by address bits 15..8.
 static int w25q_set(struct mclw_instance *inst, size_t property, const struct mclw_value *in) {
-    if (property == PROP_SPI_MODE) {
-        return mclw_spi_mode_set(inst, BINDING_SPI, in);
+    struct w25q_state *s = inst->state;
+
+    switch (property) {
+        case PROP_SPI_MODE:
+            return mclw_spi_mode_set(inst, BINDING_SPI, in);
+        case PROP_ID_READ:
+            s->id_read = in->v[0] != 0;
+            return rebuild(s);
+        case PROP_HELD_BASE: {
+            uint32_t base = (uint32_t)in->v[0];
+
+            if ((base & (W25Q_PAGE_SIZE - 1u)) != 0 || (base & 0xffffu) + W25Q_HELD_BYTES > 0x10000u ||
+                base > CAPACITY_BYTES - W25Q_HELD_BYTES) {
+                return -EINVAL;
+            }
+            s->held_base = base;
+            return rebuild(s);
+        }
+        default:
+            return -EINVAL;
     }
-    return -EINVAL;
 }
 
 static int w25q_read_region(struct mclw_instance *inst, size_t region, uint32_t offset, void *buf, size_t len) {
@@ -390,7 +454,7 @@ static int w25q_read_region(struct mclw_instance *inst, size_t region, uint32_t 
 
     (void)region;
     for (size_t i = 0; i < len; i++) {
-        out[i] = mclw_command_get_register(&s->image, (uint16_t)(offset + i));
+        out[i] = mclw_command_get_register(&s->image, (uint16_t)(s->held_base + offset + i));
     }
     return 0;
 }
@@ -401,7 +465,7 @@ static int w25q_write_region(struct mclw_instance *inst, size_t region, uint32_t
     struct w25q_state *s = inst->state;
 
     (void)region;
-    (void)mclw_command_set_registers(&s->image, (uint16_t)offset, buf, len);
+    (void)mclw_command_set_registers(&s->image, (uint16_t)(s->held_base + offset), buf, len);
     publish(s);
     return 0;
 }

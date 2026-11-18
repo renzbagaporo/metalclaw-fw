@@ -19,6 +19,10 @@ void mclw_command_set_memory_read(struct mclw_command_image *image, uint8_t opco
     image->read_memory_opcode = opcode;
 }
 
+void mclw_command_set_immediate_response(struct mclw_command_image *image) {
+    image->immediate_response = true;
+}
+
 void mclw_command_set_filler(struct mclw_command_image *image, uint8_t filler) {
     image->filler = filler;
 }

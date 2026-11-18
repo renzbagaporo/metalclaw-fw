@@ -22,6 +22,7 @@
 #define W25Q_RELEASE_POWER_DOWN 0xab
 #define W25Q_ENABLE_RESET 0x66
 #define W25Q_RESET 0x99
+#define W25Q_READ_JEDEC_ID 0x9f
 
 // Status Register-1 (7.1): BUSY and WEL.
 #define W25Q_SR1_BUSY 0x01

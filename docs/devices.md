@@ -278,7 +278,10 @@ worker delivers fills that queue with polls, and each new window then
 displaces a queued one that only repeats the window before it. A publish
 of the status reaches the next window from the engine at once, and one of
 the rest lands at once even while a window that reads only the status byte
-is open. `w25q` is built this way.
+is open. `w25q` is built this way. An image may instead have one immediate
+response, which follows the opcode with no NOP (a NOR flash's Read JEDEC
+ID); the engine then serves every window's second byte once the opcode is
+decoded, not ahead of it, and takes no BUSY line with it.
 
 `core/include/metalclaw/sink.h` is for parts that only listen and have no
 register map to serve: display controllers, LED drivers, a port expander.
@@ -355,7 +358,9 @@ port exists.
   image (10.7 MHz, 15 MHz and 8 MHz; 2 MHz for a command image with a
   memory read, an estimate not yet measured on the bench: the first data
   byte must reach the state machine within one SCK period of the last
-  address bit, and the chain spends about 200 ns there) and counters (`transactions`, `bytes`,
+  address bit, and the chain spends about 200 ns there; 1 MHz for one
+  with an immediate response, whose second byte waits on about five blocks
+  of the chain) and counters (`transactions`, `bytes`,
   short and long windows, DMA faults, stale windows; for a command image a
   stale window is one that began while BUSY was high or that found the
   worker's queue full; a missed window is one the engine served but could
