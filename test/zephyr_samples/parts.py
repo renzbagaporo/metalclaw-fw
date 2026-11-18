@@ -218,6 +218,12 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('led_driver')", lambda v: v & 0xe0 == 0xe0, "LED drivers on I/O 5-7", 3.0),
         )),
     ),
+    # The VL53L0X at 0x29 on I2C0, 200 mm away.
+    "zephyr/sensor/vl53l0x": (
+        Attach("vl53l0x", "tof", {"i2c": (4, 5, 0x29)}, {"i2c": 2}, {"distance": 200}, checks=(
+            Check("part.rangings", lambda v: v > 1, "the sample's rangings", 2.0),
+        )),
+    ),
     # The SCT2024 on SPI0: the sample turns LED 0 on first, then one more
     # each 500 ms, each write latched with an LA/ pulse.
     "zephyr/drivers/led/sct2024": (
