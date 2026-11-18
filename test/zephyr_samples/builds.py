@@ -270,6 +270,15 @@ BUILDS: dict[str, Build] = {
     # ours as zephyr,display.
     "zephyr/drivers/display": Build("drivers/display", test="sample.display.builtin", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),
+    # samples/drivers/misc/grove_display: a Grove LCD RGB Backlight on I2C0.
+    "zephyr/drivers/misc/grove_display": Build("drivers/misc/grove_display", test="sample.drivers.misc.grove_display",
+                                               overlays=("test/zephyr_samples/overlays/i2c0.overlay",
+                                                         "test/zephyr_samples/overlays/grove_lcd_rgb_3e.overlay")),
+    # samples/drivers/led/pca9633: its app.overlay puts the part on
+    # arduino_i2c, which the rpi_pico_uno_flexypin shield maps to I2C0
+    # (GP4/GP5).
+    "zephyr/drivers/led/pca9633": Build("drivers/led/pca9633", test="sample.drivers.led.pca9633",
+                                        args=("SHIELD=rpi_pico_uno_flexypin",)),
     # TI's TMP108, TMP112 and TMP116 at 0x48 on I2C0.
     **{f"zephyr/sensor/{sample}": Build(f"sensor/{sample}", test=test, overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", f"test/zephyr_samples/overlays/{node}.overlay"))

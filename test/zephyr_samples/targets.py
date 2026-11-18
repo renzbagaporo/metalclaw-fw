@@ -516,6 +516,15 @@ OWN: dict[str, Spec] = {
                                      source="samples/drivers/fuel_gauge/src/main.c"),
     # samples/drivers/auxdisplay/src/main.c: writes its greeting and logs
     # only a failure; the part's DDRAM judges it.
+    # samples/drivers/misc/grove_display/src/main.c: prints only when the
+    # LCD is not ready; its yaml's harness is "grove", a person looking.
+    # The parts judge it.
+    "zephyr/drivers/misc/grove_display": own(forbidden=(*FORBIDDEN, r"not ready"), seconds=3.0,
+                                             source="samples/drivers/misc/grove_display/src/main.c"),
+    # samples/drivers/led/pca9633/src/main.c:27-40: logs the device found
+    # and the test starting, then errors only; build_only upstream.
+    "zephyr/drivers/led/pca9633": own(r"Found LED device", r"Testing leds", forbidden=(*FORBIDDEN, r"<err>"),
+                                      seconds=5.0, source="samples/drivers/led/pca9633/src/main.c"),
     "zephyr/drivers/auxdisplay": own(forbidden=(*FORBIDDEN, r"<err>"), seconds=3.0,
                                      source="samples/drivers/auxdisplay/src/main.c"),
     # Typed console samples, whose yaml harness is "keyboard": a person types.

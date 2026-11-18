@@ -114,6 +114,27 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("mpu6050", "imu", {"i2c": (4, 5, 0x68)}, {"i2c": 2},
                {"acceleration": (250, -500, 1125), "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
     ),
+    # The Grove LCD RGB Backlight on I2C0: the AIP31068 LCD at 0x3E, where
+    # the sample writes a ten-digit counter from address 0. The driver sets
+    # entry mode I/D 0 with shift (grove_lcd_rgb.c), so the address counter
+    # runs down from 0 and the digits land at 00h and below it, wrapping
+    # (HD44780U p. 26): ten of them in the DDRAM is the count. Its backlight's
+    # PCA9633 at 0x62 shares the bus, and a harness I2C target answers one
+    # address per bus (the RP2's I2C block has one target address), so it
+    # goes unanswered and the driver's backlight writes fail.
+    "zephyr/drivers/misc/grove_display": (
+        Attach("aip31068", "lcd", {"i2c": (4, 5, 0x3e)}, {"i2c": 2}, checks=(
+            Check("bytes(part.read_region('ddram', 0, 128))", lambda v: sum(48 <= b <= 57 for b in v) >= 10,
+                  "the sample's ten-digit counter in the DDRAM", 3.0),
+        )),
+    ),
+    # samples/drivers/led/pca9633: the part at 0x62 on I2C0, which the
+    # sample turns on, off and to half brightness LED by LED.
+    "zephyr/drivers/led/pca9633": (
+        Attach("pca9633", "leds", {"i2c": (4, 5, 0x62)}, {"i2c": 2}, checks=(
+            Check("part.get('writes')", lambda v: v >= 4, "the driver's LED writes", 5.0),
+        )),
+    ),
     # TI's temperature sensors at 0x48 on I2C0 (GP4/GP5), at 23.5 C.
     **{f"zephyr/sensor/{sample}": (Attach(model, "thermo", {"i2c": (4, 5, 0x48)}, {"i2c": 2}, {"temperature": 23500}),)
        for sample, model in (("tmp108", "tmp108"), ("tmp112", "tmp112"), ("tmp11x", "tmp116"))},

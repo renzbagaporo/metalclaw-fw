@@ -1,0 +1,14 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * Seeed's Grove LCD RGB Backlight on I2C0 (i2c0.overlay): the JHD1313's
+ * AIP31068L LCD controller at 0x3E, the node the sample names glcd; the
+ * driver reaches the backlight's PCA9633 at 0x62 itself.
+ */
+
+&i2c0 {
+	glcd: grove_lcd@3e {
+		compatible = "seeed,grove-lcd-rgb";
+		reg = <0x3e>;
+		status = "okay";
+	};
+};
