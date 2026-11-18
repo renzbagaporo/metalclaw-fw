@@ -286,6 +286,22 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     "zephyr/drivers/spi_flash": (
         Attach("w25q16jv", "flash", {"spi": (18, 19, 16, 17)}, {}, {"id_read": True, "held_base": 0xff000}),
     ),
+    # spi_flash_at45: the AT45DB041E, holding the sample's test region
+    # (0xfe00, 1 KiB) in the pages from 0xfe00 on. The driver writes by
+    # Read-Modify-Write (CONFIG_SPI_FLASH_AT45_USE_READ_MODIFY_WRITE, on by
+    # default), a page at a time, so the sample erases nothing; it ends in
+    # Deep Power-Down.
+    "zephyr/drivers/spi_flash_at45": (
+        Attach("at45db041e", "flash", {"spi": (18, 19, 16, 17)}, {}, {"held_base": 0xfe00}, checks=(
+            Check("(part.power_down,) + tuple(now - then for now, then in zip("
+                  "(part.programs, part.lost, part.ignored), at45_at_restart))",
+                  lambda v: v[0] is True and v[1] >= 4 and v[2:] == (0, 0),
+                  "the test region's four pages written, nothing lost or ignored, and left in Deep Power-Down "
+                  "(power_down, programs, lost, ignored)", 2.0,
+                  setup="at45_at_restart = (part.programs, part.lost, part.ignored)\n",
+                  before_restart=True),
+        )),
+    ),
     # accel_trig: the same part, its INT pin on GP15.
     "zephyr/sensor/accel_trig": (
         Attach("mpu6050", "imu", {"i2c": (4, 5, 0x68), "int": (15,)}, {"i2c": 2},

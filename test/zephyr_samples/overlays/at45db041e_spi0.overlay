@@ -1,0 +1,43 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An AT45DB041E on SPI0 (SCK GP18, MOSI GP19, MISO GP16), chip select on
+ * GP17 as a GPIO so it stays low for a whole command. 1 MHz. Its ID, size
+ * and erase sizes are the data sheet's (DS-AT45DB041E-8783 Rev. Q, Table
+ * 23 and 2.1), in the binary page size; the power-down delays its tEDPD
+ * (2 us) and tRDPD (35 us).
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&pinctrl {
+	spi0_gpio_cs: spi0_gpio_cs {
+		group1 {
+			pinmux = <SPI0_SCK_P18>, <SPI0_TX_P19>;
+		};
+
+		group2 {
+			pinmux = <SPI0_RX_P16>;
+			input-enable;
+		};
+	};
+};
+
+&spi0 {
+	pinctrl-0 = <&spi0_gpio_cs>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio0 17 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	at45db041e: flash@0 {
+		compatible = "atmel,at45";
+		reg = <0>;
+		spi-max-frequency = <DT_FREQ_M(1)>;
+		jedec-id = [1f 24 00];
+		size = <4194304>;
+		sector-size = <65536>;
+		block-size = <2048>;
+		page-size = <256>;
+		enter-dpd-delay = <2000>;
+		exit-dpd-delay = <35000>;
+		status = "okay";
+	};
+};
