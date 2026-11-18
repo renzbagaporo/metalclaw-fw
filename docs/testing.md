@@ -317,26 +317,32 @@ own; what differs from a bench is the HAL under them, which serves the
 DUT's buses from the emulator instead of from PIO and DMA. The rp2 port's
 engines are not exercised here; the two benches are where they are judged.
 
-The emulator holds only the DUT. A bridge in it (`scripts/multi-node/
-metalclaw_pico_native.resc`) hands every I2C event, SPI frame and UART byte
-of the DUT's blocks, and every level it drives on a pin the harness
-watches, to the host harness over a Unix socket, in lockstep with the
-DUT's virtual time: each request carries that time and waits for its
+The emulator holds only the DUT, a Pico or a Pico 2 (`scripts/multi-node/
+metalclaw_pico_native.resc`, `metalclaw_pico2_native.resc`), chosen by the
+image's chip. A bridge in it hands every I2C event, SPI frame and bridged
+UART's byte of the DUT's blocks, and every level it drives on a pin the
+harness watches, to the host harness over a Unix socket, in lockstep with
+the DUT's virtual time: each request carries that time and waits for its
 answer, so a run is the same at any host load
 (`core/ports/host/BRIDGE.md`). The harness's clock, `metalclaw.now_us()`,
 is the DUT's virtual time, and so are the cases' bench seconds.
 
 The platform starts the host harness on a pseudo-terminal, which the rig
 opens as it opens a harness's USB serial port, and Renode with the DUT's
-image in its flash. The DUT's console comes from a socket terminal on its
-UART0; its memory, for the rig's mailbox and the pin and register cases,
-from Renode's monitor; a reset and a halt are monitor commands. DUT pins
-are the harness's pins one to one. The harness's own USB functions (the
-SWD probe, the console bridge) have no place here, and their cases skip.
+image in its flash. A USB serial function of the harness is a terminal
+too, linked by its interface string under the run's `usb` directory, so
+the DUT's console comes through `console_bridge` as on a bench: a UART on
+pins no bridged block has, the console's UART0 or a PIO program's, goes
+bit by bit. A jumper between two DUT pins is a join inside Renode, so
+blocks on joined pins talk to each other directly. The DUT's memory, for
+the rig's mailbox and the pin and register cases, comes from Renode's
+monitor; a reset and a halt are monitor commands. DUT pins are the
+harness's pins one to one. The cases of the harness's own USB functions
+(the SWD probe, the console bridge's) skip.
 
 ```sh
 just build-host
-just build-dut           # with METALCLAW_DUT_BOARD=rpi_pico: the bridge's script is the Pico's
+just build-dut
 METALCLAW_RENODE_DIR=<a package with the bridge> just test native
 ```
 
