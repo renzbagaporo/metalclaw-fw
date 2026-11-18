@@ -54,6 +54,8 @@ converter on SPI;
 I2C with its INT/SQW pin;
 [`zfm20`](../devices/zfm20/README.md), ZhianTec's ZFM-20 fingerprint module
 on a UART;
+[`mcp4728`](../devices/mcp4728/README.md), Microchip's MCP4728 quad 12-bit
+DAC on I2C;
 [`lsm6dso`](../devices/lsm6dso/README.md), ST's LSM6DSO and LSM6DSL 6-axis
 IMUs on I2C with their INT1 pin, two models;
 [`veml60xx`](../devices/veml60xx/README.md), Vishay's VEML6031X00 and
