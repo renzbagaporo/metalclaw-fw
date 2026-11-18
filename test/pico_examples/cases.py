@@ -402,6 +402,10 @@ def test_the_example_parts_saw_the_program(harness, example, parts, record_prope
             if bus in part.bindings:
                 record_property(f"part_{name}_{bus}_stats",
                                 harness.run(f"print(repr({name}.stats('{bus}')))\n").strip())
+        # A W25Q's last ignored instruction and why (devices/w25q), where
+        # the firmware's model has it.
+        record_property(f"part_{name}_last_ignored", harness.run(
+            f"print(repr(getattr({name}, 'last_ignored', None)))\n").strip())
         if "uart" in part.bindings:
             record_property("harness_uart_registers", harness.run(HARNESS_UARTS).strip())
             record_property("harness_pio_registers", harness.run(HARNESS_PIOS).strip())
