@@ -48,6 +48,7 @@ SPI, as the model `w25q16jv`;
 model `at24c02`;
 [`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
 I2C;
+[`lp5562`](../devices/lp5562/README.md), TI's LP5562 RGBW LED driver on I2C;
 [`is31fl3216a`](../devices/is31fl3216a/README.md), ISSI's IS31FL3216A
 16-channel LED driver on I2C;
 [`ft5336`](../devices/ft5336/README.md), FocalTech's FT5336 touch controller

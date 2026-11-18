@@ -584,6 +584,12 @@ OWN: dict[str, Spec] = {
         r"<inf> main: Testing all LEDs \(channel API\)",
         forbidden=(*FORBIDDEN, r"<err>"), seconds=6.0,
         source="samples/drivers/led/lp50xx/src/main.c"),
+    # samples/drivers/led/lp5562/src/main.c: finds the device, then cycles
+    # colours and blinks; its yaml has no criterion (harness TBD).
+    "zephyr/drivers/led/lp5562": own(
+        r"<inf> main: Found LED device lp5562@30", r"<inf> main: Testing leds",
+        forbidden=(*FORBIDDEN, r"<err>"), seconds=5.0,
+        source="samples/drivers/led/lp5562/src/main.c"),
     # samples/drivers/led/lp5569/src/main.c: finds the device, then cycles
     # its nine LEDs; its yaml wants these two lines.
     "zephyr/drivers/led/lp5569": own(

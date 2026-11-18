@@ -203,6 +203,14 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
               for i in range(4)),
         )),
     ),
+    # The LP5562 at 0x30 on I2C0: enabled, and the sample's colours and
+    # blinks written.
+    "zephyr/drivers/led/lp5562": (
+        Attach("lp5562", "leds", {"i2c": (4, 5, 0x30)}, {"i2c": 2}, checks=(
+            Check("part.get('enabled')", lambda v: v is True or v == 1, "the chip on", 3.0),
+            Check("part.get('writes')", lambda v: v >= 5, "the LEDs written", 3.0),
+        )),
+    ),
     # The LP5569 at 0x32 on I2C0: enabled, and the sample's LEDs driven.
     "zephyr/drivers/led/lp5569": (
         Attach("lp5569", "leds", {"i2c": (4, 5, 0x32)}, {"i2c": 2}, checks=(
