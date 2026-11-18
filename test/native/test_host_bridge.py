@@ -244,7 +244,7 @@ def test_a_ws2812b_frame_from_the_dut_s_pulses(tmp_path):
     try:
         harness.run("import metalclaw\nstrip = metalclaw.attach('ws2812b', 'strip', din=(6,))\nstrip.count = 1")
         bridge.advance(1_000_000)
-        assert {"op": "watch", "pin": 6} == {k: v for k, v in bridge.actions[-1].items() if k != "t_ns"}
+        assert {"op": "watch", "pin": 6} in [{k: v for k, v in a.items() if k != "t_ns"} for a in bridge.actions]
         t = bridge.t_ns
         for byte in (0x10, 0x20, 0x30):
             for bit in range(7, -1, -1):
@@ -414,4 +414,17 @@ def test_a_command_typed_ahead_of_the_raw_repl_is_kept(tmp_path):
         assert out.count(b"OK") == 2, out
         assert b"1" in out and b"2" in out, out
     finally:
+        harness.close()
+
+
+def test_the_hello_pulls_every_dut_line_up(tmp_path):
+    # The harness's board pulls each DUT line up (pio_onewire's and dht's
+    # released lines read high).
+    harness, bridge = _bridged(tmp_path)
+    try:
+        bridge.advance(1_000_000)
+        pulled = sorted(a["pin"] for a in bridge.actions if a["op"] == "pull" and a["level"] == 1)
+        assert pulled == list(range(30))
+    finally:
+        bridge.close()
         harness.close()
