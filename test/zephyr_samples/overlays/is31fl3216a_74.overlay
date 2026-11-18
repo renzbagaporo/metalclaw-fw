@@ -1,0 +1,12 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An ISSI IS31FL3216A at 0x74 (AD to GND, data sheet Table 1) on I2C0
+ * (i2c0.overlay).
+ */
+
+&i2c0 {
+	is31fl3216a@74 {
+		compatible = "issi,is31fl3216a";
+		reg = <0x74>;
+	};
+};
