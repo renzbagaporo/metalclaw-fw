@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "metalclaw/hal/gpio.h"
 #include "metalclaw/hal/i2c_target.h"
 #include "metalclaw/hal/platform.h"
 #include "metalclaw/model.h"
@@ -26,6 +27,8 @@
 #define REG_CONFIG 0x1a
 #define REG_GYRO_CONFIG 0x1b
 #define REG_ACCEL_CONFIG 0x1c
+#define REG_INT_PIN_CFG 0x37
+#define REG_INT_ENABLE 0x38
 #define REG_INT_STATUS 0x3a
 #define REG_ACCEL_XOUT_H 0x3b
 #define REG_TEMP_OUT_H 0x41
@@ -38,6 +41,12 @@
 #define PWR_MGMT_1_SLEEP 0x40u
 #define PWR_MGMT_1_TEMP_DIS 0x08u
 #define INT_STATUS_DATA_RDY 0x01u
+// INT_PIN_CFG and INT_ENABLE (register map RM-MPU-6000A 4.15, 4.16).
+#define INT_PIN_CFG_LEVEL_LOW 0x80u
+#define INT_PIN_CFG_LATCH 0x20u
+#define INT_ENABLE_DATA_RDY 0x01u
+// Unlatched, INT emits a 50 us pulse per data-ready (4.15).
+#define INT_PULSE_US 50u
 #define CONFIG_FSR_SHIFT 3
 #define WHO_AM_I_MPU6050 0x68
 
@@ -57,6 +66,7 @@ enum {
 
 enum {
     BINDING_I2C,
+    BINDING_INT,
 };
 
 struct mpu6050_state {
@@ -66,6 +76,8 @@ struct mpu6050_state {
     int32_t gyro_mdps[3];
     int32_t temperature_mc;
     uint64_t next_sample_us;
+    // The INT pin, when bound.
+    struct mclw_gpio *int_pin;
 };
 
 static const struct mclw_property_desc mpu6050_properties[] = {
@@ -103,6 +115,14 @@ static const struct mclw_binding_desc mpu6050_bindings[] = {
         .name = "i2c",
         .kind = MCLW_BINDING_I2C_TARGET,
         .required = true,
+        .usb = NULL,
+        .spi = { 0 },
+        .uart = { 0 },
+    },
+    {
+        .name = "int",
+        .kind = MCLW_BINDING_GPIO_OUT,
+        .required = false,
         .usb = NULL,
         .spi = { 0 },
         .uart = { 0 },
@@ -188,6 +208,7 @@ static int mpu6050_init(struct mclw_instance *inst, const struct mclw_binding *b
     struct mpu6050_state *s = inst->state;
 
     s->i2c = bindings[BINDING_I2C].i2c;
+    s->int_pin = bindings[BINDING_INT].present ? bindings[BINDING_INT].gpio : NULL;
     defaults(s);
     build_map(s);
     return mclw_hal_i2c_target_arm(s->i2c, &s->map);
@@ -198,6 +219,7 @@ static void mpu6050_deinit(struct mclw_instance *inst) {
 
     mclw_hal_i2c_target_disarm(s->i2c);
     s->i2c = NULL;
+    s->int_pin = NULL;
 }
 
 static int mpu6050_reset(struct mclw_instance *inst, bool factory) {
@@ -261,17 +283,47 @@ static int mpu6050_set(struct mclw_instance *inst, size_t property, const struct
 }
 
 // A new sample, and DATA_RDY, every sample period while awake.
+// The INT pin (4.15, 4.16): while DATA_RDY_EN is set, each data ready
+// emits a 50 us pulse, or with LATCH_INT_EN holds INT until INT_STATUS
+// clears; INT_LEVEL sets the active level. Push-pull either way (INT_OPEN is
+// not modelled).
+static bool int_enabled(struct mpu6050_state *s) {
+    return (mclw_regmap_get(&s->map, 0, REG_INT_ENABLE) & INT_ENABLE_DATA_RDY) != 0;
+}
+
+static void write_int(struct mpu6050_state *s, bool active) {
+    bool low = (mclw_regmap_get(&s->map, 0, REG_INT_PIN_CFG) & INT_PIN_CFG_LEVEL_LOW) != 0;
+
+    mclw_hal_gpio_write(s->int_pin, active != low);
+}
+
+static void drive_int(struct mpu6050_state *s, bool sampled) {
+    bool latched = (mclw_regmap_get(&s->map, 0, REG_INT_PIN_CFG) & INT_PIN_CFG_LATCH) != 0;
+    bool ready = (mclw_regmap_get(&s->map, 0, REG_INT_STATUS) & INT_STATUS_DATA_RDY) != 0;
+
+    if (s->int_pin == NULL) {
+        return;
+    }
+    if (sampled && !latched && int_enabled(s)) {
+        write_int(s, true);
+        mclw_hal_delay_us(INT_PULSE_US);
+    }
+    write_int(s, latched && ready && int_enabled(s));
+}
+
 static void mpu6050_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
     struct mpu6050_state *s = inst->state;
 
-    if (now_us < s->next_sample_us) {
+    if (now_us >= s->next_sample_us) {
+        uint32_t critical = mclw_hal_critical_enter();
+        uint32_t divider = (uint32_t)mclw_regmap_get(&s->map, 0, REG_SAMPLE_RATE_DIV) + 1u;
+        publish(s);
+        mclw_hal_critical_exit(critical);
+        s->next_sample_us = now_us + (uint64_t)divider * (1000000u / INTERNAL_RATE_HZ);
+        drive_int(s, true);
         return;
     }
-    uint32_t critical = mclw_hal_critical_enter();
-    uint32_t divider = (uint32_t)mclw_regmap_get(&s->map, 0, REG_SAMPLE_RATE_DIV) + 1u;
-    publish(s);
-    mclw_hal_critical_exit(critical);
-    s->next_sample_us = now_us + (uint64_t)divider * (1000000u / INTERNAL_RATE_HZ);
+    drive_int(s, false);
 }
 
 static const struct mclw_model_ops mpu6050_ops = {
