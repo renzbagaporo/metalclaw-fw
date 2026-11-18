@@ -46,6 +46,8 @@ gyroscope on SPI or I2C;
 SPI, as the model `w25q16jv`;
 [`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
 I2C;
+[`lsm6dso`](../devices/lsm6dso/README.md), ST's LSM6DSO 6-axis IMU on I2C with
+its INT1 pin;
 [`veml60xx`](../devices/veml60xx/README.md), Vishay's VEML6031X00 and
 VEML6046X00 light sensors on I2C, two models;
 [`pca9633`](../devices/pca9633/README.md), NXP's 4-bit I2C LED driver;
