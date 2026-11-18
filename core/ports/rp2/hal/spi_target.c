@@ -225,6 +225,14 @@ enum {
 #define SPI_COMMAND_NO_OPCODE 0xffu
 #define SPI_COMMAND_STATUS_RUN 300u
 #define SPI_COMMAND_DATA_RUN 256u
+// The bytes a window may run past the drain: more than any window clocks.
+#define SPI_SINK_COUNT 0x0fffffffu
+// A register or memory read runs on through the page slots after its own,
+// as the part's address runs on through its array: far enough to cross
+// every held page from the first, and the zero slot after the last. A
+// read from a later slot runs on past the slots into the table pool,
+// which reads harmlessly.
+#define SPI_COMMAND_PAGE_RUN ((MCLW_COMMAND_PAGES_MAX + 1u) * MCLW_COMMAND_PAGE_SIZE)
 #define SPI_COMMAND_CLOCK_HZ 8000000u
 #define SPI_COMMAND_STEP_REPEAT 4u
 // A memory read's first data byte must reach the TX FIFO between the
@@ -272,10 +280,15 @@ struct spi_command_block {
     uint8_t responses[MCLW_COMMAND_RESPONSES_MAX][MCLW_COMMAND_RESPONSE_MAX];
     // The memory list's own blocks; the loader reaches them by a jump.
     struct spi_cb memory[SPI_MEMORY_CBS];
-    // The zeroes after it are a null trigger: a window longer than the
-    // drain stops W there.
     struct spi_cb drain;
-    uint8_t unused2[0x600 - 0x5c0];
+    // A window longer than the drain: its other MOSI bytes go to one word,
+    // so the RX FIFO never fills and stalls the state machine, which would
+    // stop a long read's MISO bytes too. The zeroes after it are a null
+    // trigger that stops W, which it never reaches within a window.
+    struct spi_cb sink;
+    struct spi_cb stop;
+    uint32_t sink_word;
+    uint8_t unused2[0x600 - 0x5e4];
     // Two copies, so a read from any offset runs on without wrapping.
     uint8_t buffer[2 * MCLW_COMMAND_BUFFER_SIZE];
 };
@@ -287,6 +300,7 @@ _Static_assert(SPI_LIST_REGISTER * sizeof(struct spi_cb) < 255u, "list heads fit
 _Static_assert(SPI_LIST_MEMORY_STUB * sizeof(struct spi_cb) < 255u, "list heads fit a byte");
 _Static_assert(offsetof(struct spi_command_block, responses) == 0x500u, "responses are page aligned");
 _Static_assert(offsetof(struct spi_command_block, drain) == 0x5b0u, "drain follows the memory list");
+_Static_assert(offsetof(struct spi_command_block, sink) == 0x5c0u, "the sink follows the drain");
 
 // What the reset program copies of a command window: from the opcode
 // patched into the prologue's lookup to the memory read's high address.
@@ -1136,7 +1150,7 @@ static void command_status_publish(struct mclw_spi_target *t) {
     uint8_t *s = t->status;
 
     s[SPI_STATUS_MODEL] = image->status;
-    s[SPI_STATUS_BUSY] = (uint8_t)(image->status | image->busy_status);
+    s[SPI_STATUS_BUSY] = (uint8_t)((image->status | image->busy_status) & (uint8_t)~image->ready_status);
 }
 
 // A register read runs on from its page's slot into the next one, as the
@@ -1144,31 +1158,51 @@ static void command_status_publish(struct mclw_spi_target *t) {
 // hold the page after it. Held pages sit in runs of consecutive numbers,
 // each run after a zero slot and the last one before another. An unheld
 // page maps to the zero slot before the run its successor starts, or else
-// to slot 0, which zero slot 1 follows.
+// to slot 0, which zero slot 1 follows. Page numbers are address bits
+// 15..8, so a run may wrap from FFh to 00h, as the part's address crosses
+// a 64 KiB boundary: the layout starts at a held page whose predecessor is
+// not held.
 static void command_layout(struct mclw_spi_target *t, uint8_t *pagetab) {
     const struct mclw_command_image *image = t->command;
     uint8_t (*pages)[MCLW_COMMAND_PAGE_SIZE] = command_pages(t);
+    uint32_t held[256u / 32u];
+    uint32_t start = 0;
     uint8_t next = 1;
-    int previous = -2;
+    bool in_run = false;
 
     memset(pagetab, (int)((address_of(pages[0]) >> 8) & 0xffu), 256u);
-    for (int page = 0; page < 256; page++) {
-        for (uint8_t i = 0; i < image->page_count; i++) {
-            if (image->page_number[i] != page) {
-                continue;
-            }
-            if (page != previous + 1) {
-                if (page > 0) {
-                    pagetab[page - 1] = (uint8_t)((address_of(pages[next]) >> 8) & 0xffu);
-                }
-                next++;
-            }
-            t->page_slot[i] = next;
-            pagetab[page] = (uint8_t)((address_of(pages[next]) >> 8) & 0xffu);
-            next++;
-            previous = page;
+#define HELD(page) ((held[(page) / 32u] >> ((page) % 32u)) & 1u)
+    memset(held, 0, sizeof(held));
+    for (uint8_t i = 0; i < image->page_count; i++) {
+        held[image->page_number[i] / 32u] |= 1u << (image->page_number[i] % 32u);
+    }
+    for (uint32_t page = 0; page < 256u; page++) {
+        if (HELD(page) && !HELD((page - 1u) & 0xffu)) {
+            start = page;
+            break;
         }
     }
+    for (uint32_t k = 0; k < 256u; k++) {
+        uint32_t page = (start + k) & 0xffu;
+
+        if (!HELD(page)) {
+            in_run = false;
+            continue;
+        }
+        if (!in_run) {
+            pagetab[(page - 1u) & 0xffu] = (uint8_t)((address_of(pages[next]) >> 8) & 0xffu);
+            next++;
+            in_run = true;
+        }
+        for (uint8_t i = 0; i < image->page_count; i++) {
+            if (image->page_number[i] == page) {
+                t->page_slot[i] = next;
+            }
+        }
+        pagetab[page] = (uint8_t)((address_of(pages[next]) >> 8) & 0xffu);
+        next++;
+    }
+#undef HELD
 }
 
 static void command_build(struct mclw_spi_target *t) {
@@ -1203,7 +1237,7 @@ static void command_build(struct mclw_spi_target *t) {
     t->busy_image = false;
 
     memset(b->optab, (int)(SPI_LIST_WRITE * sizeof(struct spi_cb)), sizeof(b->optab));
-    if (image->busy_status != 0u) {
+    if (image->busy_status != 0u || image->ready_status != 0u) {
         for (uint32_t op = 0; op < 256u; op++) {
             if (mclw_command_busy_opcode(image, (uint8_t)op)) {
                 b->optab[op] = (uint8_t)(SPI_LIST_BUSY * sizeof(struct spi_cb));
@@ -1230,7 +1264,7 @@ static void command_build(struct mclw_spi_target *t) {
     b->dblock[SPI_DBLOCK_BUFFER] = (struct spi_dblock){
         channel_ctrl(D, D, DMA_SIZE_8, true, false, tx_dreq), address_of(b->buffer), txf, SPI_COMMAND_DATA_RUN };
     b->dblock[SPI_DBLOCK_REGISTER] = (struct spi_dblock){
-        channel_ctrl(D, D, DMA_SIZE_8, true, false, tx_dreq), page_high, txf, SPI_COMMAND_DATA_RUN };
+        channel_ctrl(D, D, DMA_SIZE_8, true, false, tx_dreq), page_high, txf, SPI_COMMAND_PAGE_RUN };
     b->jump = address_of(b->lists) | SPI_COMMAND_NO_OPCODE;
     b->write_jump = address_of(&l[SPI_LIST_WRITE]);
     b->drain_jump = address_of(&b->drain);
@@ -1240,6 +1274,8 @@ static void command_build(struct mclw_spi_target *t) {
     uint32_t opcode = address_of(&p[SPI_PROLOGUE_LOOKUP].read);
 
     b->drain = (struct spi_cb){ rxf, address_of(t->engine->rec[0].capture), MCLW_COMMAND_WINDOW_MAX, drain };
+    b->sink = (struct spi_cb){ rxf, address_of(&b->sink_word), SPI_SINK_COUNT,
+        channel_ctrl(W, L, DMA_SIZE_8, false, false, rx_dreq) };
 
     bool immediate = image->immediate_response;
     // The status bytes a list serves before its data, the one the prologue
