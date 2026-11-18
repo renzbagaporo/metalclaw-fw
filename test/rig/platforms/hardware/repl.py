@@ -8,12 +8,16 @@ import serial
 
 
 class Repl:
-    def __init__(self, serial_number: str):
-        pattern = f"/dev/serial/by-id/usb-Metalclaw_*_{serial_number}-if00"
-        ports = glob.glob(pattern)
-        if len(ports) != 1:
-            raise RuntimeError(f"expected one port matching {pattern}, found {ports}")
-        self.port = serial.Serial(ports[0], 115200, timeout=0.1)
+    # A harness on USB by its serial number, or the host harness's
+    # pseudo-terminal by `path`.
+    def __init__(self, serial_number: str | None = None, path: str | None = None):
+        if path is None:
+            pattern = f"/dev/serial/by-id/usb-Metalclaw_*_{serial_number}-if00"
+            ports = glob.glob(pattern)
+            if len(ports) != 1:
+                raise RuntimeError(f"expected one port matching {pattern}, found {ports}")
+            path = ports[0]
+        self.port = serial.Serial(path, 115200, timeout=0.1)
 
     def __enter__(self):
         self.port.reset_input_buffer()
@@ -51,6 +55,9 @@ class Repl:
             out += self._read()
             if out.count(b"\x04") >= 2:
                 break
+        # The prompt that ended the code before may arrive after it, ahead
+        # of this reply (the host harness's terminal is relayed).
+        out = out.lstrip(b">")
         if not out.startswith(b"OK"):
             raise RuntimeError(f"raw REPL did not accept the code: {out!r}")
         body, _, err = out[2:].partition(b"\x04")

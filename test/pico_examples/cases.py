@@ -75,6 +75,11 @@ def parts(harness, example, fixture):
 def console(harness, example, fixture, parts):
     if console_spec(example) is None and pin_spec(example) is None:
         pytest.skip(f"no completion criteria for {example.target} yet")
+    # Native mode reads the DUT's console from the emulator, not through a
+    # harness bridge.
+    if hasattr(harness, "dut_console"):
+        yield harness.dut_console()
+        return
     uart = fixture["uart"]
     harness.run(DETACH + f"metalclaw.attach('console_bridge', {NAME!r}, uart={(uart['tx'], uart['rx'])})\n")
     harness.wait_interface(INTERFACE)
