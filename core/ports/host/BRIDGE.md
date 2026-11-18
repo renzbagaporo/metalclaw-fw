@@ -81,8 +81,11 @@ DHT22's line) asks for its pins to be watched, times the DUT's edges as
 they arrive, and drives the line with `gpio` actions at the times the part
 would, as the rp2 port's PIO engines do (`core/ports/host/wire.c`).
 
+A part that steps its own pins (a quadrature encoder) queues timed `gpio`
+actions up to a few periods ahead; one that answers a carrier (an IR
+receiver) drives its output from the carrier's first edge to the end of
+the burst, which it sees at the next round, so up to a millisecond late.
+
 ## Not yet
 
-The latched, stepped and IR-envelope wires, and an I2C bus a DUT drives
-from PIO, which the emulator decodes from its pins into the same `i2c`
-requests.
+The latched wire (a HUB75 panel).

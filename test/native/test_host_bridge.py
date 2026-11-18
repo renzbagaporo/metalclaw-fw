@@ -236,3 +236,20 @@ def test_a_max7219_takes_the_dut_s_spi_writes(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_a_quadrature_encoder_steps_its_pins_at_its_rate(tmp_path):
+    # 1000 steps a second: A and B change in turn, a state every millisecond.
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\nq = metalclaw.attach('quadrature_encoder', 'q', ab=(10, 11))\nq.rate = 1000")
+        for _ in range(20):
+            bridge.advance(1_000_000)
+        edges = sorted((a["t_ns"], a["pin"]) for a in bridge.actions
+                       if a["op"] == "gpio" and a["pin"] in (10, 11) and a["t_ns"] > 2_000_000)
+        gaps = {b[0] - a[0] for a, b in zip(edges, edges[1:])}
+        assert gaps == {1_000_000}, sorted(gaps)[:5]
+        assert {p for _, p in edges} == {10, 11}
+    finally:
+        bridge.close()
+        harness.close()

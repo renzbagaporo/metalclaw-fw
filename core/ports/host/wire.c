@@ -13,7 +13,14 @@
 //   RESPONDER      a low of start_min or longer, then its release, plays
 //                  the waveform
 //   PINS           pins, no engine
-// LATCHED_IN, STEPS_OUT and ENVELOPE are not here yet.
+//   STEPS_OUT      the states written, one a period, as timed gpio actions,
+//                  up to STEPS_AHEAD words ahead of the DUT's time (the
+//                  rp2 port's FIFO)
+//   ENVELOPE       the output low from the carrier's first edge until no
+//                  edge for gap_ns; the burst's end is seen at the next
+//                  worker round, so its release can come up to a
+//                  millisecond of DUT time late
+// LATCHED_IN is not here yet.
 
 #include <errno.h>
 #include <stddef.h>
@@ -32,6 +39,7 @@
 // A low this long or longer on a 1-Wire line is a reset (DS18B20 042208:
 // tRSTL 480 us minimum; a slot is 60-120 us).
 #define ONEWIRE_RESET_NS 300000u
+#define STEPS_AHEAD 8u
 
 struct mclw_wire {
     const void *owner;
@@ -60,6 +68,17 @@ struct mclw_wire {
     uint32_t pulses[RESPONSE_MAX];
     size_t pulse_count;
     uint32_t responses;
+    // STEPS_OUT: the period, the last state put out, and when the queued
+    // states run out.
+    uint32_t period_ns;
+    uint32_t last_state;
+    uint64_t steps_end_ns;
+    // ENVELOPE: whether a burst is on, when it began and ended, and the
+    // carrier's last edge.
+    bool burst;
+    uint64_t burst_start_ns;
+    uint64_t burst_end_ns;
+    uint64_t last_edge_ns;
 };
 
 static struct mclw_wire wires[WIRES_MAX];
@@ -189,6 +208,18 @@ static void responder_edge(struct mclw_wire *w, bool level, uint64_t t_ns) {
     w->stats.frames++;
 }
 
+static void envelope_edge(struct mclw_wire *w, uint64_t t_ns) {
+    if (!w->burst) {
+        w->burst = true;
+        w->burst_start_ns = t_ns;
+        if (w->burst_end_ns != 0u) {
+            put(w, (uint32_t)((t_ns - w->burst_end_ns) / 1000u) & ~MCLW_WIRE_MARK);
+        }
+        mclw_host_event_gpio_at(w->pins[1], MCLW_HOST_GPIO_LOW, t_ns);
+    }
+    w->last_edge_ns = t_ns;
+}
+
 void mclw_host_wire_edge(uint8_t pin, int level, uint64_t t_ns) {
     uint32_t state = mclw_hal_critical_enter();
 
@@ -221,6 +252,11 @@ void mclw_host_wire_edge(uint8_t pin, int level, uint64_t t_ns) {
                 case MCLW_WIRE_RESPONDER:
                     responder_edge(w, high, t_ns);
                     break;
+                case MCLW_WIRE_ENVELOPE:
+                    if (k == 0u) {
+                        envelope_edge(w, t_ns);
+                    }
+                    break;
                 default:
                     break;
             }
@@ -245,6 +281,14 @@ static void poll_wires(void *ctx) {
             w->level[0] == 0 && now - w->changed_ns[0] >= w->facts.pulse_bits.reset_ns) {
             frame_end(w);
         }
+        if (w->owner != NULL && w->facts.engine == MCLW_WIRE_ENVELOPE && w->burst &&
+            now - w->last_edge_ns >= w->facts.envelope.gap_ns) {
+            w->burst = false;
+            w->burst_end_ns = w->last_edge_ns;
+            put(w, MCLW_WIRE_MARK | ((uint32_t)((w->last_edge_ns - w->burst_start_ns) / 1000u) & ~MCLW_WIRE_MARK));
+            w->stats.frames++;
+            mclw_host_event_gpio_at(w->pins[1], MCLW_HOST_GPIO_RELEASED, w->last_edge_ns + w->facts.envelope.gap_ns);
+        }
     }
     mclw_hal_critical_exit(state);
 }
@@ -264,6 +308,8 @@ struct mclw_wire *mclw_hal_wire_open(const uint8_t *pins, uint8_t count, const s
         case MCLW_WIRE_ONEWIRE:
         case MCLW_WIRE_RESPONDER:
         case MCLW_WIRE_PINS:
+        case MCLW_WIRE_STEPS_OUT:
+        case MCLW_WIRE_ENVELOPE:
             break;
         default:
             *err = -ENOTSUP;
@@ -306,7 +352,15 @@ struct mclw_wire *mclw_hal_wire_open(const uint8_t *pins, uint8_t count, const s
     }
     w->owner = owner;
     mclw_hal_critical_exit(state);
-    if (facts->engine != MCLW_WIRE_PINS) {
+    if (facts->engine == MCLW_WIRE_STEPS_OUT) {
+        // The first state, every pin low, until states are written.
+        for (uint8_t k = 0; k < count; k++) {
+            mclw_host_event_gpio(pins[k], MCLW_HOST_GPIO_LOW);
+        }
+    } else if (facts->engine == MCLW_WIRE_ENVELOPE) {
+        mclw_host_event_watch(pins[0]);
+        mclw_host_event_gpio(pins[1], MCLW_HOST_GPIO_RELEASED);
+    } else if (facts->engine != MCLW_WIRE_PINS) {
         for (uint8_t k = 0; k < count; k++) {
             mclw_host_event_watch(pins[k]);
         }
@@ -383,21 +437,56 @@ uint32_t mclw_hal_wire_responses(struct mclw_wire *w) {
 }
 
 int mclw_hal_wire_set_period(struct mclw_wire *w, uint32_t ns) {
-    (void)w;
-    (void)ns;
-    return -ENOTSUP;
-}
-
-size_t mclw_hal_wire_write(struct mclw_wire *w, const uint32_t *words, size_t count) {
-    (void)w;
-    (void)words;
-    (void)count;
+    if (w->facts.engine != MCLW_WIRE_STEPS_OUT || ns == 0u) {
+        return -EINVAL;
+    }
+    if (!mclw_hal_wire_idle(w)) {
+        return -EBUSY;
+    }
+    w->period_ns = ns;
     return 0;
 }
 
+// Each word holds 32 / pins states, the first in the low bits; a state's
+// bit k is pin k.
+size_t mclw_hal_wire_write(struct mclw_wire *w, const uint32_t *words, size_t count) {
+    uint64_t now = mclw_host_event_ns();
+    uint32_t per_word = 32u / w->count;
+    uint32_t mask = (1u << w->count) - 1u;
+    size_t n = 0;
+
+    if (w->facts.engine != MCLW_WIRE_STEPS_OUT || w->period_ns == 0u) {
+        return 0;
+    }
+    uint32_t state = mclw_hal_critical_enter();
+    if (w->steps_end_ns < now) {
+        w->steps_end_ns = now;
+    }
+    for (; n < count; n++) {
+        if (w->steps_end_ns > now + (uint64_t)STEPS_AHEAD * per_word * w->period_ns) {
+            break;
+        }
+        for (uint32_t s = 0; s < per_word; s++) {
+            uint32_t next = (words[n] >> (s * w->count)) & mask;
+
+            for (uint8_t k = 0; k < w->count; k++) {
+                if (((next ^ w->last_state) >> k) & 1u) {
+                    mclw_host_event_gpio_at(w->pins[k], ((next >> k) & 1u) ? MCLW_HOST_GPIO_HIGH
+                                                                          : MCLW_HOST_GPIO_LOW,
+                        w->steps_end_ns);
+                }
+            }
+            w->last_state = next;
+            w->steps_end_ns += w->period_ns;
+        }
+        w->stats.words++;
+    }
+    mclw_hal_critical_exit(state);
+    return n;
+}
+
 bool mclw_hal_wire_idle(struct mclw_wire *w) {
-    (void)w;
-    return true;
+    return w->facts.engine != MCLW_WIRE_STEPS_OUT || w->steps_end_ns <= mclw_host_event_ns();
 }
 
 int mclw_hal_wire_onewire_arm(struct mclw_wire *w, struct mclw_onewire *image) {
