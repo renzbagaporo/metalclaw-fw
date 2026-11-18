@@ -45,6 +45,8 @@ gyroscope on SPI or I2C;
 [`w25q`](../devices/w25q/README.md), the Winbond W25Q16JV serial NOR flash on
 SPI, as the model `w25q16jv`;
 [`pca9633`](../devices/pca9633/README.md), NXP's 4-bit I2C LED driver;
+[`sht`](../devices/sht/README.md), Sensirion's SHT3x-DIS and SHT4x humidity
+sensors on I2C, two models;
 [`tmp1xx`](../devices/tmp1xx/README.md), Texas Instruments' TMP108, TMP112
 and TMP116 temperature sensors on I2C, three models;
 [`mcp2515`](../devices/mcp2515/README.md), Microchip's stand-alone CAN
