@@ -157,11 +157,15 @@ struct spi_descriptor {
 // the first write has landed. Without these, about one window in a
 // thousand loaded a block from a stale address.
 //
-// An image with an immediate response has no status byte in the prologue:
+// An image with immediate responses has no status byte in the prologue:
 // each list serves the window's second byte itself, once the opcode is in.
 // The prologue's status slot holds a spacer, which leaves its layout as it
-// is; the response list is the one response's data, D loaded at once; the
-// buffer, register and memory lists serve one status byte more.
+// is; with one response the response list is its data, D loaded at once,
+// and with more it is the usual lookup, whose first byte is then the
+// response's own; the buffer, register and memory lists serve one status
+// byte more. A short register read is the register list with no high
+// address byte: D's read is page 0's slot, its low byte the one address
+// byte.
 //
 // A response read runs six blocks between the opcode's last bit and its
 // first data byte reaching the TX FIFO, which must happen within the one
@@ -238,6 +242,12 @@ enum {
 // six the response read was measured to run in 600 ns. A 1 MHz period
 // leaves under a factor of two on that; to be measured on the bench.
 #define SPI_COMMAND_IMMEDIATE_CLOCK_HZ 1000000u
+// With several immediate responses the response list looks the opcode up
+// first: its three blocks and the opcode copy's repeats come before D's
+// first transfer, twice the one-response path. Measured with Zephyr's
+// MCP2515 driver and its isotp sample: 500 kHz corrupts responses on a
+// 125 MHz RP2040 harness every run, 250 kHz passes.
+#define SPI_COMMAND_IMMEDIATE_LOOKUP_CLOCK_HZ 250000u
 // How long a publish waits for an open window's opcode, to learn whether
 // the window reads only the status byte: a byte at 250 kHz.
 #define SPI_COMMAND_OPCODE_WAIT_US 32u
@@ -1245,7 +1255,7 @@ static void command_build(struct mclw_spi_target *t) {
     l[SPI_LIST_WRITE + 1] = to_drain;
     l[SPI_LIST_BUSY] = (struct spi_cb){ address_of(&b->write_jump), jump_l, 1u, jump };
 
-    if (immediate) {
+    if (immediate && image->response_count <= 1u) {
         // D's read stays at the first response, which is the only one.
         l[SPI_LIST_RESPONSE + 0] = (struct spi_cb){
             address_of(&b->dblock[SPI_DBLOCK_RESPONSE]), d_al1, 4u, load_d };
@@ -1265,14 +1275,28 @@ static void command_build(struct mclw_spi_target *t) {
     l[SPI_LIST_BUFFER + 2] = (struct spi_cb){ address_of(&b->dblock[SPI_DBLOCK_BUFFER]), d_al1, 4u, load_d };
     l[SPI_LIST_BUFFER + 3] = to_drain;
 
-    l[SPI_LIST_REGISTER + 0] = (struct spi_cb){ status, txf, 2u + ahead, tx_status };
-    l[SPI_LIST_REGISTER + 1] = (struct spi_cb){ rxf, address_of(&l[SPI_LIST_REGISTER + 3].read), 1u, rx_byte };
-    l[SPI_LIST_REGISTER + 2] = spacer;
-    l[SPI_LIST_REGISTER + 3] = (struct spi_cb){
-        address_of(b->pagetab), address_of(&b->dblock[SPI_DBLOCK_REGISTER].read) + 1u, 1u, copy_byte };
-    l[SPI_LIST_REGISTER + 4] = (struct spi_cb){ rxf, address_of(&b->dblock[SPI_DBLOCK_REGISTER].read), 1u, rx_byte };
-    l[SPI_LIST_REGISTER + 5] = (struct spi_cb){ address_of(&b->dblock[SPI_DBLOCK_REGISTER]), d_al1, 4u, load_d };
-    l[SPI_LIST_REGISTER + 6] = to_drain;
+    if (image->short_register_read) {
+        // The byte during the address, then the registers from it.
+        b->dblock[SPI_DBLOCK_REGISTER].read = page_high | ((uint32_t)b->pagetab[0] << 8);
+        l[SPI_LIST_REGISTER + 0] = (struct spi_cb){ status, txf, 1u, tx_status };
+        l[SPI_LIST_REGISTER + 1] = (struct spi_cb){
+            rxf, address_of(&b->dblock[SPI_DBLOCK_REGISTER].read), 1u, rx_byte };
+        l[SPI_LIST_REGISTER + 2] = (struct spi_cb){
+            address_of(&b->dblock[SPI_DBLOCK_REGISTER]), d_al1, 4u, load_d };
+        l[SPI_LIST_REGISTER + 3] = to_drain;
+    } else {
+        l[SPI_LIST_REGISTER + 0] = (struct spi_cb){ status, txf, 2u + ahead, tx_status };
+        l[SPI_LIST_REGISTER + 1] = (struct spi_cb){
+            rxf, address_of(&l[SPI_LIST_REGISTER + 3].read), 1u, rx_byte };
+        l[SPI_LIST_REGISTER + 2] = spacer;
+        l[SPI_LIST_REGISTER + 3] = (struct spi_cb){
+            address_of(b->pagetab), address_of(&b->dblock[SPI_DBLOCK_REGISTER].read) + 1u, 1u, copy_byte };
+        l[SPI_LIST_REGISTER + 4] = (struct spi_cb){
+            rxf, address_of(&b->dblock[SPI_DBLOCK_REGISTER].read), 1u, rx_byte };
+        l[SPI_LIST_REGISTER + 5] = (struct spi_cb){
+            address_of(&b->dblock[SPI_DBLOCK_REGISTER]), d_al1, 4u, load_d };
+        l[SPI_LIST_REGISTER + 6] = to_drain;
+    }
 
     if (image->has_memory_read) {
         b->memory_jump = address_of(b->memory);
@@ -1431,6 +1455,11 @@ static void __not_in_flash_func(command_take)(struct mclw_spi_target *t, const s
             q->bytes[len++] = HDR_BYTE(r, dblock[SPI_DBLOCK_BUFFER].read);
         } else if (head == SPI_LIST_MEMORY_STUB) {
             len = command_memory_record(t, r, q->bytes, len);
+        } else if (head == SPI_LIST_REGISTER && t->command->short_register_read) {
+            // The address is in once D's load was fetched.
+            if (loaded >= 3u) {
+                q->bytes[len++] = HDR_BYTE(r, dblock[SPI_DBLOCK_REGISTER].read);
+            }
         } else if (head == SPI_LIST_REGISTER && loaded >= 3u) {
             q->bytes[len++] = (uint8_t)r->reghi;
             if (loaded >= 6u) {
@@ -2386,7 +2415,8 @@ int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_comma
         image->response_count > MCLW_COMMAND_RESPONSES_MAX) {
         return -EINVAL;
     }
-    if (image->immediate_response && (image->response_count > 1u || busy != NULL)) {
+    if ((image->immediate_response && busy != NULL) ||
+        (image->short_register_read && (!image->immediate_response || image->has_memory_read))) {
         return -EINVAL;
     }
     if (busy != NULL && !mclw_pio_window(SPI_PIO, MCLW_PIO_PIN(mclw_hal_gpio_pin(busy)))) {
@@ -2525,7 +2555,8 @@ uint32_t mclw_hal_spi_target_max_clock_hz(const struct mclw_spi_target *t) {
             return SPI_STREAM_CLOCK_HZ;
         case SPI_IMAGE_COMMAND:
             if (t->command != NULL && t->command->immediate_response) {
-                return SPI_COMMAND_IMMEDIATE_CLOCK_HZ;
+                return t->command->response_count > 1u ? SPI_COMMAND_IMMEDIATE_LOOKUP_CLOCK_HZ
+                                                       : SPI_COMMAND_IMMEDIATE_CLOCK_HZ;
             }
             return t->command != NULL && t->command->has_memory_read ? SPI_COMMAND_MEMORY_CLOCK_HZ
                                                                      : SPI_COMMAND_CLOCK_HZ;

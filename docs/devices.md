@@ -44,6 +44,8 @@ NMEA and takes PMTK commands through its I2C buffer;
 gyroscope on SPI or I2C;
 [`w25q`](../devices/w25q/README.md), the Winbond W25Q16JV serial NOR flash on
 SPI, as the model `w25q16jv`;
+[`mcp2515`](../devices/mcp2515/README.md), Microchip's stand-alone CAN
+controller on SPI with its INT pin, in its own loopback;
 [`lcd_backpack`](../devices/lcd_backpack/README.md), Adafruit's serial
 character LCD backpack on UART; five displays, each a sink:
 [`ssd130x`](../devices/ssd130x/README.md), Solomon Systech SSD1306 and SSD1309

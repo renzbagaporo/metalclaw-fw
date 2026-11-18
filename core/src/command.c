@@ -23,6 +23,10 @@ void mclw_command_set_immediate_response(struct mclw_command_image *image) {
     image->immediate_response = true;
 }
 
+void mclw_command_set_short_register_read(struct mclw_command_image *image) {
+    image->short_register_read = true;
+}
+
 void mclw_command_set_filler(struct mclw_command_image *image, uint8_t filler) {
     image->filler = filler;
 }
