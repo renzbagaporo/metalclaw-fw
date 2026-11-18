@@ -113,8 +113,13 @@ class Stimulus:
         self._queue({"t_ns": self.t_ns, "op": "pull", "pin": pin, "level": 1})
 
     def drive(self, pin: int, level: int | None, t_ns: int) -> None:
-        """Drives `pin` to 0 or 1 at t_ns, or releases it (None)."""
-        self.driven.setdefault(pin, []).append((t_ns, level))
+        """Drives `pin` to 0 or 1 at t_ns, or releases it (None). A level
+        must hold a while: one changed again at the same instant is a pulse
+        no input sees (the PIO's synchronizer takes two cycles)."""
+        history = self.driven.setdefault(pin, [])
+        if history and history[-1][0] >= t_ns and history[-1][1] != level:
+            raise ValueError(f"GP{pin} changes at {t_ns} ns, no later than its last change at {history[-1][0]} ns")
+        history.append((t_ns, level))
         self._queue({"t_ns": t_ns, "op": "gpio", "pin": pin, "level": RELEASED if level is None else level})
 
     def _queue(self, action: dict) -> None:
@@ -195,13 +200,15 @@ class I2cController:
                 raise I2cStretched(f"SCL held low at {high} ns")
 
     def _start(self, at: int) -> int:
-        # SDA falls while SCL is high, then SCL falls.
+        # From SCL low (a repeated START, or idle): SDA released, then SCL,
+        # then SDA falls while SCL is high, then SCL falls; each step a
+        # quarter bit apart, past tLOW, tSU;STA and tHD;STA at 100 kHz.
         q = self.bit_ns // 4
-        self.stim.drive(self.sda, None, at)
-        self.stim.drive(self.scl, None, at)
-        self.stim.drive(self.sda, 0, at + 2 * q)
-        self.stim.drive(self.scl, 0, at + 3 * q)
-        return at + self.bit_ns
+        self.stim.drive(self.sda, None, at + q)
+        self.stim.drive(self.scl, None, at + 2 * q)
+        self.stim.drive(self.sda, 0, at + 3 * q)
+        self.stim.drive(self.scl, 0, at + 4 * q)
+        return at + 5 * q
 
     def _stop(self, at: int) -> int:
         q = self.bit_ns // 4

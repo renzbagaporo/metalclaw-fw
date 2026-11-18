@@ -8,6 +8,8 @@ import socket
 import threading
 import time
 
+import pytest
+
 from test.engine.stimulus import I2cController, Stimulus
 
 SDA, SCL = 4, 5
@@ -176,3 +178,15 @@ def test_an_i2c_controller_writes_and_sees_a_nack(tmp_path):
     wrote, missing = _run(tmp_path, target, body)
     assert wrote.acked and target.regs[0x10] == 0x2A
     assert not missing.acked
+
+
+def test_a_pulse_with_no_width_is_refused(tmp_path):
+    # A level changed back at the same instant is one no input sees.
+    stim = Stimulus(tmp_path / "engine.sock")
+    try:
+        stim.drive(SCL, 0, 200_000)
+        with pytest.raises(ValueError):
+            stim.drive(SCL, None, 200_000)
+        stim.drive(SCL, None, 202_500)
+    finally:
+        stim.close()
