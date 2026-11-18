@@ -1476,11 +1476,16 @@ static void __not_in_flash_func(command_take)(struct mclw_spi_target *t, const s
         // A poll that repeats the last queued one goes, or else a queued
         // repeat makes room; a window that set the busy bits is never the
         // one dropped while there is a repeat to drop instead.
-        if (same_window(queued(t, t->queue_count - 1u), q) || !command_make_room(t)) {
+        bool repeat = same_window(queued(t, t->queue_count - 1u), q);
+
+        if (repeat || !command_make_room(t)) {
             if (forced && t->busy_windows != 0u) {
                 t->busy_windows--;
             }
             t->stats.missed_windows++;
+            if (!repeat) {
+                t->stats.lost_windows++;
+            }
             return;
         }
         t->stats.missed_windows++;
@@ -1796,6 +1801,9 @@ static void command_deliver(struct mclw_work *work) {
         return;
     }
     pending = t->queue_count;
+    if (pending > t->stats.max_batch) {
+        t->stats.max_batch = pending;
+    }
     while (pending-- != 0u) {
         state = mclw_hal_critical_enter();
         if (t->queue_count == 0u) {

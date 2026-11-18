@@ -46,6 +46,11 @@ struct mclw_spi_target_stats {
     // image's queue was full, or a chip-select rise came while the engine
     // was still re-arming after the one before (see the port's timing).
     uint32_t missed_windows;
+    // Of those for a full command queue, the ones that differed from the
+    // window before them: a real loss, where the rest only repeated a poll.
+    uint32_t lost_windows;
+    // The most windows one delivery handed the model under one lock.
+    uint32_t max_batch;
 };
 
 // Claims the four pins for `owner`. `mode` is SPI mode 0..3. The target

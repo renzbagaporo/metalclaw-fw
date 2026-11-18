@@ -623,6 +623,8 @@ int mclw_binding_stats(struct mclw_instance *inst, size_t binding, struct mclw_s
             STAT("dma_faults", st.dma_faults);
             STAT("stale_windows", st.stale_windows);
             STAT("missed_windows", st.missed_windows);
+            STAT("lost_windows", st.lost_windows);
+            STAT("max_batch", st.max_batch);
             STAT("max_clock_hz", mclw_hal_spi_target_max_clock_hz(b->spi));
             break;
         }
