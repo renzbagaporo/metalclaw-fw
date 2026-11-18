@@ -9,6 +9,9 @@
 //   buffer read     opcode, offset, NOP, buffer bytes from offset, wrapping
 //   memory read     opcode, addr[23:16], addr[15:8], addr[7:0], registers
 //                   from addr[15:0]... (a serial NOR flash's Read Data)
+//   immediate read  opcode, response... (a serial NOR flash's Read JEDEC
+//                   ID): an image with an immediate response has the one
+//                   response, no NOP, and no BUSY line
 //
 // Every byte that carries no data is the status byte, the first one
 // included. The engine serves all of it from hardware. The model is called
@@ -78,6 +81,7 @@ struct mclw_command_image {
     uint8_t read_buffer_opcode;
     bool has_memory_read;
     uint8_t read_memory_opcode;
+    bool immediate_response;
     uint8_t filler;
     uint8_t busy_status;
     uint8_t busy_opcodes[256 / 8];
@@ -107,6 +111,12 @@ void mclw_command_set_on_window(struct mclw_command_image *image, mclw_command_o
 // A memory read opcode, which takes the place of the register or buffer
 // read on that opcode; a part with neither names the memory opcode for both.
 void mclw_command_set_memory_read(struct mclw_command_image *image, uint8_t opcode);
+// The image's one response follows its opcode at once, with no NOP. Every
+// window's byte after the opcode is then served once the opcode is decoded
+// rather than ahead of it, which lowers the clock the engine serves the
+// image at; the engine takes such an image only with at most one response
+// and no BUSY line.
+void mclw_command_set_immediate_response(struct mclw_command_image *image);
 // What a read of a page the image does not hold returns.
 void mclw_command_set_filler(struct mclw_command_image *image, uint8_t filler);
 // The status bits the engine sets at the release of a window that began

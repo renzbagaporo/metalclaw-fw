@@ -45,20 +45,30 @@ flash.reset()             # a power cycle; reset(True) also erases the array
 | `status` | u32 | ro | Status Register-1 as the part holds it: BUSY bit 0, WEL bit 1 (7.1) |
 | `write_enabled`, `busy` | bool | ro | WEL, BUSY |
 | `power_down` | bool | ro | after B9h, until ABh |
-| `jedec_id` | u32 | ro | 0xEF4015 (8.1, Manufacturer and Device Identification); not served on the bus, see below |
+| `jedec_id` | u32 | ro | 0xEF4015 (8.1, Manufacturer and Device Identification); on the bus with `id_read` |
 | `reads`, `programs`, `erases` | u32 | ro | Read Data, Page Program and erase instructions taken |
 | `lost` | u32 | ro | bytes a Page Program cleared outside the held array, which keeps nothing there |
 | `ignored` | u32 | ro | instructions the part ignored: busy, powered down, no WEL, malformed, or unknown |
 | `spi_mode` | u32 | rw | 0 or 3 |
+| `id_read` | bool | rw | answer Read JEDEC ID (9Fh); off at attach, see below |
+| `held_base` | u32 | rw | the address of the first held byte, 0 at attach; a page boundary whose seven pages stay in one 64 KiB block |
 
 | region | size | meaning |
 | --- | --- | --- |
-| `array` | 1792 | the first seven 256-byte pages, rw; writing it publishes it |
+| `array` | 1792 | the seven 256-byte pages from `held_base`, rw; writing it publishes it |
 
-The harness holds the array's first 1792 bytes, the seven pages the SPI
-target's command image can serve; every other address reads FFh, erased,
-and keeps nothing a Page Program writes there. At attach the held pages
-are erased. `reset()` is a power cycle: the array stays, WEL, BUSY and
+The harness holds 1792 bytes of the array from `held_base`, the seven pages
+the SPI target's command image can serve; every other address reads FFh,
+erased, and keeps nothing a Page Program writes there. At attach the held
+pages are erased, and setting `held_base` or `id_read` erases them again.
+
+With `id_read` set, Read JEDEC ID (9Fh, 8.2) answers EFh 40h 15h right after
+the instruction byte. The engine can serve that only by deciding every
+window's second byte once the instruction is in, which lowers the clock it
+serves the part at from 2 MHz to 1 MHz (`mclw_hal_spi_target_max_clock_hz`),
+so it is off unless a host reads the ID (Zephyr's `spi-nor` driver does at
+boot). The ID is answered while BUSY and powered down too, where the part
+ignores the instruction. `reset()` is a power cycle: the array stays, WEL, BUSY and
 power-down clear, and the counters start again; `reset(True)` also erases
 the held pages. There are no faults.
 
@@ -72,6 +82,7 @@ the held pages. There are no faults.
 | 02h Page Program | with WEL: the data goes into the addressed page from the given byte on, wrapping within the page, a later byte for an address replacing an earlier one; programming only clears bits; BUSY for tPP |
 | 20h, 52h, D8h Sector, 32 KB and 64 KB Block Erase | with WEL: the aligned block reads FFh; BUSY for tSE, tBE1, tBE2 |
 | C7h, 60h Chip Erase | with WEL: everything FFh; BUSY for tCE |
+| 9Fh Read JEDEC ID | with `id_read`: EFh 40h 15h, from the image |
 | B9h Power-down, ABh Release Power-down | while powered down only ABh is taken |
 | 66h then 99h Reset | WEL and BUSY clear, any operation ends |
 | anything else | ignored |
@@ -96,9 +107,9 @@ The engine serves the memory read from address bits 15..0: bits 23..16
 reach the model but select nothing, so a read above 64 KiB returns what the
 same address in the first 64 KiB holds. A read returns at most 256 bytes;
 past that the line holds its last bit. Fast Read (0Bh) and the dual and quad
-reads, JEDEC ID (9Fh), Manufacturer/Device ID (90h) and the other ID and
-SFDP reads, which all answer data where the image has no framing for it,
-answer status bytes. Status Registers 2 and 3 and their writes, the block
+reads, Manufacturer/Device ID (90h) and the other ID and SFDP reads, which
+all answer data where the image has no framing for it, answer status bytes,
+as Read JEDEC ID does without `id_read`. Status Registers 2 and 3 and their writes, the block
 protect and lock bits, the security registers, erase and program suspend,
 and QPI are not modelled.
 

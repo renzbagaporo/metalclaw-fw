@@ -157,6 +157,12 @@ struct spi_descriptor {
 // the first write has landed. Without these, about one window in a
 // thousand loaded a block from a stale address.
 //
+// An image with an immediate response has no status byte in the prologue:
+// each list serves the window's second byte itself, once the opcode is in.
+// The prologue's status slot holds a spacer, which leaves its layout as it
+// is; the response list is the one response's data, D loaded at once; the
+// buffer, register and memory lists serve one status byte more.
+//
 // A response read runs six blocks between the opcode's last bit and its
 // first data byte reaching the TX FIFO, which must happen within the one
 // byte time the status byte gives: about 600 ns, measured as a clean pass
@@ -225,6 +231,13 @@ enum {
 // in 600 ns, so about 200 ns against one SCK period. Not measured on the
 // bench: the ceiling below keeps a factor of two on that estimate.
 #define SPI_COMMAND_MEMORY_CLOCK_HZ 2000000u
+// An immediate image's byte after the opcode must reach the TX FIFO within
+// one SCK period of the opcode's last bit, as a memory read's first data
+// byte must: the opcode, spacer, lookup and jump blocks and the list's
+// first, which is five, or six for the busy and memory lists, against the
+// six the response read was measured to run in 600 ns. A 1 MHz period
+// leaves under a factor of two on that; to be measured on the bench.
+#define SPI_COMMAND_IMMEDIATE_CLOCK_HZ 1000000u
 // How long a publish waits for an open window's opcode, to learn whether
 // the window reads only the status byte: a byte at 250 kHz.
 #define SPI_COMMAND_OPCODE_WAIT_US 32u
@@ -1215,7 +1228,12 @@ static void command_build(struct mclw_spi_target *t) {
 
     b->drain = (struct spi_cb){ rxf, address_of(t->engine->rec[0].capture), MCLW_COMMAND_WINDOW_MAX, drain };
 
-    p[SPI_PROLOGUE_STATUS] = (struct spi_cb){ status, txf, 1u, tx_status };
+    bool immediate = image->immediate_response;
+    // The status bytes a list serves before its data, the one the prologue
+    // serves aside.
+    uint32_t ahead = immediate ? 1u : 0u;
+
+    p[SPI_PROLOGUE_STATUS] = immediate ? spacer : (struct spi_cb){ status, txf, 1u, tx_status };
     p[SPI_PROLOGUE_OPCODE] = (struct spi_cb){ rxf, opcode, 1u, rx_byte };
     p[SPI_PROLOGUE_SPACER] = spacer;
     p[SPI_PROLOGUE_LOOKUP] = (struct spi_cb){
@@ -1227,19 +1245,27 @@ static void command_build(struct mclw_spi_target *t) {
     l[SPI_LIST_WRITE + 1] = to_drain;
     l[SPI_LIST_BUSY] = (struct spi_cb){ address_of(&b->write_jump), jump_l, 1u, jump };
 
-    l[SPI_LIST_RESPONSE + 0] = (struct spi_cb){
-        opcode, address_of(&l[SPI_LIST_RESPONSE + 1].read), SPI_COMMAND_STEP_REPEAT, copy_byte };
-    l[SPI_LIST_RESPONSE + 1] = (struct spi_cb){
-        address_of(b->resptab), address_of(&b->dblock[SPI_DBLOCK_RESPONSE].read), 1u, copy_byte };
-    l[SPI_LIST_RESPONSE + 2] = (struct spi_cb){ address_of(&b->dblock[SPI_DBLOCK_RESPONSE]), d_al1, 4u, load_d };
-    l[SPI_LIST_RESPONSE + 3] = to_drain;
+    if (immediate) {
+        // D's read stays at the first response, which is the only one.
+        l[SPI_LIST_RESPONSE + 0] = (struct spi_cb){
+            address_of(&b->dblock[SPI_DBLOCK_RESPONSE]), d_al1, 4u, load_d };
+        l[SPI_LIST_RESPONSE + 1] = to_drain;
+    } else {
+        l[SPI_LIST_RESPONSE + 0] = (struct spi_cb){
+            opcode, address_of(&l[SPI_LIST_RESPONSE + 1].read), SPI_COMMAND_STEP_REPEAT, copy_byte };
+        l[SPI_LIST_RESPONSE + 1] = (struct spi_cb){
+            address_of(b->resptab), address_of(&b->dblock[SPI_DBLOCK_RESPONSE].read), 1u, copy_byte };
+        l[SPI_LIST_RESPONSE + 2] = (struct spi_cb){
+            address_of(&b->dblock[SPI_DBLOCK_RESPONSE]), d_al1, 4u, load_d };
+        l[SPI_LIST_RESPONSE + 3] = to_drain;
+    }
 
-    l[SPI_LIST_BUFFER + 0] = (struct spi_cb){ status, txf, 1u, tx_status };
+    l[SPI_LIST_BUFFER + 0] = (struct spi_cb){ status, txf, 1u + ahead, tx_status };
     l[SPI_LIST_BUFFER + 1] = (struct spi_cb){ rxf, address_of(&b->dblock[SPI_DBLOCK_BUFFER].read), 1u, rx_byte };
     l[SPI_LIST_BUFFER + 2] = (struct spi_cb){ address_of(&b->dblock[SPI_DBLOCK_BUFFER]), d_al1, 4u, load_d };
     l[SPI_LIST_BUFFER + 3] = to_drain;
 
-    l[SPI_LIST_REGISTER + 0] = (struct spi_cb){ status, txf, 2u, tx_status };
+    l[SPI_LIST_REGISTER + 0] = (struct spi_cb){ status, txf, 2u + ahead, tx_status };
     l[SPI_LIST_REGISTER + 1] = (struct spi_cb){ rxf, address_of(&l[SPI_LIST_REGISTER + 3].read), 1u, rx_byte };
     l[SPI_LIST_REGISTER + 2] = spacer;
     l[SPI_LIST_REGISTER + 3] = (struct spi_cb){
@@ -1252,7 +1278,7 @@ static void command_build(struct mclw_spi_target *t) {
         b->memory_jump = address_of(b->memory);
         b->register_jump = address_of(&l[SPI_LIST_REGISTER + 1]);
         l[SPI_LIST_MEMORY_STUB] = (struct spi_cb){ address_of(&b->memory_jump), jump_l, 1u, jump };
-        b->memory[0] = (struct spi_cb){ status, txf, 2u, tx_status };
+        b->memory[0] = (struct spi_cb){ status, txf, 2u + ahead, tx_status };
         b->memory[1] = (struct spi_cb){ rxf, address_of(&b->memory_high), 1u, rx_byte };
         b->memory[2] = (struct spi_cb){ address_of(&b->register_jump), jump_l, 1u, jump };
     }
@@ -2360,6 +2386,9 @@ int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_comma
         image->response_count > MCLW_COMMAND_RESPONSES_MAX) {
         return -EINVAL;
     }
+    if (image->immediate_response && (image->response_count > 1u || busy != NULL)) {
+        return -EINVAL;
+    }
     if (busy != NULL && !mclw_pio_window(SPI_PIO, MCLW_PIO_PIN(mclw_hal_gpio_pin(busy)))) {
         return -EINVAL;
     }
@@ -2495,6 +2524,9 @@ uint32_t mclw_hal_spi_target_max_clock_hz(const struct mclw_spi_target *t) {
         case SPI_IMAGE_STREAM:
             return SPI_STREAM_CLOCK_HZ;
         case SPI_IMAGE_COMMAND:
+            if (t->command != NULL && t->command->immediate_response) {
+                return SPI_COMMAND_IMMEDIATE_CLOCK_HZ;
+            }
             return t->command != NULL && t->command->has_memory_read ? SPI_COMMAND_MEMORY_CLOCK_HZ
                                                                      : SPI_COMMAND_CLOCK_HZ;
         case SPI_IMAGE_NONE:
