@@ -29,9 +29,9 @@
 // The connections the responder holds at once. Each takes a closed socket
 // of the model's net while it lives.
 #define IP_TCP_CONNS 4u
-// One UDP or ICMP reply waiting for the link: a 256-byte echo with room
-// to spare, and any DNS answer of a 64-character name.
-#define IP_SLOT_MAX 272u
+// One UDP or ICMP reply waiting for the link: an echo of the largest
+// datagram the MRU allows, and any DNS answer of a 64-character name.
+#define IP_SLOT_MAX (1500u - 28u)
 
 // What the stack observed: kept across power cycles, cleared by reset().
 struct ip_stats {
@@ -85,6 +85,18 @@ struct tcp_conn {
     uint8_t flags;
 };
 
+// The test endpoint's receive service (udp.c): the one sender it counts.
+struct udp_receive {
+    bool active;
+    // The sender, and the address it sent to.
+    uint8_t addr[4];
+    uint8_t local[4];
+    uint16_t port;
+    uint8_t received;
+    uint8_t dropped;
+    uint64_t last_us;
+};
+
 struct ip {
     struct net *net;
     // The largest packet either side sends: the model's MRU.
@@ -96,6 +108,7 @@ struct ip {
     struct ip_slot slot;
     struct tcp_conn conns[IP_TCP_CONNS];
     struct ip_stats stats;
+    struct udp_receive receive;
 };
 
 void ip_init(struct ip *ip, struct net *net);

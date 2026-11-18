@@ -129,7 +129,7 @@ The link part, on a model with CMUX and PPP:
 
 | name | type | access | unit | range | meaning |
 | --- | --- | --- | --- | --- | --- |
-| `mru` | u32 | rw | bytes | 128 .. 576 | the MRU the model asks for in LCP, default 296; the DUT's TCP MSS follows it (MRU - 40); taken at the next LCP negotiation |
+| `mru` | u32 | rw | bytes | 128 .. 1500 | the MRU the model asks for in LCP, default 296; the DUT's TCP MSS follows it (MRU - 40); taken at the next LCP negotiation |
 | `gw` | u32[4] | rw | | 0 .. 255 | the model's own address in IPCP, default 10.0.0.1 |
 | `dns` | u32[4] | rw | | 0 .. 255 | the DNS server IPCP hands the DUT, default 10.0.0.1 |
 | `cmux` | bool | ro | | | the multiplexer is up |
@@ -296,6 +296,12 @@ same services answer (see the fake network below):
   with a 60 s TTL, a miss NXDOMAIN), 7 echoes, 9 discards; anything else
   is dropped and counted in `drops`. One reply waits at a time; a
   datagram that finds it taken is dropped and counted.
+- UDP 7780 and 7781 are the test endpoint of Zephyr's `cellular_modem`
+  sample (`samples/net/cellular_modem/server`): 7780 echoes, and 7781
+  counts one sender's datagrams, received when every byte follows the C
+  library's LCG seeded with 1234 (`te_udp_receive.py`), dropped otherwise,
+  and two seconds after its last one sends it the two counts as two bytes.
+  A second sender's datagrams are dropped until then.
 - TCP: up to four connections, each on a closed socket of the network.
   A SYN to a refused port gets RST|ACK. The SYN-ACK carries the only MSS
   option, the smaller of the DUT's and `mru` - 40, and a window of what

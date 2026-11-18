@@ -28,6 +28,10 @@
 
 #define NET_PORT_ECHO 7
 #define NET_PORT_DISCARD 9
+// Zephyr's cellular_modem sample's test endpoint (samples/net/cellular_modem/
+// server): UDP echo, and a receiver that counts what one sender sends.
+#define NET_PORT_TE_ECHO 7780
+#define NET_PORT_TE_RECEIVE 7781
 #define NET_PORT_HTTP 80
 #define NET_PORT_HTTPS 443
 #define NET_PORT_HTTP_ALT 8080
