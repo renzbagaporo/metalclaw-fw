@@ -49,8 +49,24 @@
 #define BMP388_OSR_RESET 0x02
 #define BMP388_CMD_SOFT_RESET 0xb6
 
+#define BMP388_PWR_CTRL_PRESS_EN 0x01
+#define BMP388_PWR_CTRL_TEMP_EN 0x02
 #define BMP388_PWR_CTRL_MODE_POS 4
 #define BMP388_PWR_CTRL_MODE_MASK 0x03
+#define BMP388_PWR_CTRL_MODE_SLEEP 0x0
+#define BMP388_PWR_CTRL_MODE_NORMAL 0x3
+// INT_CTRL (datasheet 4.3.14, table 38).
+#define BMP388_INT_CTRL_OD 0x01
+#define BMP388_INT_CTRL_LEVEL 0x02
+#define BMP388_INT_CTRL_LATCH 0x04
+#define BMP388_INT_CTRL_DRDY_EN 0x40
+// ODR (4.3.18-19): a sampling period of 5 ms x 2^odr_sel, odr_sel saturated
+// at 17.
+#define BMP388_ODR_BASE_US 5000u
+#define BMP388_ODR_SEL_MAX 17u
+// 3.7.2: unlatched, the data-ready contribution to INT ends 2.5 ms after
+// it asserts, or at an INT_STATUS read.
+#define BMP388_DRDY_UNLATCHED_US 2500u
 #define BMP388_OSR_MASK 0x3f
 #define BMP388_ODR_MASK 0x1f
 
