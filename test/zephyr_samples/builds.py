@@ -297,6 +297,11 @@ BUILDS: dict[str, Build] = {
         "drivers/biometrics/fingerprint", test="sample.drivers.biometrics.fingerprint", overlays=(
             "test/zephyr_samples/overlays/uart1_gp8_gp9.overlay",
             "test/zephyr_samples/overlays/fingerprint_zfm20_uart1.overlay")),
+    # samples/drivers/dac: the adafruit_mcp4728 shield's node, an MCP4728
+    # at 0x60 on I2C0, as zephyr,user's dac (the shield itself targets the
+    # Feather's zephyr_i2c).
+    "zephyr/drivers/dac@mcp4728": Build("drivers/dac", test="sample.drivers.dac", variant="mcp4728", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/dac_mcp4728_60.overlay")),
     # samples/drivers/eeprom: an AT24C02C at 0x50 on I2C0 as eeprom-0.
     "zephyr/drivers/eeprom": Build("drivers/eeprom", test="sample.drivers.eeprom", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/eeprom0_at24c02_50.overlay")),
