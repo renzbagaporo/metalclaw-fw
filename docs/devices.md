@@ -50,6 +50,8 @@ model `at24c02`;
 I2C;
 [`ad5693r`](../devices/ad5693r/README.md), Analog Devices' AD5693R 16-bit DAC
 on I2C;
+[`hts221`](../devices/hts221/README.md), ST's HTS221 humidity and temperature
+sensor on I2C;
 [`lsm303dlhc`](../devices/lsm303dlhc/README.md), the magnetometer of ST's
 LSM303DLHC on I2C, as the model `lsm303dlhc_magn`;
 [`max6675`](../devices/max6675/README.md), Maxim's MAX6675 thermocouple

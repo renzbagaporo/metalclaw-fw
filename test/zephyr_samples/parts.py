@@ -170,6 +170,11 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('code')", lambda v: 0 < v < 65536, "the output climbing", 3.0),
         )),
     ),
+    # The HTS221 at 0x5F on I2C0 at 23.5 C and 47.5 %RH, values its
+    # coefficients represent exactly.
+    "zephyr/sensor/hts221": (
+        Attach("hts221", "rh", {"i2c": (4, 5, 0x5f)}, {"i2c": 2}, {"temperature": 23500, "humidity": 47500}),
+    ),
     # The AT24C02C at 0x50 on I2C0, erased at attach: the sample writes its
     # boot counter at offset 0.
     "zephyr/drivers/eeprom": (

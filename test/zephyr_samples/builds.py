@@ -305,6 +305,9 @@ BUILDS: dict[str, Build] = {
     # The same with the adafruit_ad5693r shield's node, an AD5693R at 0x4C.
     "zephyr/drivers/dac@ad5693r": Build("drivers/dac", test="sample.drivers.dac", variant="ad5693r", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/dac_ad5693r_4c.overlay")),
+    # samples/sensor/hts221: ST's HTS221 at 0x5F on I2C0, polled.
+    "zephyr/sensor/hts221": Build("sensor/hts221", test="sample.sensor.hts221", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/hts221_5f.overlay")),
     # samples/drivers/eeprom: an AT24C02C at 0x50 on I2C0 as eeprom-0.
     "zephyr/drivers/eeprom": Build("drivers/eeprom", test="sample.drivers.eeprom", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/eeprom0_at24c02_50.overlay")),
