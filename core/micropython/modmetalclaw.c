@@ -9,6 +9,7 @@
 #include "py/runtime.h"
 #include "metalclaw/runtime.h"
 #include "metalclaw/version.h"
+#include "metalclaw/hal/platform.h"
 #include "metalclaw_module.h"
 
 int mclw_check(int ret) {
@@ -257,6 +258,28 @@ static mp_obj_t mclw_running_fn(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mclw_running_obj, mclw_running_fn);
 
+// The worker's timing stats (mclw_hal_worker_stats); reset=True clears
+// them after reading. polls is a list of (function address, longest us).
+static mp_obj_t mclw_worker_stats_fn(size_t n_args, const mp_obj_t *args) {
+    struct mclw_worker_stats st;
+    bool reset = n_args > 0 && mp_obj_is_true(args[0]);
+    mp_obj_t info = mp_obj_new_dict(5);
+    mp_obj_t polls = mp_obj_new_list(0, NULL);
+
+    mclw_hal_worker_stats(&st, reset);
+    dict_store(info, "rounds", mp_obj_new_int_from_uint(st.rounds));
+    dict_store(info, "max_round_gap_us", mp_obj_new_int_from_uint(st.max_round_gap_us));
+    dict_store(info, "max_work_per_round", mp_obj_new_int_from_uint(st.max_work_per_round));
+    dict_store(info, "lock_misses", mp_obj_new_int_from_uint(st.lock_misses));
+    for (uint32_t i = 0; i < st.poll_count; i++) {
+        mp_obj_t pair[2] = { mp_obj_new_int_from_uint(st.poll_fn[i]), mp_obj_new_int_from_uint(st.poll_max_us[i]) };
+        mp_obj_list_append(polls, mp_obj_new_tuple(2, pair));
+    }
+    dict_store(info, "polls", polls);
+    return info;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mclw_worker_stats_obj, 0, 1, mclw_worker_stats_fn);
+
 // What the firmware was built to know about its board.
 static mp_obj_t mclw_board_fn(void) {
     mp_obj_t info = mp_obj_new_dict(1);
@@ -279,6 +302,7 @@ static const mp_rom_map_elem_t mclw_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_pause), MP_ROM_PTR(&mclw_pause_obj) },
     { MP_ROM_QSTR(MP_QSTR_resume), MP_ROM_PTR(&mclw_resume_obj) },
     { MP_ROM_QSTR(MP_QSTR_running), MP_ROM_PTR(&mclw_running_obj) },
+    { MP_ROM_QSTR(MP_QSTR_worker_stats), MP_ROM_PTR(&mclw_worker_stats_obj) },
     { MP_ROM_QSTR(MP_QSTR_Instance), MP_ROM_PTR(&mclw_instance_type) },
 };
 static MP_DEFINE_CONST_DICT(mclw_module_globals, mclw_module_globals_table);
