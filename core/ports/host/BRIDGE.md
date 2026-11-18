@@ -32,18 +32,22 @@ quiet.
 
 | op | fields | reply |
 | --- | --- | --- |
-| `hello` | `version`, `i2c` `[{bus, sda, scl}]`, `uart` `[{port, tx, rx}]` | `version` |
+| `hello` | `version`, `i2c` `[{bus, sda, scl}]`, `uart` `[{port, tx, rx}]`, `spi` `[{bus, sck, mosi, miso}]` | `version` |
 | `tick` | | |
 | `i2c` | `bus`, `ev`: `start` (`addr`, `read`, `repeated`) | `ack` |
 | | `ev`: `write` (`data`) | `ack` |
 | | `ev`: `read` | `data` |
 | | `ev`: `stop` | |
+| `uart` | `port`, `data` (a byte or a list of bytes the DUT sent) | |
+| `spi` | `bus`, `mosi`, `bits` (8) | `miso` |
 | `gpio` | `pin`, `level` (0, 1, or `"z"` for not driven) | |
 
 `hello` maps the emulator's buses to DUT pins, since models are attached by
 the DUT pins they are wired to (`attach("mcp9808", "t", i2c=(4, 5, 0x18))`).
 A UART's `tx` and `rx` are the DUT's own pins. `gpio` reports the level the
-DUT drives on a pin; inputs of the harness read it.
+DUT drives on a pin; inputs of the harness read it, and a target's chip
+select opens and closes its SPI window. An `spi` frame's MISO byte depends
+only on the frames before it in the window, as on the wire.
 
 An I2C `start` to an address no attached model answers is not acknowledged.
 A `start` while a transaction is open is a repeated START and ends that
@@ -66,6 +70,6 @@ the pulse reaches the DUT with its width.
 
 ## Not yet
 
-SPI (a synchronous `spi` request per frame, MOSI word in and MISO word
-back, with chip selects as `gpio` requests), UART toward the harness, and
-the single-wire parts (timestamped `gpio` edges on watched pins).
+The single-wire parts (timestamped `gpio` edges on watched pins), and an
+I2C bus a DUT drives from PIO, which the emulator decodes from its pins
+into the same `i2c` requests.

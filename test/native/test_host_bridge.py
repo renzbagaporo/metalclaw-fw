@@ -124,3 +124,31 @@ def test_the_dut_s_bytes_reach_a_uart_model(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+SPI0 = {"bus": 0, "sck": 18, "mosi": 19, "miso": 16}
+
+
+def test_the_w25q_answers_and_programs_over_spi(tmp_path):
+    # W25Q16JV datasheet 8.2: Read JEDEC ID (9Fh) EFh 40h 15h right after the
+    # opcode; Write Enable (06h), Page Program (02h), Read Status (05h) busy
+    # until tPP is over, then Read Data (03h) returns what was programmed.
+    from test.native.host import spi_window
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[SPI0])
+        harness.run("import metalclaw\nf = metalclaw.attach('w25q16jv', 'flash', spi=(18, 19, 16, 17))\n"
+                    "f.id_read = True\nf.held_base = 0xff000")
+        assert spi_window(bridge, 0, 17, b"\x9f\x00\x00\x00")[1:] == b"\xef\x40\x15"
+        spi_window(bridge, 0, 17, b"\x06")
+        spi_window(bridge, 0, 17, b"\x02\x0f\xf0\x10" + b"\xa5\x5a")
+        # BUSY from the program window's release, before the model ran it.
+        assert spi_window(bridge, 0, 17, b"\x05\x00")[1] & 0x01
+        bridge.advance(2_000_000)
+        assert spi_window(bridge, 0, 17, b"\x05\x00")[1] & 0x01 == 0
+        assert spi_window(bridge, 0, 17, b"\x03\x0f\xf0\x10\x00\x00")[4:] == b"\xa5\x5a"
+    finally:
+        bridge.close()
+        harness.close()

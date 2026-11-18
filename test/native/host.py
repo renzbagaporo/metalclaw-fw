@@ -75,8 +75,8 @@ class Bridge:
         self.t_ns += ns
         return self.request(op="tick")
 
-    def hello(self, i2c=(), uart=()) -> dict:
-        return self.request(op="hello", version=1, i2c=list(i2c), uart=list(uart))
+    def hello(self, i2c=(), uart=(), spi=()) -> dict:
+        return self.request(op="hello", version=1, i2c=list(i2c), uart=list(uart), spi=list(spi))
 
     # An I2C transaction as the DUT's controller makes it: a write of
     # `write` bytes, then, after a repeated START, a read of `read` bytes.
@@ -101,3 +101,11 @@ class Bridge:
 
     def close(self) -> None:
         self.sock.close()
+
+
+def spi_window(bridge: Bridge, bus: int, cs: int, mosi: bytes) -> bytes:
+    """One chip-select window: CS low, a frame per byte, CS high."""
+    bridge.request(op="gpio", pin=cs, level=0)
+    miso = bytes(bridge.request(op="spi", bus=bus, mosi=b, bits=8)["miso"] for b in mosi)
+    bridge.request(op="gpio", pin=cs, level=1)
+    return miso
