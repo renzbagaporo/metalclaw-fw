@@ -1,0 +1,16 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A DS3231 at 0x68 on I2C0 (i2c0.overlay), its open-drain INT/SQW on GP15
+ * with the pull-up on: the driver times sets and reads from the 1 Hz
+ * square wave there and takes its alarms from it (data sheet 19-5170).
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&i2c0 {
+	ds3231: ds3231@68 {
+		compatible = "maxim,ds3231";
+		reg = <0x68>;
+		isw-gpios = <&gpio0 15 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		status = "okay";
+	};
+};

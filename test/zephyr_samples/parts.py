@@ -140,6 +140,24 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     **{f"zephyr/sensor/{sample}": (Attach("mpu9250", "imu", {"i2c": (4, 5, 0x68), "int": (15,)}, {"i2c": 2},
                                           {"magnetic_field": (30000, -15000, 45000)}),)
        for sample in ("magn_polling", "magn_trig")},
+    # The DS3231 at 0x68 on I2C0, INT/SQW on GP15.
+    "zephyr/drivers/counter/maxim_ds3231": (
+        Attach("ds3231", "rtc", {"i2c": (4, 5, 0x68), "int": (15,)}, {"i2c": 2}, checks=(
+            Check("part.get('alarms')[0]", lambda v: v >= 2, "both alarm-1 matches", 3.0),
+        )),
+    ),
+    # The AT24C02C at 0x50 on I2C0, erased at attach: the sample writes its
+    # boot counter at offset 0.
+    "zephyr/drivers/eeprom": (
+        Attach("at24c02", "eeprom", {"i2c": (4, 5, 0x50)}, {"i2c": 2}, checks=(
+            Check("part.get('writes')", lambda v: v > 0, "the sample's boot counter written", 3.0),
+        )),
+    ),
+    # The MAX6675 on SPI0 (SCK GP18, MOSI GP19, MISO GP16, CS GP17), its
+    # thermocouple at 123.25 C.
+    "zephyr/sensor/max6675": (
+        Attach("max6675", "tc", {"spi": (18, 19, 16, 17)}, {}, {"temperature": 123250}),
+    ),
     # The LSM6DSL at 0x6A on I2C0, INT1 on GP15, at rest: 1 g on z.
     "zephyr/sensor/lsm6dsl": (
         Attach("lsm6dsl", "imu", {"i2c": (4, 5, 0x6a), "int1": (15,)}, {"i2c": 2},

@@ -1,0 +1,33 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A MAX6675 on SPI0 (SCK GP18, SO on MISO GP16; it has no SI), chip
+ * select on GP17 as a GPIO, at 1 MHz (it runs to 4.3 MHz).
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&pinctrl {
+	spi0_max6675: spi0_max6675 {
+		group1 {
+			pinmux = <SPI0_SCK_P18>, <SPI0_TX_P19>;
+		};
+
+		group2 {
+			pinmux = <SPI0_RX_P16>;
+			input-enable;
+		};
+	};
+};
+
+&spi0 {
+	pinctrl-0 = <&spi0_max6675>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio0 17 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	max6675@0 {
+		compatible = "maxim,max6675";
+		reg = <0>;
+		spi-max-frequency = <DT_FREQ_M(1)>;
+		status = "okay";
+	};
+};
