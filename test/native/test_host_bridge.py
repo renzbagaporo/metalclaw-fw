@@ -205,3 +205,14 @@ def test_a_ds18b20_answers_a_reset_with_its_presence(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_a_route_report_moves_a_bus_to_where_the_dut_routed_it(bridged):
+    # pico-examples' mpu9250_spi-style rerouting, on I2C: the hello says
+    # GP4/GP5, the DUT moves I2C0 to GP8/GP9, and a part attached there
+    # answers.
+    harness, bridge = bridged
+    harness.run("import metalclaw\nt = metalclaw.attach('mcp9808', 't', i2c=(8, 9, 0x18))")
+    assert bridge.i2c(0, 0x18, write=b"\x06", read=2) is None
+    bridge.request(op="route", i2c=[{"bus": 0, "sda": 8, "scl": 9}])
+    assert bridge.i2c(0, 0x18, write=b"\x06", read=2) == b"\x00\x54"

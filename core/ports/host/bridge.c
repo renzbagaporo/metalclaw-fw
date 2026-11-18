@@ -143,8 +143,26 @@ static size_t put_actions(size_t at) {
     return at;
 }
 
-static bool i2c_pins(int64_t bus, uint8_t *sda, uint8_t *scl) {
-    if (bus < 0 || bus >= (int64_t)I2C_BUSES_MAX || !i2c_buses[bus].used) {
+// A request may carry the pins its block is routed to now ("pins"), which
+// override the hello's for a program that moved the block; for I2C they
+// hold until the next START names others.
+static uint8_t pin_or(const struct json_node *root, const char *name, uint8_t fallback) {
+    const struct json_node *pins = json_get(&doc, root, "pins");
+    int64_t pin = json_int(&doc, pins, name, -1);
+
+    return pin >= 0 ? (uint8_t)pin : fallback;
+}
+
+static bool i2c_pins(const struct json_node *root, int64_t bus, uint8_t *sda, uint8_t *scl) {
+    if (bus < 0 || bus >= (int64_t)I2C_BUSES_MAX) {
+        return false;
+    }
+    if (json_get(&doc, root, "pins") != NULL) {
+        i2c_buses[bus].used = true;
+        i2c_buses[bus].sda = pin_or(root, "sda", i2c_buses[bus].sda);
+        i2c_buses[bus].scl = pin_or(root, "scl", i2c_buses[bus].scl);
+    }
+    if (!i2c_buses[bus].used) {
         return false;
     }
     *sda = i2c_buses[bus].sda;
@@ -152,24 +170,12 @@ static bool i2c_pins(int64_t bus, uint8_t *sda, uint8_t *scl) {
     return true;
 }
 
-static size_t handle_hello(const struct json_node *root) {
-    const struct json_node *list;
+// The buses' and ports' DUT pins, from a hello or a route report: each
+// block named replaces its pins; a block not named keeps them (a bus the
+// emulator decodes from pins, which no routing moves).
+static void bind_blocks(const struct json_node *root) {
+    const struct json_node *list = json_get(&doc, root, "i2c");
 
-    memset(i2c_buses, 0, sizeof(i2c_buses));
-    memset(uart_ports, 0, sizeof(uart_ports));
-    memset(spi_buses, 0, sizeof(spi_buses));
-    list = json_get(&doc, root, "spi");
-    for (const struct json_node *b = json_child(&doc, list); b != NULL; b = json_next(&doc, b)) {
-        int64_t bus = json_int(&doc, b, "bus", -1);
-
-        if (bus >= 0 && bus < (int64_t)SPI_BUSES_MAX) {
-            spi_buses[bus].used = true;
-            spi_buses[bus].sck = (uint8_t)json_int(&doc, b, "sck", 0);
-            spi_buses[bus].mosi = (uint8_t)json_int(&doc, b, "mosi", 0);
-            spi_buses[bus].miso = (uint8_t)json_int(&doc, b, "miso", 0);
-        }
-    }
-    list = json_get(&doc, root, "i2c");
     for (const struct json_node *b = json_child(&doc, list); b != NULL; b = json_next(&doc, b)) {
         int64_t bus = json_int(&doc, b, "bus", -1);
 
@@ -189,6 +195,24 @@ static size_t handle_hello(const struct json_node *root) {
             uart_ports[port].rx = (uint8_t)json_int(&doc, u, "rx", 0);
         }
     }
+    list = json_get(&doc, root, "spi");
+    for (const struct json_node *b = json_child(&doc, list); b != NULL; b = json_next(&doc, b)) {
+        int64_t bus = json_int(&doc, b, "bus", -1);
+
+        if (bus >= 0 && bus < (int64_t)SPI_BUSES_MAX) {
+            spi_buses[bus].used = true;
+            spi_buses[bus].sck = (uint8_t)json_int(&doc, b, "sck", 0);
+            spi_buses[bus].mosi = (uint8_t)json_int(&doc, b, "mosi", 0);
+            spi_buses[bus].miso = (uint8_t)json_int(&doc, b, "miso", 0);
+        }
+    }
+}
+
+static size_t handle_hello(const struct json_node *root) {
+    memset(i2c_buses, 0, sizeof(i2c_buses));
+    memset(uart_ports, 0, sizeof(uart_ports));
+    memset(spi_buses, 0, sizeof(spi_buses));
+    bind_blocks(root);
     return (size_t)snprintf(reply, REPLY_MAX, "{\"version\":%d", BRIDGE_VERSION);
 }
 
@@ -197,7 +221,7 @@ static size_t handle_i2c(const struct json_node *root) {
     uint8_t sda;
     uint8_t scl;
 
-    if (!i2c_pins(json_int(&doc, root, "bus", -1), &sda, &scl)) {
+    if (!i2c_pins(root, json_int(&doc, root, "bus", -1), &sda, &scl)) {
         return (size_t)snprintf(reply, REPLY_MAX, "{\"ack\":false,\"error\":\"unknown bus\"");
     }
     if (json_is(ev, "start")) {
@@ -240,6 +264,9 @@ static size_t handle(const char *text, size_t len) {
     }
     if (json_is(op, "hello")) {
         at = handle_hello(root);
+    } else if (json_is(op, "route")) {
+        bind_blocks(root);
+        at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else if (json_is(op, "tick")) {
         at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else if (json_is(op, "i2c")) {
@@ -257,7 +284,11 @@ static size_t handle(const char *text, size_t len) {
              b != NULL && n < sizeof(bytes); b = json_next(&doc, b)) {
             bytes[n++] = (uint8_t)b->number;
         }
-        if (port >= 0 && port < (int64_t)UART_PORTS_MAX && uart_ports[port].used) {
+        if (port >= 0 && port < (int64_t)UART_PORTS_MAX && (uart_ports[port].used ||
+                json_get(&doc, root, "pins") != NULL)) {
+            uart_ports[port].used = true;
+            uart_ports[port].tx = pin_or(root, "tx", uart_ports[port].tx);
+            uart_ports[port].rx = pin_or(root, "rx", uart_ports[port].rx);
             mclw_host_uart_receive(uart_ports[port].tx, bytes, n);
             at = (size_t)snprintf(reply, REPLY_MAX, "{");
         } else {
@@ -267,9 +298,10 @@ static size_t handle(const char *text, size_t len) {
         int64_t bus = json_int(&doc, root, "bus", -1);
         uint8_t miso = 0xff;
 
-        if (bus >= 0 && bus < (int64_t)SPI_BUSES_MAX && spi_buses[bus].used) {
-            (void)mclw_host_spi_frame(spi_buses[bus].sck, spi_buses[bus].mosi, spi_buses[bus].miso,
-                (uint8_t)json_int(&doc, root, "mosi", 0), &miso);
+        if (bus >= 0 && bus < (int64_t)SPI_BUSES_MAX && (spi_buses[bus].used ||
+                json_get(&doc, root, "pins") != NULL)) {
+            (void)mclw_host_spi_frame(pin_or(root, "sck", spi_buses[bus].sck), pin_or(root, "mosi", spi_buses[bus].mosi),
+                pin_or(root, "miso", spi_buses[bus].miso), (uint8_t)json_int(&doc, root, "mosi", 0), &miso);
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u", miso);
         } else {
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":255,\"error\":\"unknown spi bus\"");

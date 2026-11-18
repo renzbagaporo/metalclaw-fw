@@ -15,6 +15,7 @@
 #   METALCLAW_RENODE_INSTANCE ports per instance, as for the emulator
 
 import ast
+import contextlib
 import os
 import re
 import select
@@ -27,9 +28,11 @@ from pathlib import Path
 import pytest
 
 from test.pico_examples.emulation import DEFAULT, Emulation, emulation_for
+from test.rig.platforms.hardware.mailbox import RESULT_WORDS, Mailbox
 from test.rig.platforms.hardware.platform import (
     FIXTURE,
     ROOT,
+    Dut,
     _required,
     dut_image,
     example_metadata,
@@ -82,6 +85,17 @@ class Monitor:
                     raise
                 time.sleep(0.2)
         self._read_prompt(timeout)
+        # The start-up commands' output and prompts follow the first
+        # prompt; each would otherwise answer the command after it.
+        self._drain(quiet_s=1.0)
+
+    def _drain(self, quiet_s: float = 0.0) -> None:
+        while True:
+            ready, _, _ = select.select([self.sock], [], [], quiet_s)
+            if not ready:
+                return
+            if not self.sock.recv(65536):
+                raise EOFError("Renode monitor closed")
 
     def _read_prompt(self, timeout: float) -> str:
         got = b""
@@ -99,6 +113,7 @@ class Monitor:
         return got.decode(errors="replace")
 
     def command(self, line: str, timeout: float = 30.0) -> str:
+        self._drain()
         self.sock.sendall(line.encode() + b"\n")
         return self._read_prompt(timeout)
 
@@ -284,9 +299,35 @@ class NativeHarness:
             self._held = None
 
 
-class NoProbeMemory:
+class MonitorMemory:
+    """The DUT's memory through Renode's monitor, as the rig reads and
+    writes it through a probe: read_words, write_words, and a link with
+    the same two."""
+
+    HEX = re.compile(r"0x[0-9A-Fa-f]+")
+
+    def __init__(self, bench: "NativeBench"):
+        self.bench = bench
+
+    def read_words(self, address: int, count: int, timeout=None) -> list[int]:
+        words = []
+        for i in range(count):
+            out = self.bench.monitor.command(f"sysbus ReadDoubleWord {address + 4 * i:#x}")
+            found = self.HEX.findall(out.split("\n", 1)[-1])
+            if not found:
+                raise RuntimeError(f"Renode monitor: no word read at {address + 4 * i:#x}: {out!r}")
+            words.append(int(found[-1], 16))
+        return words
+
+    def write_words(self, address: int, words, timeout=None) -> None:
+        for i, word in enumerate(words):
+            self.bench.monitor.command(f"sysbus WriteDoubleWord {address + 4 * i:#x} {word & 0xFFFFFFFF:#x}")
+
+    def write_when_reachable(self, address: int, words, seconds: float) -> None:
+        self.write_words(address, words)
+
     def link(self):
-        pytest.skip("this case reads the DUT's memory through a probe, which native mode does not have yet")
+        return contextlib.nullcontext(self)
 
 
 class NativeExample:
@@ -297,7 +338,7 @@ class NativeExample:
         self.image = bench.image
         self.metadata = example_metadata(bench.image)
         self.target = self.metadata["target"]
-        self.memory = NoProbeMemory()
+        self.memory = MonitorMemory(bench)
 
     def parts_dut_pins(self) -> set[int]:
         from test.pico_examples.parts import parts_dut_pins
@@ -365,6 +406,47 @@ def dut_usb():
     pytest.skip("native mode does not bridge the DUT's own USB")
 
 
+class NativeDut(Dut):
+    """The rig's own DUT image, answering on its RAM mailbox, which the rig
+    reaches through the monitor instead of a probe. The image is in the
+    DUT's flash from the bench's start; a reset is the machine's."""
+
+    def __init__(self, bench: NativeBench, harness: NativeHarness, toolchain_dir: str):
+        self.bench = bench
+        self.harness = harness
+        self.image = bench.image
+        self.memory = MonitorMemory(bench)
+        self.mailbox = Mailbox(self.memory, bench.image, toolchain_dir, None)
+
+    def flash(self, wake_harness_pin=None) -> None:
+        self.reset()
+
+    # A reset keeps the DUT's RAM, and a mailbox that still looks set up
+    # would take a command before the rebooted DUT clears it; its result
+    # words are cleared in between, so the rig waits for the DUT's own.
+    # A reset resumes a running machine at once, so it is paused first.
+    def reset(self) -> None:
+        self.bench.monitor.command("pause")
+        self.bench.monitor.command("machine Reset")
+        self.memory.write_words(self.mailbox.result_address, [0] * RESULT_WORDS)
+        self.bench.monitor.command("start")
+        self.mailbox.last_result = 0
+
+    def halt_awake(self, wake_harness_pin, timeout=None) -> None:
+        self.bench.halt()
+
+    def resume(self) -> None:
+        pass
+
+    def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
+        pytest.skip("native mode has no RUN pin to press yet")
+
+
 @pytest.fixture(scope="session")
-def dut():
-    pytest.skip("native mode runs pico-examples programs and Zephyr samples, not the rig's DUT image")
+def dut(bench: NativeBench, harness: NativeHarness, fixture: dict) -> NativeDut:
+    if example_metadata(bench.image) is not None:
+        pytest.skip("the DUT image is a pico-examples program, not a rig image")
+    d = NativeDut(bench, harness, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
+    d.reset()
+    d.ping()
+    return d

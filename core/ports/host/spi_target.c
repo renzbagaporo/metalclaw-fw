@@ -465,6 +465,8 @@ struct mclw_spi_target *mclw_hal_spi_target_open(uint8_t sck, uint8_t mosi, uint
     t->msb_first = msb_first;
     t->owner = owner;
     mclw_hal_critical_exit(state);
+    // The window is the DUT's chip select, as the emulator reports it.
+    mclw_host_event_watch(cs);
     return t;
 }
 

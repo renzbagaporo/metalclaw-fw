@@ -34,6 +34,7 @@ quiet.
 | --- | --- | --- |
 | `hello` | `version`, `i2c` `[{bus, sda, scl}]`, `uart` `[{port, tx, rx}]`, `spi` `[{bus, sck, mosi, miso}]` | `version` |
 | `tick` | | |
+| `route` | `i2c`, `uart`, `spi` as in `hello` | |
 | `i2c` | `bus`, `ev`: `start` (`addr`, `read`, `repeated`) | `ack` |
 | | `ev`: `write` (`data`) | `ack` |
 | | `ev`: `read` | `data` |
@@ -42,7 +43,11 @@ quiet.
 | `spi` | `bus`, `mosi`, `bits` (8) | `miso` |
 | `gpio` | `pin`, `level` (0, 1, or `"z"` for not driven) | |
 
-`hello` maps the emulator's buses to DUT pins, since models are attached by
+`route` reports where the DUT has routed its blocks, at the first tick
+and whenever its routing changes; each block it names replaces the pins
+`hello` gave. A bus request may also carry `pins`, the pins its block is
+routed to then, which apply to it alone (and, for I2C, until the next
+START). `hello` maps the emulator's buses to DUT pins, since models are attached by
 the DUT pins they are wired to (`attach("mcp9808", "t", i2c=(4, 5, 0x18))`).
 A UART's `tx` and `rx` are the DUT's own pins. `gpio` reports the level the
 DUT drives on a pin; inputs of the harness read it, and a target's chip
