@@ -24,6 +24,7 @@
 #define ACTIONS_MAX 4096u
 #define I2C_BUSES_MAX 4u
 #define UART_PORTS_MAX 4u
+#define SPI_BUSES_MAX 4u
 
 enum action_kind {
     ACTION_GPIO,
@@ -55,6 +56,13 @@ static struct {
     uint8_t tx;
     uint8_t rx;
 } uart_ports[UART_PORTS_MAX];
+
+static struct {
+    bool used;
+    uint8_t sck;
+    uint8_t mosi;
+    uint8_t miso;
+} spi_buses[SPI_BUSES_MAX];
 
 static char line[LINE_MAX];
 static size_t line_len;
@@ -137,6 +145,18 @@ static size_t handle_hello(const struct json_node *root) {
 
     memset(i2c_buses, 0, sizeof(i2c_buses));
     memset(uart_ports, 0, sizeof(uart_ports));
+    memset(spi_buses, 0, sizeof(spi_buses));
+    list = json_get(&doc, root, "spi");
+    for (const struct json_node *b = json_child(&doc, list); b != NULL; b = json_next(&doc, b)) {
+        int64_t bus = json_int(&doc, b, "bus", -1);
+
+        if (bus >= 0 && bus < (int64_t)SPI_BUSES_MAX) {
+            spi_buses[bus].used = true;
+            spi_buses[bus].sck = (uint8_t)json_int(&doc, b, "sck", 0);
+            spi_buses[bus].mosi = (uint8_t)json_int(&doc, b, "mosi", 0);
+            spi_buses[bus].miso = (uint8_t)json_int(&doc, b, "miso", 0);
+        }
+    }
     list = json_get(&doc, root, "i2c");
     for (const struct json_node *b = json_child(&doc, list); b != NULL; b = json_next(&doc, b)) {
         int64_t bus = json_int(&doc, b, "bus", -1);
@@ -231,11 +251,26 @@ static size_t handle(const char *text, size_t len) {
         } else {
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"error\":\"unknown uart port\"");
         }
+    } else if (json_is(op, "spi")) {
+        int64_t bus = json_int(&doc, root, "bus", -1);
+        uint8_t miso = 0xff;
+
+        if (bus >= 0 && bus < (int64_t)SPI_BUSES_MAX && spi_buses[bus].used) {
+            (void)mclw_host_spi_frame(spi_buses[bus].sck, spi_buses[bus].mosi, spi_buses[bus].miso,
+                (uint8_t)json_int(&doc, root, "mosi", 0), &miso);
+            at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u", miso);
+        } else {
+            at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":255,\"error\":\"unknown spi bus\"");
+        }
     } else if (json_is(op, "gpio")) {
         const struct json_node *level = json_get(&doc, root, "level");
         int value = level != NULL && level->kind == JSON_NUMBER ? (level->number != 0) : -1;
+        uint8_t pin = (uint8_t)json_int(&doc, root, "pin", 0xff);
 
-        mclw_host_gpio_dut((uint8_t)json_int(&doc, root, "pin", 0xff), value);
+        mclw_host_gpio_dut(pin, value);
+        if (value >= 0) {
+            mclw_host_spi_cs(pin, value != 0);
+        }
         at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else {
         at = (size_t)snprintf(reply, REPLY_MAX, "{\"error\":\"unknown op\"");

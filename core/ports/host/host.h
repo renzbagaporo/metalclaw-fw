@@ -53,6 +53,11 @@ void mclw_host_gpio_dut(uint8_t pin, int level);
 // receives on it.
 void mclw_host_uart_receive(uint8_t dut_tx_pin, const uint8_t *bytes, size_t len);
 
+// spi_target.c: the DUT's chip select on `pin`, and one frame on the bus
+// at `sck` (-ENODEV when no target there is selected).
+void mclw_host_spi_cs(uint8_t pin, bool level);
+int mclw_host_spi_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint8_t *miso);
+
 // i2c_target.c, called by the bridge on the worker thread, one bus event
 // at a time as the DUT's controller makes them. start and write return
 // whether the target acknowledges; a START to an address no target

@@ -8,84 +8,9 @@
 
 #include "metalclaw/hal/spi_peer.h"
 #include "metalclaw/hal/spi_sink.h"
-#include "metalclaw/hal/spi_target.h"
 #include "metalclaw/hal/swd.h"
 #include "metalclaw/hal/usb.h"
 #include "metalclaw/hal/wire.h"
-
-// ---- SPI target -------------------------------------------------------------
-
-struct mclw_spi_target *mclw_hal_spi_target_open(uint8_t sck, uint8_t mosi, uint8_t miso, uint8_t cs,
-    uint8_t mode, bool msb_first, const void *owner, int *err) {
-    (void)sck;
-    (void)mosi;
-    (void)miso;
-    (void)cs;
-    (void)mode;
-    (void)msb_first;
-    (void)owner;
-    *err = -ENOTSUP;
-    return NULL;
-}
-
-void mclw_hal_spi_target_close(struct mclw_spi_target *t) {
-    (void)t;
-}
-
-int mclw_hal_spi_target_set_mode(struct mclw_spi_target *t, uint8_t mode) {
-    (void)t;
-    (void)mode;
-    return -ENOTSUP;
-}
-
-uint8_t mclw_hal_spi_target_mode(const struct mclw_spi_target *t) {
-    (void)t;
-    return 0;
-}
-
-int mclw_hal_spi_target_arm_regmap(struct mclw_spi_target *t, struct mclw_regmap *map,
-    const struct mclw_regmap_framing *framing) {
-    (void)t;
-    (void)map;
-    (void)framing;
-    return -ENOTSUP;
-}
-
-int mclw_hal_spi_target_arm_stream(struct mclw_spi_target *t, struct mclw_stream *stream) {
-    (void)t;
-    (void)stream;
-    return -ENOTSUP;
-}
-
-int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_command_image *image,
-    struct mclw_gpio *busy) {
-    (void)t;
-    (void)image;
-    (void)busy;
-    return -ENOTSUP;
-}
-
-void mclw_hal_spi_target_set_busy(struct mclw_spi_target *t, bool busy) {
-    (void)t;
-    (void)busy;
-}
-
-void mclw_hal_spi_target_disarm(struct mclw_spi_target *t) {
-    (void)t;
-}
-
-void mclw_hal_spi_target_poll(void) {
-}
-
-void mclw_hal_spi_target_stats(const struct mclw_spi_target *t, struct mclw_spi_target_stats *out) {
-    (void)t;
-    *out = (struct mclw_spi_target_stats){ 0 };
-}
-
-uint32_t mclw_hal_spi_target_max_clock_hz(const struct mclw_spi_target *t) {
-    (void)t;
-    return 0;
-}
 
 // ---- SPI sink ----------------------------------------------------------------
 

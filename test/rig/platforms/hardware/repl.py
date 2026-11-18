@@ -55,6 +55,9 @@ class Repl:
             out += self._read()
             if out.count(b"\x04") >= 2:
                 break
+        # The prompt that ended the code before may arrive after it, ahead
+        # of this reply (the host harness's terminal is relayed).
+        out = out.lstrip(b">")
         if not out.startswith(b"OK"):
             raise RuntimeError(f"raw REPL did not accept the code: {out!r}")
         body, _, err = out[2:].partition(b"\x04")
