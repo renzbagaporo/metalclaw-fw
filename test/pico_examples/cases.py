@@ -362,12 +362,17 @@ for ch in range(16 if rp2350 else 12):
 
 # 32 bytes of 10 bits at 9600 baud, rounded up.
 UART_DRAIN_S = 0.05
+WORKER_STATS = ("import metalclaw\n"
+                "print(repr(metalclaw.worker_stats({reset}) if hasattr(metalclaw, 'worker_stats') else None))\n")
 
 
 def test_the_example_parts_saw_the_program(harness, example, parts, record_property):
     checks = [(part, check) for part in parts for check in part.checks]
     if not checks:
         pytest.skip(f"no part checks for {example.target}")
+    # The harness worker's timing over the judged run, where the firmware
+    # has it (metalclaw.worker_stats): reset here, recorded below.
+    harness.run(WORKER_STATS.format(reset=True))
     early = [(part, check) for part, check in checks if check.setup and check.before_restart]
     if early:
         # Halted, the program queues nothing more; what it had queued
@@ -381,6 +386,7 @@ def test_the_example_parts_saw_the_program(harness, example, parts, record_prope
         if check.setup and not check.before_restart:
             harness.run(f"part = {part.name}\n{check.setup}\n")
     harness.sleep(max(check.after_seconds for _, check in checks))
+    record_property("harness_worker_stats", harness.run(WORKER_STATS.format(reset=False)).strip())
     problems = []
     failed = {}
     for n, (part, check) in enumerate(checks):
