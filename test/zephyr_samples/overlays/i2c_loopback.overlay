@@ -6,10 +6,13 @@
  * open-drain jumpers, as the sample's i2c_bus_short fixture does. Both
  * buses take the pads' pull-ups, as pico-examples' slave_mem_i2c does on
  * the same pins (gpio_pull_up); without them the controller's first
- * transfer fails on the carrier. Both take a 7-cycle (56 ns at 125 MHz)
- * spike filter, past UM10204's 50 ns tSP, and a 38-cycle (300 ns) SDA hold,
- * as pico-sdk configures them (hardware_i2c/i2c.c); the rpi_pico board
- * leaves the DesignWare defaults, one cycle each.
+ * transfer fails on the pico-rp2 fixture. Both take the spike filter and
+ * SDA hold pico-sdk gives a 100 kHz bus (hardware_i2c/i2c.c: spklen =
+ * lcnt / 16, 39 cycles on the Pico 1, 260-310 ns; 38 cycles, 300 ns, of
+ * hold); the rpi_pico boards leave the DesignWare defaults, one cycle each.
+ * The clock jumper's handover shows SCL high for two of its harness's PIO
+ * cycles and a synchroniser, which a shorter filter passes on as a clock
+ * on the pico1 fixture's 125 MHz harness.
  */
 #include <zephyr/dt-bindings/i2c/i2c.h>
 
@@ -38,14 +41,14 @@
 };
 
 &i2c0 {
-	fs-spike-len = <7>;
+	fs-spike-len = <39>;
 	sda-hold-tx = <38>;
 };
 
 &i2c1 {
 	status = "okay";
 	clock-frequency = <I2C_BITRATE_STANDARD>;
-	fs-spike-len = <7>;
+	fs-spike-len = <39>;
 	sda-hold-tx = <38>;
 	pinctrl-0 = <&i2c1_gp6_gp7>;
 	pinctrl-names = "default";
