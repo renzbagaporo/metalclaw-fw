@@ -44,6 +44,7 @@ NMEA and takes PMTK commands through its I2C buffer;
 gyroscope on SPI or I2C;
 [`w25q`](../devices/w25q/README.md), the Winbond W25Q16JV serial NOR flash on
 SPI, as the model `w25q16jv`;
+[`pca9633`](../devices/pca9633/README.md), NXP's 4-bit I2C LED driver;
 [`tmp1xx`](../devices/tmp1xx/README.md), Texas Instruments' TMP108, TMP112
 and TMP116 temperature sensors on I2C, three models;
 [`mcp2515`](../devices/mcp2515/README.md), Microchip's stand-alone CAN
@@ -54,7 +55,7 @@ character LCD backpack on UART; five displays, each a sink:
 OLED controllers on I2C or 4-wire SPI, two models;
 [`ht16k33`](../devices/ht16k33/README.md), a Holtek LED matrix driver on I2C;
 [`hd44780`](../devices/hd44780/README.md), an HD44780 character LCD behind a
-PCF8574 I2C backpack (`hd44780_pcf8574`);
+PCF8574 I2C backpack (`hd44780_pcf8574`) or an AIP31068L on I2C (`aip31068`);
 [`max7219`](../devices/max7219/README.md), Maxim LED display drivers on SPI,
 one or a cascade of up to eight;
 [`st7789`](../devices/st7789/README.md), a Sitronix ST7789V TFT controller on
