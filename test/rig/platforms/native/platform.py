@@ -20,6 +20,7 @@ import os
 import re
 import select
 import socket
+import shutil
 import subprocess
 import threading
 import time
@@ -47,8 +48,9 @@ from test.rig.platforms.native.host import HostProcess, _raw_pty, host_harness_p
 MONITOR_PORT = 1334
 CONSOLE_PORT = 1434
 # The RP2040 Pico's DUT-only script; the bridge connects from it.
-SCRIPTS = {"rp2040": "scripts/multi-node/metalclaw_pico_native.resc"}
-ROMS = {"rp2040": "b2.elf"}
+SCRIPTS = {"rp2040": "scripts/multi-node/metalclaw_pico_native.resc",
+           "rp2350": "scripts/multi-node/metalclaw_pico2_native.resc"}
+ROMS = {"rp2040": "b2.elf", "rp2350": "bootrom-combined.bin"}
 START_TIMEOUT_S = 60.0
 # Wall seconds the DUT's clock may stand still before a harness sleep gives
 # up, as the console wait does (test/pico_examples/cases.py).
@@ -226,11 +228,14 @@ class NativeBench:
         self.work.mkdir(parents=True, exist_ok=True)
         flash = flat_image(self.image, self.work)
         # The RP2040's boot ROM comes as an ELF; the script loads the 16 KiB
-        # binary in it.
+        # binary in it. The RP2350's is a binary already.
         rom = self.work / "dut_rom.bin"
         rom.unlink(missing_ok=True)
-        subprocess.run(["python3", str(self.renode_dir / MASK_ROM_EXTRACTOR), str(self.roms / ROMS[self.chip]),
-                        str(rom)], check=True, capture_output=True, text=True)
+        if ROMS[self.chip].endswith(".elf"):
+            subprocess.run(["python3", str(self.renode_dir / MASK_ROM_EXTRACTOR), str(self.roms / ROMS[self.chip]),
+                            str(rom)], check=True, capture_output=True, text=True)
+        else:
+            shutil.copyfile(self.roms / ROMS[self.chip], rom)
         self.host = HostProcess(host_harness_program(), self.socket_path, log=self.work / "host.log",
                                 usb_dir=self.work / "usb")
         commands = [
@@ -427,6 +432,8 @@ class NativeExample:
 NATIVE_SKIPS = {
     "devices/swd_probe/": "the SWD probe is the harness's USB debug probe; native mode reaches the DUT's memory "
                           "through Renode's monitor instead",
+    "devices/console_bridge/": "its cases are of the harness's USB serial function (interface numbers, line coding, "
+                               "DTR); native mode serves it as a terminal, which reads the DUT's console and no more",
 }
 
 
