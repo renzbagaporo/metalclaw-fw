@@ -71,8 +71,10 @@ def instance() -> int:
 
 
 class Monitor:
-    """Renode's monitor on its telnet port: a command, then its output up
-    to the next prompt."""
+    """Renode's monitor on its telnet port. The monitor echoes each command
+    and ends its output with a prompt; a reply is what follows this
+    command's echo up to the next prompt, so output that arrives late (the
+    start-up commands') never answers a later command."""
 
     PROMPT = re.compile(rb"\(([\w-]+|monitor)\) $")
 
@@ -86,38 +88,33 @@ class Monitor:
                 if time.monotonic() > deadline:
                     raise
                 time.sleep(0.2)
-        self._read_prompt(timeout)
-        # The start-up commands' output and prompts follow the first
-        # prompt; each would otherwise answer the command after it.
-        self._drain(quiet_s=1.0)
+        self.buf = b""
+        self._fill_until(lambda: self.PROMPT.search(self.buf[-64:]) is not None, timeout)
 
-    def _drain(self, quiet_s: float = 0.0) -> None:
-        while True:
-            ready, _, _ = select.select([self.sock], [], [], quiet_s)
-            if not ready:
-                return
-            if not self.sock.recv(65536):
-                raise EOFError("Renode monitor closed")
-
-    def _read_prompt(self, timeout: float) -> str:
-        got = b""
+    def _fill_until(self, done, timeout: float) -> None:
         deadline = time.monotonic() + timeout
-        while not self.PROMPT.search(got[-64:]):
+        while not done():
             left = deadline - time.monotonic()
             if left <= 0:
-                raise TimeoutError(f"Renode monitor: no prompt after {got[-300:]!r}")
+                raise TimeoutError(f"Renode monitor: no reply after {self.buf[-300:]!r}")
             ready, _, _ = select.select([self.sock], [], [], left)
             if ready:
                 chunk = self.sock.recv(65536)
                 if not chunk:
                     raise EOFError("Renode monitor closed")
-                got += chunk
-        return got.decode(errors="replace")
+                self.buf += chunk
 
     def command(self, line: str, timeout: float = 30.0) -> str:
-        self._drain()
+        self.buf = b""
         self.sock.sendall(line.encode() + b"\n")
-        return self._read_prompt(timeout)
+        echo = line.encode()
+
+        def answered() -> bool:
+            at = self.buf.rfind(echo)
+            return at >= 0 and self.PROMPT.search(self.buf[at + len(echo):][-64:]) is not None
+        self._fill_until(answered, timeout)
+        at = self.buf.rfind(echo)
+        return self.buf[at + len(echo):].decode(errors="replace")
 
     def close(self) -> None:
         self.sock.close()
@@ -127,7 +124,7 @@ class ConsolePty:
     """The DUT's console from Renode's socket terminal, relayed to a raw
     pseudo-terminal the cases open by path, as a harness's serial port."""
 
-    def __init__(self, port: int, timeout: float = START_TIMEOUT_S):
+    def __init__(self, port: int, log: Path, timeout: float = START_TIMEOUT_S):
         deadline = time.monotonic() + timeout
         while True:
             try:
@@ -137,6 +134,8 @@ class ConsolePty:
                 if time.monotonic() > deadline:
                     raise
                 time.sleep(0.2)
+        # Everything the DUT printed, whether a case read it or not.
+        self._log = open(log, "ab", buffering=0)
         self.master, self._slave = _raw_pty()
         self.path = os.ttyname(self._slave)
         self._stop_r, self._stop_w = os.pipe()
@@ -154,6 +153,7 @@ class ConsolePty:
                     data = self.sock.recv(65536)
                     if not data:
                         return
+                    self._log.write(data)
                     os.write(self.master, data)
                 if self.master in ready:
                     self.sock.sendall(os.read(self.master, 65536))
@@ -164,6 +164,7 @@ class ConsolePty:
         os.write(self._stop_w, b"x")
         self._thread.join(timeout=5)
         self.sock.close()
+        self._log.close()
         for fd in (self.master, self._slave, self._stop_r, self._stop_w):
             os.close(fd)
 
@@ -233,7 +234,7 @@ class NativeBench:
             self.renode = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, env=env,
                                            start_new_session=True)
         self.monitor = Monitor(self.monitor_port)
-        self.console = ConsolePty(self.console_port)
+        self.console = ConsolePty(self.console_port, self.work / "dut_console.log")
 
     def restart(self) -> None:
         self.monitor.command("machine Reset")
@@ -312,26 +313,31 @@ class NativeHarness:
 class MonitorMemory:
     """The DUT's memory through Renode's monitor, as the rig reads and
     writes it through a probe: read_words, write_words, and a link with
-    the same two."""
+    the same two. Bytes go in bulk, little-endian."""
 
-    HEX = re.compile(r"0x[0-9A-Fa-f]+")
+    BYTE = re.compile(r"0x([0-9A-Fa-f]{2})\b")
+    CHUNK = 1024
 
     def __init__(self, bench: "NativeBench"):
         self.bench = bench
 
     def read_words(self, address: int, count: int, timeout=None) -> list[int]:
-        words = []
-        for i in range(count):
-            out = self.bench.monitor.command(f"sysbus ReadDoubleWord {address + 4 * i:#x}")
-            found = self.HEX.findall(out.split("\n", 1)[-1])
-            if not found:
-                raise RuntimeError(f"Renode monitor: no word read at {address + 4 * i:#x}: {out!r}")
-            words.append(int(found[-1], 16))
-        return words
+        data = b""
+        while len(data) < 4 * count:
+            n = min(self.CHUNK, 4 * count - len(data))
+            out = self.bench.monitor.command(f"sysbus ReadBytes {address + len(data):#x} {n}")
+            got = bytes(int(b, 16) for b in self.BYTE.findall(out))
+            if len(got) != n:
+                raise RuntimeError(f"Renode monitor: read {len(got)} of {n} bytes at {address + len(data):#x}")
+            data += got
+        return [int.from_bytes(data[i:i + 4], "little") for i in range(0, len(data), 4)]
 
     def write_words(self, address: int, words, timeout=None) -> None:
-        for i, word in enumerate(words):
-            self.bench.monitor.command(f"sysbus WriteDoubleWord {address + 4 * i:#x} {word & 0xFFFFFFFF:#x}")
+        data = b"".join((w & 0xFFFFFFFF).to_bytes(4, "little") for w in words)
+        for at in range(0, len(data), self.CHUNK):
+            part = data[at:at + self.CHUNK]
+            self.bench.monitor.command(f"sysbus WriteBytes [{', '.join(f'{b:#04x}' for b in part)}] "
+                                       f"{address + at:#x}")
 
     def write_when_reachable(self, address: int, words, seconds: float) -> None:
         self.write_words(address, words)
@@ -363,6 +369,22 @@ class NativeExample:
 
     def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
         pytest.skip("native mode has no RUN pin to press yet")
+
+
+# Cases of the harness's own USB functions, which the host harness does not
+# present: the native platform reaches the DUT through the emulator.
+NATIVE_SKIPS = {
+    "devices/swd_probe/": "the SWD probe is the harness's USB debug probe; native mode reaches the DUT's memory "
+                          "through Renode's monitor instead",
+    "devices/console_bridge/": "the console bridge is a USB serial function of the harness; native mode reads the "
+                               "DUT's console from Renode",
+}
+
+
+def pytest_runtest_setup(item):
+    for prefix, reason in NATIVE_SKIPS.items():
+        if item.nodeid.startswith(prefix):
+            pytest.skip(reason)
 
 
 @pytest.fixture(scope="session")
