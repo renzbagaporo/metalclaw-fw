@@ -18,7 +18,6 @@
 
 #define UARTS_MAX 4u
 #define RX_RING 4096u
-#define LINKED_FRAME_NS 86806u
 
 struct mclw_uart {
     const void *owner;
@@ -94,20 +93,6 @@ void mclw_host_uart_receive(uint8_t dut_tx_pin, const uint8_t *bytes, size_t len
     mclw_hal_critical_exit(state);
     if (found != NULL) {
         mclw_hal_work_post(&found->work);
-        return;
-    }
-    // A UART's bytes reach the emulator a byte at a time, not as edges;
-    // a link from its TX pin (a loopback jumper) carries them to the
-    // linked pin's UART, paced as at 115200 8N1.
-    int peer = mclw_host_gpio_link_peer(dut_tx_pin);
-
-    if (peer >= 0) {
-        uint64_t at = mclw_host_event_ns();
-
-        for (size_t i = 0; i < len; i++) {
-            at += LINKED_FRAME_NS;
-            mclw_host_event_uart((uint8_t)peer, bytes[i], at);
-        }
     }
 }
 

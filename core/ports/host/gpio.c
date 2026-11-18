@@ -3,8 +3,9 @@
 // bridge action at the current virtual time (host.h); an input reads the
 // level the DUT last drove on that pin, which the bridge reports, or the
 // pin's pull while the DUT has not driven it. A link between two pins
-// (follow, join) repeats each level the DUT drives on one as an action on
-// the other at the same virtual time; a square wave is queued as timed
+// (follow, join) is a join inside the emulator: the DUT's drive on either
+// is the other's input at once, and two blocks routed to joined pins (I2C,
+// UART, SPI) talk to each other directly. A square wave is queued as timed
 // actions a little ahead of the DUT's time.
 
 #include <errno.h>
@@ -70,33 +71,7 @@ void mclw_host_gpio_dut(uint8_t pin, int level) {
         g->fell = true;
     }
     dut_level[pin] = (int8_t)level;
-    // A UART's TX goes over as bytes (uart.c), not as its edges.
-    if (g->owner != NULL && g->link != LINK_NONE && g->peer != NULL && !mclw_host_pin_is_uart_tx(pin)) {
-        uint8_t out;
-
-        if (g->link == LINK_FOLLOW) {
-            out = level == 0 ? MCLW_HOST_GPIO_LOW : MCLW_HOST_GPIO_HIGH;
-        } else {
-            // An open-drain line: a low on one side holds the other low.
-            out = level == 0 ? MCLW_HOST_GPIO_LOW : MCLW_HOST_GPIO_RELEASED;
-        }
-        mclw_host_event_gpio(g->peer->pin, out);
-    }
     mclw_hal_critical_exit(state);
-}
-
-int mclw_host_gpio_link_peer(uint8_t pin) {
-    int peer = -1;
-
-    if (pin >= GPIO_MAX) {
-        return -1;
-    }
-    uint32_t state = mclw_hal_critical_enter();
-    if (gpios[pin].owner != NULL && gpios[pin].link != LINK_NONE && gpios[pin].peer != NULL) {
-        peer = gpios[pin].peer->pin;
-    }
-    mclw_hal_critical_exit(state);
-    return peer;
 }
 
 // The worker's poll: each square wave's edges for the next stretch.
@@ -249,10 +224,8 @@ static int link(struct mclw_gpio *a, struct mclw_gpio *b, uint8_t kind, bool bot
         b->peer = a;
     }
     mclw_hal_critical_exit(state);
-    mclw_host_event_watch(a->pin);
-    if (both) {
-        mclw_host_event_watch(b->pin);
-    }
+    // A follow is a join too: the pin that follows is the DUT's input.
+    mclw_host_event_join(a->pin, b->pin, true);
     return 0;
 }
 
@@ -282,4 +255,7 @@ void mclw_hal_gpio_unlink(struct mclw_gpio *gpio) {
     gpio->link = LINK_NONE;
     gpio->peer = NULL;
     mclw_hal_critical_exit(state);
+    if (peer != NULL) {
+        mclw_host_event_join(gpio->pin, peer->pin, false);
+    }
 }

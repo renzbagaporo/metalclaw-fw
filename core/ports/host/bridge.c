@@ -31,6 +31,8 @@ enum action_kind {
     ACTION_UART,
     ACTION_WATCH,
     ACTION_SPI_CLOCK,
+    ACTION_JOIN,
+    ACTION_UNJOIN,
 };
 
 struct action {
@@ -117,21 +119,16 @@ bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, 
     return true;
 }
 
+void mclw_host_event_join(uint8_t a, uint8_t b, bool joined) {
+    add_action(mclw_host_event_ns(), joined ? ACTION_JOIN : ACTION_UNJOIN, a, b);
+}
+
 void mclw_host_event_watch(uint8_t pin) {
     add_action(mclw_host_event_ns(), ACTION_WATCH, pin, 0);
 }
 
 void mclw_host_event_uart(uint8_t rx_pin, uint8_t byte, uint64_t t_ns) {
     add_action(t_ns, ACTION_UART, rx_pin, byte);
-}
-
-bool mclw_host_pin_is_uart_tx(uint8_t pin) {
-    for (size_t i = 0; i < UART_PORTS_MAX; i++) {
-        if (uart_ports[i].used && uart_ports[i].tx == pin) {
-            return true;
-        }
-    }
-    return false;
 }
 
 static int uart_port_for_rx(uint8_t rx_pin) {
@@ -168,6 +165,10 @@ static size_t put_actions(size_t at) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"spi_clock\",\"bus\":%u,\"mosi\":%u}", i ? "," : "",
                     a->t_ns, a->pin, a->value);
+            } else if (a->kind == ACTION_JOIN || a->kind == ACTION_UNJOIN) {
+                at += (size_t)snprintf(reply + at, REPLY_MAX - at,
+                    "%s{\"t_ns\":%" PRIu64 ",\"op\":\"%s\",\"pins\":[%u,%u]}", i ? "," : "", a->t_ns,
+                    a->kind == ACTION_JOIN ? "join" : "unjoin", a->pin, a->value);
             } else if (a->kind == ACTION_WATCH) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"watch\",\"pin\":%u}", i ? "," : "", a->t_ns, a->pin);

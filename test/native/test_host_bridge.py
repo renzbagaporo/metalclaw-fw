@@ -255,18 +255,22 @@ def test_a_quadrature_encoder_steps_its_pins_at_its_rate(tmp_path):
         harness.close()
 
 
-def test_a_jumper_repeats_the_dut_s_levels_on_its_other_pin(tmp_path):
-    # pico-examples' uart and spi loopbacks: the DUT drives GP4, and GP5
-    # reads what it drove.
+def test_a_jumper_joins_its_pins_inside_the_emulator(tmp_path):
+    # pico-examples' uart, spi and i2c loopbacks: the emulator wires GP4 to
+    # GP5 itself, so the DUT's levels need no round trip, and blocks routed
+    # to them talk directly; detaching the jumper parts them.
     harness, bridge = _bridged(tmp_path)
     try:
+        bridge.actions.clear()
         harness.run("import metalclaw\nj = metalclaw.attach('jumper', 'j', source=(4,), sink=(5,))")
         bridge.advance(1_000_000)
+        assert [sorted(a["pins"]) for a in bridge.actions if a["op"] == "join"] == [[4, 5]]
         bridge.actions.clear()
         bridge.request(op="gpio", pin=4, level=0)
-        bridge.request(op="gpio", pin=4, level=1)
-        driven = [(a["pin"], a["level"]) for a in bridge.actions if a["op"] == "gpio"]
-        assert driven[-2:] == [(5, 0), (5, 1)]
+        assert [a for a in bridge.actions if a["op"] == "gpio"] == []
+        harness.run("metalclaw.detach('j')")
+        bridge.advance(1_000_000)
+        assert [sorted(a["pins"]) for a in bridge.actions if a["op"] == "unjoin"] == [[4, 5]]
     finally:
         bridge.close()
         harness.close()
