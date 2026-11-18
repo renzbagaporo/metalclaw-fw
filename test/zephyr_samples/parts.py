@@ -181,6 +181,15 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("lsm303dlhc_magn", "magn", {"i2c": (4, 5, 0x1e)}, {"i2c": 2},
                {"magnetic_field": (25000, -10000, 50000)}),
     ),
+    # The DRV2605L at 0x5A on I2C0: the sample's sequence, effects 1 to 4
+    # with 100 ms waits, played whole on GO at each of the run's DUT boots.
+    "zephyr/drivers/haptics/drv2605": (
+        Attach("drv2605l", "haptic", {"i2c": (4, 5, 0x5a)}, {"i2c": 2}, checks=(
+            Check("(part.get('played'), part.get('last'), part.get('playing'))",
+                  lambda v: v[0] >= 4 and v[0] % 4 == 0 and v[1] == 4 and not v[2],
+                  "effects 1-4 played whole and done", 3.0),
+        )),
+    ),
     # The AT24C02C at 0x50 on I2C0, erased at attach: the sample writes its
     # boot counter at offset 0.
     "zephyr/drivers/eeprom": (

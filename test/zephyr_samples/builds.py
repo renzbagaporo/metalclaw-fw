@@ -312,6 +312,10 @@ BUILDS: dict[str, Build] = {
     # samples/sensor/hts221: ST's HTS221 at 0x5F on I2C0, polled.
     "zephyr/sensor/hts221": Build("sensor/hts221", test="sample.sensor.hts221", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/hts221_5f.overlay")),
+    # samples/drivers/haptics/drv2605: the adafruit_drv2605l shield's node,
+    # a DRV2605L at 0x5A on I2C0; its yaml is build_only.
+    "zephyr/drivers/haptics/drv2605": Build("drivers/haptics/drv2605", test="sample.haptics.drv2605", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/haptic_drv2605_5a.overlay")),
     # samples/drivers/eeprom: an AT24C02C at 0x50 on I2C0 as eeprom-0.
     "zephyr/drivers/eeprom": Build("drivers/eeprom", test="sample.drivers.eeprom", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/eeprom0_at24c02_50.overlay")),
