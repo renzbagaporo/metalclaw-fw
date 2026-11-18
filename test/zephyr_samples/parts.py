@@ -218,6 +218,15 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('led_driver')", lambda v: v & 0xe0 == 0xe0, "LED drivers on I/O 5-7", 3.0),
         )),
     ),
+    # The IS31FL3733 at 0x50 on I2C0: out of shutdown at full current, every
+    # dot switched on, and the sample's PWM writes in page 1.
+    "zephyr/drivers/led/is31fl3733": (
+        Attach("is31fl3733", "matrix", {"i2c": (4, 5, 0x50)}, {"i2c": 2}, checks=(
+            Check("(part.configuration & 1, part.gcc, part.leds_on, part.pwm_max)",
+                  lambda v: v[0] == 1 and v[1] in (0xFF, 0x3F) and v[2] == 192 and v[3] != 0,
+                  "out of shutdown, every dot on, and some PWM set (SSD, GCC, dots on, highest PWM)", 3.0),
+        )),
+    ),
     # The LP3943 at 0x60 on I2C0: the sample turns its LEDs on one by one.
     "zephyr/drivers/led/lp3943": (
         Attach("lp3943", "leds", {"i2c": (4, 5, 0x60)}, {"i2c": 2}, checks=(
