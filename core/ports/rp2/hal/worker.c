@@ -17,7 +17,7 @@
 
 #define WORKER_STACK_WORDS 2048u
 #define WORKER_TICK_US 1000u
-#define WORKER_POLLS_MAX 8u
+#define WORKER_POLLS_MAX MCLW_WORKER_POLLS_MAX
 
 struct poll_entry {
     mclw_hal_poll_t fn;
@@ -29,6 +29,14 @@ static struct mclw_work *volatile work_head;
 static struct poll_entry polls[WORKER_POLLS_MAX];
 static volatile size_t poll_count;
 static uint tick_alarm;
+static struct {
+    uint32_t rounds;
+    uint32_t last_round_us;
+    uint32_t max_round_gap_us;
+    uint32_t max_work_per_round;
+    uint32_t poll_max_us[WORKER_POLLS_MAX];
+} stats;
+volatile uint32_t mclw_worker_lock_misses;
 
 struct call_context {
     void (*fn)(void *ctx);
@@ -49,10 +57,18 @@ static void __not_in_flash_func(tick_handler)(uint alarm) {
 static void drain(void) {
     uint32_t state = mclw_hal_critical_enter();
     struct mclw_work *w = work_head;
+    uint32_t now = time_us_32();
+    uint32_t ran = 0;
 
     work_head = NULL;
     mclw_hal_critical_exit(state);
+    if (stats.rounds != 0u && now - stats.last_round_us > stats.max_round_gap_us) {
+        stats.max_round_gap_us = now - stats.last_round_us;
+    }
+    stats.last_round_us = now;
+    stats.rounds++;
     while (w != NULL) {
+        ran++;
         struct mclw_work *next;
 
         state = mclw_hal_critical_enter();
@@ -62,6 +78,9 @@ static void drain(void) {
         mclw_hal_critical_exit(state);
         w->fn(w);
         w = next;
+    }
+    if (ran > stats.max_work_per_round) {
+        stats.max_work_per_round = ran;
     }
 }
 
@@ -73,7 +92,14 @@ static void worker_main(void) {
     for (;;) {
         drain();
         for (size_t i = 0; i < poll_count; i++) {
+            uint32_t start = time_us_32();
+            uint32_t took;
+
             polls[i].fn(polls[i].ctx);
+            took = time_us_32() - start;
+            if (took > stats.poll_max_us[i]) {
+                stats.poll_max_us[i] = took;
+            }
         }
         if (work_head == NULL) {
             __wfe();
@@ -133,6 +159,30 @@ void mclw_hal_work_call(void (*fn)(void *ctx), void *ctx) {
     mclw_hal_work_post(&w);
     while (!c.done) {
         __wfe();
+    }
+}
+
+// Read from the script's thread while the worker writes: each field is one
+// word, so a read is a value the worker held, if not all from one moment.
+void mclw_hal_worker_stats(struct mclw_worker_stats *out, bool reset) {
+    size_t n = poll_count;
+
+    out->rounds = stats.rounds;
+    out->max_round_gap_us = stats.max_round_gap_us;
+    out->max_work_per_round = stats.max_work_per_round;
+    out->lock_misses = mclw_worker_lock_misses;
+    out->poll_count = (uint32_t)n;
+    for (size_t i = 0; i < WORKER_POLLS_MAX; i++) {
+        out->poll_fn[i] = i < n ? (uintptr_t)polls[i].fn : 0u;
+        out->poll_max_us[i] = i < n ? stats.poll_max_us[i] : 0u;
+    }
+    if (reset) {
+        stats.max_round_gap_us = 0;
+        stats.max_work_per_round = 0;
+        mclw_worker_lock_misses = 0;
+        for (size_t i = 0; i < WORKER_POLLS_MAX; i++) {
+            stats.poll_max_us[i] = 0;
+        }
     }
 }
 
