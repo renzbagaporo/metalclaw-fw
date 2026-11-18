@@ -151,6 +151,11 @@ setup-rig:
 test PLATFORM="hardware" *ARGS: setup-rig
     #!/usr/bin/env bash
     set -euo pipefail
+    if [[ "{{PLATFORM}}" == native ]]; then
+        # The bridge's package until a release pins it: METALCLAW_RENODE_DIR.
+        : "${METALCLAW_RENODE_DIR:?set METALCLAW_RENODE_DIR to a Renode package with the native bridge}"
+        export METALCLAW_RENODE_ROMS="${METALCLAW_RENODE_ROMS:-{{renode_roms}}}"
+    fi
     if [[ "{{PLATFORM}}" == emulator ]]; then
         export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
         # The board `just build` builds picks the bench.

@@ -76,8 +76,10 @@ same on both; host time does not.
 
 ## Platforms
 
-Two platforms exist: `hardware`, the bench, and `emulator`, the same bench
-in Renode (see [The emulator](#the-emulator)). `hardware` refuses to run
+Three platforms exist: `hardware`, the bench; `emulator`, the same bench
+in Renode (see [The emulator](#the-emulator)); and `native`, the DUT alone
+in Renode with its parts served by Metalclaw running as a Linux process
+(see [Native mode](#native-mode)). `hardware` refuses to run
 without `METALCLAW_HARNESS_SERIAL` and never scans for ports. Bringing it up means: wait for the harness to
 enumerate, attach the `swd_probe` device from the REPL if the CMSIS-DAP
 interface is not already present, flash the DUT image through that probe with
@@ -303,6 +305,44 @@ whether or not anything is wired to the pin. `CORE_ORDER_LIMITS` holds
 spinning, and only silicon's back-to-back doorbell interrupts hold it off
 until the flag is set; the emulated cores, on separate host threads, do not
 interleave that tightly.
+
+## Native mode
+
+`just test native` runs the cases against the DUT emulated in Renode on its
+own, with its parts served by the host harness: Metalclaw built for Linux
+(`just build-host`), MicroPython's unix port with the `metalclaw` module,
+the runtime and every device, over a software HAL in `core/ports/host`.
+The models, the runtime and the REPL the cases drive are the firmware's
+own; what differs from a bench is the HAL under them, which serves the
+DUT's buses from the emulator instead of from PIO and DMA. The rp2 port's
+engines are not exercised here; the two benches are where they are judged.
+
+The emulator holds only the DUT. A bridge in it (`scripts/multi-node/
+metalclaw_pico_native.resc`) hands every I2C event, SPI frame and UART byte
+of the DUT's blocks, and every level it drives on a pin the harness
+watches, to the host harness over a Unix socket, in lockstep with the
+DUT's virtual time: each request carries that time and waits for its
+answer, so a run is the same at any host load
+(`core/ports/host/BRIDGE.md`). The harness's clock, `metalclaw.now_us()`,
+is the DUT's virtual time, and so are the cases' bench seconds.
+
+The platform starts the host harness on a pseudo-terminal, which the rig
+opens as it opens a harness's USB serial port, and Renode with the DUT's
+image in its flash. The DUT's console comes from a socket terminal on its
+UART0; its memory, for the rig's mailbox and the pin and register cases,
+from Renode's monitor; a reset and a halt are monitor commands. DUT pins
+are the harness's pins one to one. The harness's own USB functions (the
+SWD probe, the console bridge) have no place here, and their cases skip.
+
+```sh
+just build-host
+just build-dut           # with METALCLAW_DUT_BOARD=rpi_pico: the bridge's script is the Pico's
+METALCLAW_RENODE_DIR=<a package with the bridge> just test native
+```
+
+The host harness runs on its own too, with its REPL on stdin and its clock
+the host's monotonic clock, and `test/native` drives it as the emulator
+would, without Renode.
 
 The hardware platform never runs the programs in `HARDWARE_HAZARDS`
 (`test/pico_examples/hazards.py`): `hello_otp` writes OTP for good, and
