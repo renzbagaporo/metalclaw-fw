@@ -211,6 +211,13 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('updates')", lambda v: v >= 20, "the fade's PWM loaded update by update", 3.0),
         )),
     ),
+    # The SX1509B at 0x3E on I2C0: the LED driver on I/O 5-7, the sample's
+    # three LEDs.
+    "zephyr/drivers/led/sx1509b_intensity": (
+        Attach("sx1509b", "expander", {"i2c": (4, 5, 0x3e)}, {"i2c": 2}, checks=(
+            Check("part.get('led_driver')", lambda v: v & 0xe0 == 0xe0, "LED drivers on I/O 5-7", 3.0),
+        )),
+    ),
     # The LP5562 at 0x30 on I2C0: enabled, and the sample's colours and
     # blinks written.
     "zephyr/drivers/led/lp5562": (

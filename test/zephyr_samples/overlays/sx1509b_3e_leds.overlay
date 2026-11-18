@@ -1,0 +1,38 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A Semtech SX1509B at 0x3E (ADDR 00, SX1509 data sheet 4.5) on I2C0
+ * (i2c0.overlay), as the thingy52 has it, with its RGB LEDs on I/O 5-7
+ * active low: the sample takes led0-led2's pin numbers for the expander's
+ * intensity registers, so led0 moves off the board's GP25.
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&i2c0 {
+	sx1509b: sx1509b@3e {
+		compatible = "semtech,sx1509b";
+		reg = <0x3e>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <16>;
+		init-out-high = <0xe0e0>;
+		init-out-low = <0x1f1f>;
+	};
+};
+
+&led0 {
+	gpios = <&sx1509b 5 GPIO_ACTIVE_LOW>;
+};
+
+/ {
+	sx1509b_leds {
+		compatible = "gpio-leds";
+
+		led1: led_1 {
+			gpios = <&sx1509b 6 GPIO_ACTIVE_LOW>;
+		};
+
+		led2: led_2 {
+			gpios = <&sx1509b 7 GPIO_ACTIVE_LOW>;
+		};
+	};
+};

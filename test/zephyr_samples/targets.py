@@ -590,6 +590,12 @@ OWN: dict[str, Spec] = {
         r"<inf> main: Found LED controller is31fl3216a@74", r"<inf> main: Pulsing single LED",
         forbidden=(*FORBIDDEN, r"<err>"), seconds=5.0,
         source="samples/drivers/led/is31fl3216a/src/main.c"),
+    # samples/drivers/led/sx1509b_intensity/src/main.c: configures its three
+    # LEDs for intensity and fades them; its yaml has no harness.
+    "zephyr/drivers/led/sx1509b_intensity": own(
+        r"^SX1509B intensity sample$",
+        forbidden=(*FORBIDDEN, r"Error configuring", r"not ready", r"<err>"), seconds=4.0,
+        source="samples/drivers/led/sx1509b_intensity/src/main.c"),
     # samples/drivers/led/lp5562/src/main.c: finds the device, then cycles
     # colours and blinks; its yaml has no criterion (harness TBD).
     "zephyr/drivers/led/lp5562": own(
