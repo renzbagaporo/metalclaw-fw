@@ -1,0 +1,12 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A TI LP3943 at 0x60 on I2C0 (i2c0.overlay), as the 96Boards Neonkey and
+ * Argonkey carry it.
+ */
+
+&i2c0 {
+	lp3943@60 {
+		compatible = "ti,lp3943";
+		reg = <0x60>;
+	};
+};
