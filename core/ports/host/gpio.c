@@ -79,6 +79,9 @@ struct mclw_gpio *mclw_hal_gpio_open(uint8_t pin, bool output, enum mclw_gpio_pu
     if (output) {
         mclw_host_event_gpio(pin, initial ? MCLW_HOST_GPIO_HIGH : MCLW_HOST_GPIO_LOW);
     }
+    // Every pin is read too (an output released, an open-drain line), so
+    // the emulator reports what the DUT drives on it.
+    mclw_host_event_watch(pin);
     return g;
 }
 
