@@ -253,3 +253,20 @@ def test_a_quadrature_encoder_steps_its_pins_at_its_rate(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_a_jumper_repeats_the_dut_s_levels_on_its_other_pin(tmp_path):
+    # pico-examples' uart and spi loopbacks: the DUT drives GP4, and GP5
+    # reads what it drove.
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\nj = metalclaw.attach('jumper', 'j', source=(4,), sink=(5,))")
+        bridge.advance(1_000_000)
+        bridge.actions.clear()
+        bridge.request(op="gpio", pin=4, level=0)
+        bridge.request(op="gpio", pin=4, level=1)
+        driven = [(a["pin"], a["level"]) for a in bridge.actions if a["op"] == "gpio"]
+        assert driven[-2:] == [(5, 0), (5, 1)]
+    finally:
+        bridge.close()
+        harness.close()

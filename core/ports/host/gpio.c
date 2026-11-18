@@ -2,8 +2,10 @@
 // GPIO for the host port. An output's every change goes to the DUT as a
 // bridge action at the current virtual time (host.h); an input reads the
 // level the DUT last drove on that pin, which the bridge reports, or the
-// pin's pull while the DUT has not driven it. Hardware links (follow,
-// join) and square waves are not available here.
+// pin's pull while the DUT has not driven it. A link between two pins
+// (follow, join) repeats each level the DUT drives on one as an action on
+// the other at the same virtual time; a square wave is queued as timed
+// actions a little ahead of the DUT's time.
 
 #include <errno.h>
 #include <stddef.h>
@@ -16,6 +18,12 @@
 
 #define GPIO_MAX 48u
 
+enum link_kind {
+    LINK_NONE,
+    LINK_FOLLOW,
+    LINK_JOIN,
+};
+
 struct mclw_gpio {
     const void *owner;
     uint8_t pin;
@@ -24,7 +32,16 @@ struct mclw_gpio {
     bool level;
     enum mclw_gpio_pull pull;
     bool fell;
+    // A link to another pin: this pin's DUT levels go there.
+    uint8_t link;
+    struct mclw_gpio *peer;
+    // A square wave: period and high time, and when the queued edges end.
+    uint32_t period_ns;
+    uint32_t high_ns;
+    uint64_t square_until_ns;
 };
+
+#define SQUARE_AHEAD_NS 2000000u
 
 static struct mclw_gpio gpios[GPIO_MAX];
 // The DUT's side of every pin, as the bridge last reported it: 0, 1, or
@@ -46,13 +63,52 @@ void mclw_host_gpio_dut(uint8_t pin, int level) {
         return;
     }
     uint32_t state = mclw_hal_critical_enter();
+    struct mclw_gpio *g = &gpios[pin];
+
     levels_init();
-    if (dut_level[pin] != 0 && level == 0 && gpios[pin].owner != NULL) {
-        gpios[pin].fell = true;
+    if (dut_level[pin] != 0 && level == 0 && g->owner != NULL) {
+        g->fell = true;
     }
     dut_level[pin] = (int8_t)level;
+    if (g->owner != NULL && g->link != LINK_NONE && g->peer != NULL) {
+        uint8_t out;
+
+        if (g->link == LINK_FOLLOW) {
+            out = level == 0 ? MCLW_HOST_GPIO_LOW : MCLW_HOST_GPIO_HIGH;
+        } else {
+            // An open-drain line: a low on one side holds the other low.
+            out = level == 0 ? MCLW_HOST_GPIO_LOW : MCLW_HOST_GPIO_RELEASED;
+        }
+        mclw_host_event_gpio(g->peer->pin, out);
+    }
     mclw_hal_critical_exit(state);
 }
+
+// The worker's poll: each square wave's edges for the next stretch.
+static void square_poll(void *ctx) {
+    uint64_t now = mclw_host_event_ns();
+
+    (void)ctx;
+    uint32_t state = mclw_hal_critical_enter();
+    for (size_t i = 0; i < GPIO_MAX; i++) {
+        struct mclw_gpio *g = &gpios[i];
+
+        if (g->owner == NULL || g->period_ns == 0u) {
+            continue;
+        }
+        if (g->square_until_ns < now) {
+            g->square_until_ns = now;
+        }
+        while (g->square_until_ns < now + SQUARE_AHEAD_NS) {
+            mclw_host_event_gpio_at(g->pin, MCLW_HOST_GPIO_HIGH, g->square_until_ns);
+            mclw_host_event_gpio_at(g->pin, MCLW_HOST_GPIO_LOW, g->square_until_ns + g->high_ns);
+            g->square_until_ns += g->period_ns;
+        }
+    }
+    mclw_hal_critical_exit(state);
+}
+
+static bool square_registered;
 
 struct mclw_gpio *mclw_hal_gpio_open(uint8_t pin, bool output, enum mclw_gpio_pull pull,
     bool initial, const void *owner, int *err) {
@@ -75,6 +131,9 @@ struct mclw_gpio *mclw_hal_gpio_open(uint8_t pin, bool output, enum mclw_gpio_pu
     g->level = initial;
     g->pull = pull;
     g->fell = false;
+    g->link = LINK_NONE;
+    g->peer = NULL;
+    g->period_ns = 0;
     mclw_hal_critical_exit(state);
     if (output) {
         mclw_host_event_gpio(pin, initial ? MCLW_HOST_GPIO_HIGH : MCLW_HOST_GPIO_LOW);
@@ -94,6 +153,8 @@ void mclw_hal_gpio_close(struct mclw_gpio *gpio) {
     if (gpio->driven) {
         mclw_host_event_gpio(gpio->pin, MCLW_HOST_GPIO_RELEASED);
     }
+    mclw_hal_gpio_unlink(gpio);
+    gpio->period_ns = 0;
     gpio->owner = NULL;
     mclw_hal_pin_release(gpio->pin, owner);
 }
@@ -145,29 +206,65 @@ uint8_t mclw_hal_gpio_pin(const struct mclw_gpio *gpio) {
 }
 
 int mclw_hal_gpio_square(struct mclw_gpio *gpio, uint32_t period_ns, uint32_t high_ns) {
-    (void)gpio;
-    (void)high_ns;
-    return period_ns == 0 ? 0 : -ENOTSUP;
+    if (period_ns != 0u && (high_ns == 0u || high_ns >= period_ns)) {
+        return -ERANGE;
+    }
+    if (!square_registered) {
+        if (mclw_hal_poll_register(square_poll, NULL) != 0) {
+            return -EBUSY;
+        }
+        square_registered = true;
+    }
+    uint32_t state = mclw_hal_critical_enter();
+    gpio->period_ns = period_ns;
+    gpio->high_ns = high_ns;
+    gpio->square_until_ns = 0;
+    gpio->driven = true;
+    mclw_hal_critical_exit(state);
+    return 0;
 }
 
+static int link(struct mclw_gpio *a, struct mclw_gpio *b, uint8_t kind, bool both) {
+    uint32_t state = mclw_hal_critical_enter();
+
+    a->link = kind;
+    a->peer = b;
+    if (both) {
+        b->link = kind;
+        b->peer = a;
+    }
+    mclw_hal_critical_exit(state);
+    mclw_host_event_watch(a->pin);
+    if (both) {
+        mclw_host_event_watch(b->pin);
+    }
+    return 0;
+}
+
+// `from`'s DUT levels go to `to`.
 int mclw_hal_gpio_follow(struct mclw_gpio *to, struct mclw_gpio *from) {
-    (void)to;
-    (void)from;
-    return -ENOTSUP;
+    return link(from, to, LINK_FOLLOW, false);
 }
 
 int mclw_hal_gpio_join(struct mclw_gpio *a, struct mclw_gpio *b) {
-    (void)a;
-    (void)b;
-    return -ENOTSUP;
+    return link(a, b, LINK_JOIN, true);
 }
 
+// An I2C clock's stretching is the DUT controller's own here: the bridge
+// carries levels, so a clock join is a join.
 int mclw_hal_gpio_join_clock(struct mclw_gpio *a, struct mclw_gpio *b) {
-    (void)a;
-    (void)b;
-    return -ENOTSUP;
+    return link(a, b, LINK_JOIN, true);
 }
 
 void mclw_hal_gpio_unlink(struct mclw_gpio *gpio) {
-    (void)gpio;
+    uint32_t state = mclw_hal_critical_enter();
+    struct mclw_gpio *peer = gpio->peer;
+
+    if (peer != NULL && peer->peer == gpio) {
+        peer->link = LINK_NONE;
+        peer->peer = NULL;
+    }
+    gpio->link = LINK_NONE;
+    gpio->peer = NULL;
+    mclw_hal_critical_exit(state);
 }
