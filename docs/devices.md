@@ -48,6 +48,8 @@ SPI, as the model `w25q16jv`;
 model `at24c02`;
 [`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
 I2C;
+[`lsm303dlhc`](../devices/lsm303dlhc/README.md), the magnetometer of ST's
+LSM303DLHC on I2C, as the model `lsm303dlhc_magn`;
 [`max6675`](../devices/max6675/README.md), Maxim's MAX6675 thermocouple
 converter on SPI;
 [`ds3231`](../devices/ds3231/README.md), Maxim's DS3231 real-time clock on
