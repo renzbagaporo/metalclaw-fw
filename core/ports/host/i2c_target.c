@@ -48,6 +48,24 @@ struct mclw_i2c_target {
 static struct mclw_i2c_target targets[I2C_TARGETS_MAX];
 static bool poll_registered;
 
+// Bridged, a burst of bus bytes all comes within one request's handling or
+// a few, with no worker round between them; a sink's bytes go to the
+// model when its ring is a quarter full and at each transaction's end.
+#define SINK_DELIVER_AT (I2C_SINK_RING / 4u)
+
+static void poll_sinks(void *ctx);
+static struct mclw_work sink_work = { .fn = NULL, .ctx = NULL, .pending = false, .next = NULL };
+
+static void sink_work_fn(struct mclw_work *work) {
+    (void)work;
+    poll_sinks(NULL);
+}
+
+static void sink_due(void) {
+    sink_work.fn = sink_work_fn;
+    mclw_hal_work_post(&sink_work);
+}
+
 static struct mclw_i2c_target *find(uint8_t sda, uint8_t scl, uint8_t address) {
     for (size_t i = 0; i < I2C_TARGETS_MAX; i++) {
         struct mclw_i2c_target *t = &targets[i];
@@ -62,6 +80,7 @@ static struct mclw_i2c_target *find(uint8_t sda, uint8_t scl, uint8_t address) {
 static void end_transaction(struct mclw_i2c_target *t) {
     if (t->sink != NULL) {
         t->sink_ended = true;
+        sink_due();
     } else {
         if (t->image != NULL) {
             t->pointer = mclw_regmap_bus_restart(t->image, t->selected, t->pointer);
@@ -86,6 +105,9 @@ static void receive(struct mclw_i2c_target *t, uint8_t byte, bool first) {
         } else {
             t->ring[t->head % I2C_SINK_RING] = (uint16_t)(byte | (first ? MCLW_SINK_FIRST : 0u));
             t->head++;
+            if (t->head - t->tail >= SINK_DELIVER_AT) {
+                sink_due();
+            }
         }
         t->sink_ended = false;
         return;

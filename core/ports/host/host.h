@@ -44,6 +44,10 @@ void mclw_host_bridge_run(const char *path, int wake_fd);
 // A GPIO action at mclw_host_event_ns(); a UART byte toward the DUT's
 // receive pin `rx_pin`, at `t_ns`, which the UART paces at its baud rate.
 void mclw_host_event_gpio(uint8_t pin, uint8_t state);
+// A GPIO action at `t_ns`, for an engine timing the line itself.
+void mclw_host_event_gpio_at(uint8_t pin, uint8_t state, uint64_t t_ns);
+// Asks the emulator to report every level the DUT drives on `pin`.
+void mclw_host_event_watch(uint8_t pin);
 void mclw_host_event_uart(uint8_t rx_pin, uint8_t byte, uint64_t t_ns);
 
 // gpio.c: the level the DUT drives on `pin`, 0 or 1, or -1 for released.
@@ -57,6 +61,10 @@ void mclw_host_uart_receive(uint8_t dut_tx_pin, const uint8_t *bytes, size_t len
 // at `sck` (-ENODEV when no target there is selected).
 void mclw_host_spi_cs(uint8_t pin, bool level);
 int mclw_host_spi_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint8_t *miso);
+
+// wire.c: the DUT drove `pin` to `level` (0, 1, or -1 for released) at
+// `t_ns`.
+void mclw_host_wire_edge(uint8_t pin, int level, uint64_t t_ns);
 
 // i2c_target.c, called by the bridge on the worker thread, one bus event
 // at a time as the DUT's controller makes them. start and write return

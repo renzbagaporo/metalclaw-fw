@@ -29,6 +29,7 @@
 enum action_kind {
     ACTION_GPIO,
     ACTION_UART,
+    ACTION_WATCH,
 };
 
 struct action {
@@ -84,6 +85,14 @@ void mclw_host_event_gpio(uint8_t pin, uint8_t state) {
     add_action(mclw_host_event_ns(), ACTION_GPIO, pin, state);
 }
 
+void mclw_host_event_gpio_at(uint8_t pin, uint8_t state, uint64_t t_ns) {
+    add_action(t_ns, ACTION_GPIO, pin, state);
+}
+
+void mclw_host_event_watch(uint8_t pin) {
+    add_action(mclw_host_event_ns(), ACTION_WATCH, pin, 0);
+}
+
 void mclw_host_event_uart(uint8_t rx_pin, uint8_t byte, uint64_t t_ns) {
     add_action(t_ns, ACTION_UART, rx_pin, byte);
 }
@@ -118,6 +127,9 @@ static size_t put_actions(size_t at) {
                         "%s{\"t_ns\":%" PRIu64 ",\"op\":\"gpio\",\"pin\":%u,\"level\":%u}", i ? "," : "", a->t_ns,
                         a->pin, a->value);
                 }
+            } else if (a->kind == ACTION_WATCH) {
+                at += (size_t)snprintf(reply + at, REPLY_MAX - at,
+                    "%s{\"t_ns\":%" PRIu64 ",\"op\":\"watch\",\"pin\":%u}", i ? "," : "", a->t_ns, a->pin);
             } else {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"uart\",\"port\":%d,\"data\":%u}", i ? "," : "", a->t_ns,
@@ -268,6 +280,7 @@ static size_t handle(const char *text, size_t len) {
         uint8_t pin = (uint8_t)json_int(&doc, root, "pin", 0xff);
 
         mclw_host_gpio_dut(pin, value);
+        mclw_host_wire_edge(pin, value, mclw_host_event_ns());
         if (value >= 0) {
             mclw_host_spi_cs(pin, value != 0);
         }

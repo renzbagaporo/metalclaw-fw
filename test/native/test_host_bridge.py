@@ -152,3 +152,56 @@ def test_the_w25q_answers_and_programs_over_spi(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def _bridged(tmp_path):
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    bridge.hello()
+    return harness, bridge
+
+
+def test_a_ws2812b_frame_from_the_dut_s_pulses(tmp_path):
+    # The datasheet's windows as the model gives them: a 0 is a high pulse
+    # of 250-550 ns, a 1 one of 650-950 ns, at 1.25 us a bit; a low of 50 us
+    # ends the frame. One LED, G 10h, R 20h, B 30h.
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\nstrip = metalclaw.attach('ws2812b', 'strip', din=(6,))\nstrip.count = 1")
+        bridge.advance(1_000_000)
+        assert {"op": "watch", "pin": 6} == {k: v for k, v in bridge.actions[-1].items() if k != "t_ns"}
+        t = bridge.t_ns
+        for byte in (0x10, 0x20, 0x30):
+            for bit in range(7, -1, -1):
+                high = 800 if byte >> bit & 1 else 400
+                bridge.request(op="gpio", pin=6, level=1, t_ns=t)
+                bridge.request(op="gpio", pin=6, level=0, t_ns=t + high)
+                t += 1250
+        bridge.t_ns = t + 100_000
+        bridge.request(op="tick")
+        for _ in range(3):
+            bridge.advance(1_000_000)
+        assert harness.run("print(strip.frames, strip.bad_frames)") == "1 0"
+        assert harness.run("print(bytes(strip.read_region('leds', 0, 3)).hex())") == "102030"
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_a_ds18b20_answers_a_reset_with_its_presence(tmp_path):
+    # DS18B20 042208: a reset low of 480 us or more; the part waits 15-60 us
+    # and pulls the line low for 60-240 us (the model: 30 us, then 120 us).
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\nt = metalclaw.attach('ds18b20', 't', dq=(15,))")
+        bridge.advance(1_000_000)
+        start = bridge.t_ns
+        bridge.request(op="gpio", pin=15, level=0, t_ns=start)
+        bridge.actions.clear()
+        bridge.request(op="gpio", pin=15, level="z", t_ns=start + 500_000)
+        drive = [(a["t_ns"] - start, a["level"]) for a in bridge.actions if a["op"] == "gpio" and a["pin"] == 15]
+        assert drive == [(530_000, 0), (650_000, "z")]
+    finally:
+        bridge.close()
+        harness.close()

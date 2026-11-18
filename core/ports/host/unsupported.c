@@ -10,7 +10,6 @@
 #include "metalclaw/hal/spi_sink.h"
 #include "metalclaw/hal/swd.h"
 #include "metalclaw/hal/usb.h"
-#include "metalclaw/hal/wire.h"
 
 // ---- SPI sink ----------------------------------------------------------------
 
@@ -111,92 +110,6 @@ bool mclw_hal_spi_peer_busy(const struct mclw_spi_peer *peer) {
 uint32_t mclw_hal_spi_peer_count(const struct mclw_spi_peer *peer) {
     (void)peer;
     return 0;
-}
-
-// ---- Wire --------------------------------------------------------------------
-
-struct mclw_wire *mclw_hal_wire_open(const uint8_t *pins, uint8_t count, const struct mclw_wire_facts *facts,
-    const void *owner, int *err) {
-    (void)pins;
-    (void)count;
-    (void)facts;
-    (void)owner;
-    *err = -ENOTSUP;
-    return NULL;
-}
-
-void mclw_hal_wire_close(struct mclw_wire *w) {
-    (void)w;
-}
-
-void mclw_hal_wire_stats(const struct mclw_wire *w, struct mclw_wire_stats *out) {
-    (void)w;
-    *out = (struct mclw_wire_stats){ 0 };
-}
-
-uint8_t mclw_hal_wire_pin(const struct mclw_wire *w, uint8_t index) {
-    (void)w;
-    (void)index;
-    return 0;
-}
-
-int mclw_hal_wire_sample_bit(const struct mclw_wire *w, uint8_t pin) {
-    (void)w;
-    (void)pin;
-    return -1;
-}
-
-size_t mclw_hal_wire_read(struct mclw_wire *w, uint32_t *out, size_t max) {
-    (void)w;
-    (void)out;
-    (void)max;
-    return 0;
-}
-
-int mclw_hal_wire_capture(struct mclw_wire *w) {
-    (void)w;
-    return -ENOTSUP;
-}
-
-size_t mclw_hal_wire_capture_words(const struct mclw_wire *w) {
-    (void)w;
-    return 0;
-}
-
-int mclw_hal_wire_respond(struct mclw_wire *w, const uint32_t *pulses, size_t count) {
-    (void)w;
-    (void)pulses;
-    (void)count;
-    return -ENOTSUP;
-}
-
-uint32_t mclw_hal_wire_responses(struct mclw_wire *w) {
-    (void)w;
-    return 0;
-}
-
-int mclw_hal_wire_set_period(struct mclw_wire *w, uint32_t ns) {
-    (void)w;
-    (void)ns;
-    return -ENOTSUP;
-}
-
-size_t mclw_hal_wire_write(struct mclw_wire *w, const uint32_t *words, size_t count) {
-    (void)w;
-    (void)words;
-    (void)count;
-    return 0;
-}
-
-bool mclw_hal_wire_idle(struct mclw_wire *w) {
-    (void)w;
-    return true;
-}
-
-int mclw_hal_wire_onewire_arm(struct mclw_wire *w, struct mclw_onewire *image) {
-    (void)w;
-    (void)image;
-    return -ENOTSUP;
 }
 
 // ---- SWD ---------------------------------------------------------------------

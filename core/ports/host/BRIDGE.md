@@ -63,13 +63,21 @@ applies each at its time.
 | --- | --- |
 | `gpio` | `pin`, `level` (0, 1, or `"z"` to release) |
 | `uart` | `port`, `data` (one byte; the harness paces bytes at the baud rate) |
+| `watch` | `pin`: from now on, report every level the DUT drives on it as a `gpio` request |
 
 A model makes an interrupt pulse as write, delay, write. The delay does not
 wait: it moves the later actions of the same request on by its length, so
 the pulse reaches the DUT with its width.
 
+## Wires
+
+A part whose timing is its protocol (an LED strip's data line, 1-Wire, a
+DHT22's line) asks for its pins to be watched, times the DUT's edges as
+they arrive, and drives the line with `gpio` actions at the times the part
+would, as the rp2 port's PIO engines do (`core/ports/host/wire.c`).
+
 ## Not yet
 
-The single-wire parts (timestamped `gpio` edges on watched pins), and an
-I2C bus a DUT drives from PIO, which the emulator decodes from its pins
-into the same `i2c` requests.
+The latched, stepped and IR-envelope wires, and an I2C bus a DUT drives
+from PIO, which the emulator decodes from its pins into the same `i2c`
+requests.

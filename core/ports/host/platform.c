@@ -35,6 +35,11 @@ static struct mclw_work *work_head;
 static struct poll_entry polls[MCLW_WORKER_POLLS_MAX];
 static size_t poll_count;
 
+// Threads other than the worker waiting for the runtime lock. A mutex is
+// not fair: the worker, which takes and drops the lock once a request,
+// could win it every time. While anyone waits, its tries fail.
+static atomic_int lock_waiters;
+
 static bool bridged;
 static uint64_t start_ns;
 // Bridged: the DUT's virtual time, and what delay_us added to it for the
@@ -82,10 +87,20 @@ void mclw_hal_critical_exit(uint32_t state) {
 }
 
 void mclw_hal_lock(void) {
+    if (mclw_hal_in_worker()) {
+        pthread_mutex_lock(&runtime_mutex);
+        return;
+    }
+    atomic_fetch_add(&lock_waiters, 1);
     pthread_mutex_lock(&runtime_mutex);
+    atomic_fetch_sub(&lock_waiters, 1);
 }
 
 bool mclw_hal_try_lock(void) {
+    if (mclw_hal_in_worker() && atomic_load(&lock_waiters) != 0) {
+        stats.lock_misses++;
+        return false;
+    }
     if (pthread_mutex_trylock(&runtime_mutex) != 0) {
         if (mclw_hal_in_worker()) {
             stats.lock_misses++;
