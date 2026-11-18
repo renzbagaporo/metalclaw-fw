@@ -3,6 +3,8 @@
 # models answer the DUT's I2C as they do on a bench, and their clock is the
 # DUT's virtual time. Needs `just build-host`; skipped without it.
 
+import time
+
 import pytest
 
 from test.native.host import Bridge, HostHarness, default_build
@@ -242,7 +244,7 @@ def test_a_ws2812b_frame_from_the_dut_s_pulses(tmp_path):
     try:
         harness.run("import metalclaw\nstrip = metalclaw.attach('ws2812b', 'strip', din=(6,))\nstrip.count = 1")
         bridge.advance(1_000_000)
-        assert {"op": "watch", "pin": 6} == {k: v for k, v in bridge.actions[-1].items() if k != "t_ns"}
+        assert {"op": "watch", "pin": 6} in [{k: v for k, v in a.items() if k != "t_ns"} for a in bridge.actions]
         t = bridge.t_ns
         for byte in (0x10, 0x20, 0x30):
             for bit in range(7, -1, -1):
@@ -392,6 +394,38 @@ def test_an_spi_page_controller_clocks_the_dut_and_keeps_its_answers(tmp_path):
             bridge.request(op="spi_clocked", bus=0, mosi=a["mosi"], miso=255 - i, t_ns=max(a["t_ns"], bridge.t_ns))
         bridge.advance(20_000_000)
         assert harness.run("print(bytes(c.read_region('miso', 0, 4)).hex())") == "fffefdfc"
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_a_command_typed_ahead_of_the_raw_repl_is_kept(tmp_path):
+    # The raw REPL switches its terminal's mode after each command; a
+    # command already waiting then (two sent in one write) still runs.
+    harness = HostHarness(PROGRAM, None)
+    try:
+        port = harness.repl.port
+        port.reset_input_buffer()
+        port.write(b"print(1)\x04print(2)\x04")
+        out = b""
+        deadline = time.monotonic() + 10
+        while out.count(b"\x04") < 4 and time.monotonic() < deadline:
+            out += port.read(port.in_waiting or 1)
+        assert out.count(b"OK") == 2, out
+        assert b"1" in out and b"2" in out, out
+    finally:
+        harness.close()
+
+
+def test_the_hello_pulls_every_dut_line_up(tmp_path):
+    # The harness's board pulls each header line up (pio_onewire's and
+    # dht's released lines read high); the Pico's own GP23-25 and GP29
+    # (VSYS/3) are left alone.
+    harness, bridge = _bridged(tmp_path)
+    try:
+        bridge.advance(1_000_000)
+        pulled = sorted(a["pin"] for a in bridge.actions if a["op"] == "pull" and a["level"] == 1)
+        assert pulled == [*range(23), 26, 27, 28]
     finally:
         bridge.close()
         harness.close()
