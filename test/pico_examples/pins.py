@@ -43,6 +43,8 @@ USB_MAIN_CTRL, USB_SIE_CTRL = 0x50110000 + 0x40, 0x50110000 + 0x4C
 # core halted by debug pauses the timer (TIMER DBGPAUSE), and a program
 # that ends in a breakpoint does that.
 STALL_S = 5.0
+# DUT seconds between two samples, for a link that steps the DUT.
+STEP_S = 0.005
 # Samples between two reads of the watched pins' pads.
 PADS_EVERY = 8
 
@@ -80,53 +82,65 @@ def watch(memory, chip, seconds, pins=(), link=None, actions=()):
     samples = []
     pending = sorted(actions, key=lambda a: a[0])
     with (link or memory.link()) as l:
-        last = l.read_words(timer, 1)[0]
-        sampled, pads = 0, [PAD_IE] * len(pins)
-        unwrapped = 0
-        moved = time.monotonic()
-        while unwrapped < seconds * 1e6:
-            while pending and pending[0][0] * 1e6 <= unwrapped:
-                pending.pop(0)[1](l)
-            # The pads every PADS_EVERY samples: a program sets them up
-            # once, perhaps after the watch began. A link that reads
-            # scattered words in one go (the native platform's monitor)
-            # takes a sample's reads at once.
-            fresh_pads = sampled % PADS_EVERY == 0
-            addresses = [gpio_in, *(io_bank0 + 8 * pin for pin in pins), timer]
-            if fresh_pads:
-                addresses += [PADS[chip] + 4 * pin for pin in pins]
-            if hasattr(l, "read_scattered"):
-                words = l.read_scattered(addresses)
-            else:
-                words = [l.read_words(a, 1)[0] for a in addresses]
-            levels, statuses, now = words[0], words[1:1 + len(pins)], words[1 + len(pins)]
-            if fresh_pads:
-                pads = words[2 + len(pins):]
-            sampled += 1
-            driven = 0
-            for pin, status, pad in zip(pins, statuses, pads):
-                if status & STATUS_OETOPAD:
-                    driven |= 1 << pin
-                    # A driven pin whose pad input is off is read from
-                    # what drives it (OUTTOPAD). Read at each sample: the
-                    # program turns the input off as it sets the pin up,
-                    # which may come after the watch began.
-                    if not pad & PAD_IE:
-                        levels = (levels & ~(1 << pin)) | (bool(status & STATUS_OUTTOPAD) << pin)
-            if now != last:
-                moved = time.monotonic()
-            elif time.monotonic() - moved > STALL_S:
-                break
-            step = (now - last) % (1 << 32)
-            last = now
-            if step > RESTART_STEP_US:
-                # The timer started again: the DUT reset under the watch,
-                # a reset the host issued just before landing late. The
-                # watch starts again from here.
-                samples, unwrapped = [], 0
-                continue
-            unwrapped += step
-            samples.append(Sample(unwrapped, levels, driven))
+        # A link that can step the DUT (the native platform's monitor)
+        # holds it and runs it STEP_S at a time before each sample: samples
+        # land at even DUT times whatever the host's load.
+        advance = getattr(l, "advance", None)
+        if advance is not None:
+            l.hold()
+        try:
+            last = l.read_words(timer, 1)[0]
+            sampled, pads = 0, [PAD_IE] * len(pins)
+            unwrapped = 0
+            moved = time.monotonic()
+            while unwrapped < seconds * 1e6:
+                if advance is not None:
+                    advance(STEP_S)
+                while pending and pending[0][0] * 1e6 <= unwrapped:
+                    pending.pop(0)[1](l)
+                # The pads every PADS_EVERY samples: a program sets them up
+                # once, perhaps after the watch began. A link that reads
+                # scattered words in one go (the native platform's monitor)
+                # takes a sample's reads at once.
+                fresh_pads = sampled % PADS_EVERY == 0
+                addresses = [gpio_in, *(io_bank0 + 8 * pin for pin in pins), timer]
+                if fresh_pads:
+                    addresses += [PADS[chip] + 4 * pin for pin in pins]
+                if hasattr(l, "read_scattered"):
+                    words = l.read_scattered(addresses)
+                else:
+                    words = [l.read_words(a, 1)[0] for a in addresses]
+                levels, statuses, now = words[0], words[1:1 + len(pins)], words[1 + len(pins)]
+                if fresh_pads:
+                    pads = words[2 + len(pins):]
+                sampled += 1
+                driven = 0
+                for pin, status, pad in zip(pins, statuses, pads):
+                    if status & STATUS_OETOPAD:
+                        driven |= 1 << pin
+                        # A driven pin whose pad input is off is read from
+                        # what drives it (OUTTOPAD). Read at each sample: the
+                        # program turns the input off as it sets the pin up,
+                        # which may come after the watch began.
+                        if not pad & PAD_IE:
+                            levels = (levels & ~(1 << pin)) | (bool(status & STATUS_OUTTOPAD) << pin)
+                if now != last:
+                    moved = time.monotonic()
+                elif time.monotonic() - moved > STALL_S:
+                    break
+                step = (now - last) % (1 << 32)
+                last = now
+                if step > RESTART_STEP_US:
+                    # The timer started again: the DUT reset under the watch,
+                    # a reset the host issued just before landing late. The
+                    # watch starts again from here.
+                    samples, unwrapped = [], 0
+                    continue
+                unwrapped += step
+                samples.append(Sample(unwrapped, levels, driven))
+        finally:
+            if advance is not None:
+                l.release()
     return samples
 
 
@@ -341,10 +355,13 @@ class Count:
     # `table` is the program's own patterns for 0..9, segment A in bit 0;
     # the segments are lit high unless `lit_low`. All seven pins are
     # watched, so a pin whose pad input is off is read from its output.
+    # With `from_digit`, the count is judged from the first time it shows
+    # that digit: what a program shows before it starts counting is its own.
     first: int
     steps: int
     table: tuple[int, ...] = SEGMENT_DIGITS
     lit_low: bool = False
+    from_digit: int | None = None
 
     @property
     def pin(self) -> int:
@@ -362,6 +379,9 @@ class Count:
         held = [s for before, s, after in zip([None] + samples[:-1], samples, samples[1:] + [None])
                 if any(n is not None and (n.levels ^ s.levels) & mask == 0 for n in (before, after))]
         shown = _digit_changes(held, self.first, self.lit_low, self.table)
+        if self.from_digit is not None:
+            start = next((k for k, (_, _, d) in enumerate(shown) if d == self.from_digit), len(shown))
+            shown = shown[start:]
         problems = [f"the display went from {a} to {b} at {held[i].us / 1e6:.3f} s"
                     for (_, _, a), (_, i, b) in zip(shown, shown[1:]) if (b - a) % 10 != 1]
         if len(shown) - 1 < self.steps:

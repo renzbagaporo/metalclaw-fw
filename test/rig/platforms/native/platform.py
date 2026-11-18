@@ -395,6 +395,17 @@ class MonitorMemory:
     def read_scattered(self, addresses) -> list[int]:
         return self.bench.monitor.read_words_at(list(addresses))
 
+    # The DUT held, and run a given time at a time: a pin watch's even
+    # samples. Released, it runs freely again.
+    def hold(self) -> None:
+        self.bench.monitor.command("pause")
+
+    def advance(self, seconds: float) -> None:
+        self.bench.monitor.command(f'emulation RunFor "{seconds:.6f}"', timeout=60.0)
+
+    def release(self) -> None:
+        self.bench.monitor.command("start")
+
     def write_when_reachable(self, address: int, words, seconds: float) -> None:
         self.write_words(address, words)
 

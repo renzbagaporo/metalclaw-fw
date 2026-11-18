@@ -24,7 +24,8 @@ ZEPHYR_PIN_SPECS: dict[str, PinSpec] = {
     # of all-segments, blank and "0", it counts up from 0 a digit every
     # 100 ms, 9 wrapping to 0, forever (one digit, overlays/
     # auxdisplay_digits_gp2_10.overlay). 6 s of watch holds at least 3 s
-    # of the count: 30 changes, 20 with room for the watch's start.
-    "zephyr/drivers/auxdisplay_digits": PinSpec(6.0, (Count(2, 20, GPIO_7SEG_DIGITS),),
+    # of the count: 30 changes, 20 with room for the watch's start. The
+    # all-segments intro reads as an 8, so the count is judged from its 0.
+    "zephyr/drivers/auxdisplay_digits": PinSpec(6.0, (Count(2, 20, GPIO_7SEG_DIGITS, from_digit=0),),
                                                 "samples/drivers/auxdisplay_digits/src/main.c"),
 }
