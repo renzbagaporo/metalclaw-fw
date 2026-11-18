@@ -81,7 +81,7 @@ void mclw_host_spi_sink_line(uint8_t pin, int level);
 bool mclw_host_spi_peer_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint8_t *miso);
 // The frame a controller peer clocked into the DUT's slave on that bus:
 // what came back, or -1 when the DUT's block is no enabled slave.
-void mclw_host_spi_peer_clocked(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, int miso);
+void mclw_host_spi_peer_clocked(uint8_t sck, int miso);
 // bridge.c: clock one frame into the DUT's SPI block on these pins at t_ns,
 // as an SPI controller; false when no bridged bus has them.
 bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint64_t t_ns);

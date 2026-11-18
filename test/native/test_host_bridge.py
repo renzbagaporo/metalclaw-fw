@@ -301,8 +301,10 @@ def test_an_spi_page_controller_clocks_the_dut_and_keeps_its_answers(tmp_path):
     bridge = Bridge(path)
     try:
         bridge.hello(spi=[SPI0])
-        harness.run("import metalclaw\nc = metalclaw.attach('spi_page_controller', 'c', sck=(18,), mosi=(19,), "
-                    "miso=(16,), cs=(17,))\nc.write_region('mosi', 0, bytes(range(256)))\nc.interval = 1\nc.pages = 1")
+        # The controller's MOSI is the DUT's RX pin (GP16), its MISO the
+        # DUT's TX pin (GP19): the bus's names swapped.
+        harness.run("import metalclaw\nc = metalclaw.attach('spi_page_controller', 'c', sck=(18,), mosi=(16,), "
+                    "miso=(19,), cs=(17,))\nc.write_region('mosi', 0, bytes(range(256)))\nc.interval = 1\nc.pages = 1")
         clocks = []
         for _ in range(200):
             reply = bridge.advance(1_000_000)

@@ -101,8 +101,14 @@ void mclw_host_event_gpio_at(uint8_t pin, uint8_t state, uint64_t t_ns) {
 
 static int spi_bus_for(uint8_t sck, uint8_t mosi, uint8_t miso);
 
+// A controller names the data pins from its own side, the swap of the
+// bus's: the DUT's RX pin takes the controller's MOSI. Its SCK is the bus.
 bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint64_t t_ns) {
     int bus = spi_bus_for(sck, mosi_pin, miso_pin);
+
+    if (bus < 0) {
+        bus = spi_bus_for(sck, miso_pin, mosi_pin);
+    }
 
     if (bus < 0) {
         return false;
@@ -354,8 +360,8 @@ static size_t handle(const char *text, size_t len) {
         const struct json_node *miso = json_get(&doc, root, "miso");
 
         if (bus >= 0 && bus < (int64_t)SPI_BUSES_MAX && spi_buses[bus].used) {
-            mclw_host_spi_peer_clocked(spi_buses[bus].sck, spi_buses[bus].mosi, spi_buses[bus].miso,
-                miso != NULL && miso->kind == JSON_NUMBER ? (int)miso->number : -1);
+            mclw_host_spi_peer_clocked(spi_buses[bus].sck, miso != NULL && miso->kind == JSON_NUMBER ? (int)miso->number
+                                                                                                   : -1);
         }
         at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else if (json_is(op, "gpio")) {

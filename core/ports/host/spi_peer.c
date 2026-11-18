@@ -88,14 +88,13 @@ struct mclw_spi_peer *mclw_hal_spi_peer_target(struct mclw_gpio *sck, struct mcl
     return p;
 }
 
-void mclw_host_spi_peer_clocked(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, int miso) {
+void mclw_host_spi_peer_clocked(uint8_t sck, int miso) {
     uint32_t state = mclw_hal_critical_enter();
 
     for (size_t i = 0; i < PEERS_MAX; i++) {
         struct mclw_spi_peer *p = &peers[i];
 
-        if (!p->open || !p->controller || p->sck != sck || p->mosi != mosi_pin || p->miso != miso_pin ||
-            p->answered >= p->len) {
+        if (!p->open || !p->controller || p->sck != sck || p->answered >= p->len) {
             continue;
         }
         if (p->in != NULL) {
