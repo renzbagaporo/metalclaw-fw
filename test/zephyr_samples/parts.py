@@ -135,6 +135,10 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('writes')", lambda v: v >= 4, "the driver's LED writes", 5.0),
         )),
     ),
+    # Vishay's light sensors at 0x29 on I2C0, every channel at 1000 counts.
+    **{f"zephyr/sensor/{model}": (Attach(model, "light", {"i2c": (4, 5, 0x29)}, {"i2c": 2},
+                                         {"counts": (1000, 1000, 1000, 1000)}),)
+       for model in ("veml6031", "veml6046")},
     # Sensirion's humidity sensors at 0x44 on I2C0, at 23.5 C and 45 %RH.
     **{f"zephyr/sensor/{sample}": (Attach(model, "rh", {"i2c": (4, 5, 0x44)}, {"i2c": 2},
                                           {"temperature": 23500, "humidity": 45000}),)

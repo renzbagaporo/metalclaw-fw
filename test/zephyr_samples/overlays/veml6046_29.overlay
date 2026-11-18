@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* A VEML6046X00 at 0x29 on I2C0 (i2c0.overlay), the node the sample names rgbir. */
+
+&i2c0 {
+	rgbir: veml6046@29 {
+		compatible = "vishay,veml6046";
+		reg = <0x29>;
+		status = "okay";
+	};
+};

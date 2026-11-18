@@ -516,6 +516,17 @@ OWN: dict[str, Spec] = {
                                      source="samples/drivers/fuel_gauge/src/main.c"),
     # samples/drivers/auxdisplay/src/main.c: writes its greeting and logs
     # only a failure; the part's DDRAM judges it.
+    # samples/sensor/veml6031/src/main.c:56 and veml6046/src/main.c:75: one
+    # line per integration time, gain and divider setting it sweeps, with
+    # the raw counts; their yaml's harness is "sensor". The parts hold 1000
+    # counts on every channel; three such lines show the sweep running.
+    "zephyr/sensor/veml6031": own(*(r"ALS \(raw\):\s+1000 IR \(raw\):\s+1000 ",) * 3,
+                                  forbidden=(*FORBIDDEN, r"ERROR", r"Failed"), seconds=8.0,
+                                  source="samples/sensor/veml6031/src/main.c"),
+    "zephyr/sensor/veml6046": own(*(r"Red:\s+\d+ lx \(\s*1000\) green:\s+\d+ lx \(\s*1000\) "
+                                    r"blue:\s+\d+ lx \(\s*1000\) IR:\s+\d+ lx \(\s*1000\)",) * 3,
+                                  forbidden=(*FORBIDDEN, r"ERROR", r"Failed"), seconds=8.0,
+                                  source="samples/sensor/veml6046/src/main.c"),
     # samples/sensor/sht3xd/src/main.c:95 and sht4x/src/main.c:70: a reading
     # every two seconds; sht4x is build_only upstream, and sht3xd's yaml
     # has no harness. The parts hold 23.5 C and 45 %RH, within their 16-bit

@@ -279,6 +279,10 @@ BUILDS: dict[str, Build] = {
     # (GP4/GP5).
     "zephyr/drivers/led/pca9633": Build("drivers/led/pca9633", test="sample.drivers.led.pca9633",
                                         args=("SHIELD=rpi_pico_uno_flexypin",)),
+    # Vishay's VEML6031X00 and VEML6046X00 at 0x29 on I2C0.
+    **{f"zephyr/sensor/{sample}": Build(f"sensor/{sample}", test=f"sample.sensor.{sample}", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", f"test/zephyr_samples/overlays/{sample}_29.overlay"))
+       for sample in ("veml6031", "veml6046")},
     # Sensirion's SHT3x-DIS and SHT4x at 0x44 on I2C0.
     **{f"zephyr/sensor/{sample}": Build(f"sensor/{sample}", test=test, overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", f"test/zephyr_samples/overlays/{sample}_44.overlay"))
