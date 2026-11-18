@@ -285,6 +285,10 @@ BUILDS: dict[str, Build] = {
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/magn0_mpu9250_68.overlay"))
        for sample, test in (("magn_polling", "sample.sensor.magn_polling"),
                             ("magn_trig", "sample.sensor.magn_trigger"))},
+    # magn_polling again with an LSM303DLHC's magnetometer at 0x1E as magn0.
+    "zephyr/sensor/magn_polling@lsm303dlhc": Build(
+        "sensor/magn_polling", test="sample.sensor.magn_polling", variant="lsm303dlhc", overlays=(
+            "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/magn0_lsm303dlhc_1e.overlay")),
     # samples/drivers/counter/maxim_ds3231: build_only upstream (judged by
     # our own criterion); a DS3231 at 0x68 on I2C0, INT/SQW on GP15.
     "zephyr/drivers/counter/maxim_ds3231": Build(

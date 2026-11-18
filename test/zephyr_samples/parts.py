@@ -175,6 +175,12 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     "zephyr/sensor/hts221": (
         Attach("hts221", "rh", {"i2c": (4, 5, 0x5f)}, {"i2c": 2}, {"temperature": 23500, "humidity": 47500}),
     ),
+    # The LSM303DLHC's magnetometer at 0x1E on I2C0: 0.25, -0.1 and 0.5
+    # gauss, whole counts at the driver's default +-1.3 gauss gain.
+    "zephyr/sensor/magn_polling@lsm303dlhc": (
+        Attach("lsm303dlhc_magn", "magn", {"i2c": (4, 5, 0x1e)}, {"i2c": 2},
+               {"magnetic_field": (25000, -10000, 50000)}),
+    ),
     # The AT24C02C at 0x50 on I2C0, erased at attach: the sample writes its
     # boot counter at offset 0.
     "zephyr/drivers/eeprom": (
