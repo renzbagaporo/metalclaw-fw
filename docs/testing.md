@@ -306,6 +306,20 @@ spinning, and only silicon's back-to-back doorbell interrupts hold it off
 until the flag is set; the emulated cores, on separate host threads, do not
 interleave that tightly.
 
+## Engine tests
+
+`just test-engine` runs `test/engine` against the harness's engines
+themselves: the harness alone in Renode (`scripts/multi-node/
+metalclaw_harness_native.resc`), its REPL over USB/IP as on the emulator
+platform, and its GPIO bridged (`core/ports/host/BRIDGE.md`, with the
+harness in the DUT's place) to a native stimulus, `test/engine/
+stimulus.py`. The stimulus drives the harness's pins bit by bit as a DUT
+would, an I2C or SPI controller, a UART, raw pulses, at exact virtual times,
+and reads what the harness drives back, so a case can try the edges a DUT
+image never makes: a pulse just outside a window, a frame cut short. The
+`emulator` workflow runs them as its `engine` job. The benches still judge
+the engines on silicon; the emulated PIO's timing is the limit here.
+
 ## Native mode
 
 `just test native` runs the cases against the DUT emulated in Renode on its

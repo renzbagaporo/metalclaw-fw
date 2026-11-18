@@ -147,6 +147,14 @@ setup-rig:
     "{{rig_python}}" -m pip install --quiet -r "{{project_dir}}/test/rig/requirements.txt"
     "{{rig_python}}" -c "import pytest, serial; print('rig python ok:', pytest.__version__, serial.__version__)"
 
+# The harness's engines against a native stimulus: the harness alone in
+# Renode, its pins bridged to test/engine's stimulus, its REPL over USB/IP.
+# Extra arguments go to pytest.
+test-engine *ARGS: setup-rig
+    cd "{{project_dir}}" && METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}" \
+        METALCLAW_HARNESS_BOARD="{{board}}" METALCLAW_HARNESS_IMAGE="{{build_dir}}/rp2/{{board}}/firmware.uf2" \
+        "{{rig_python}}" -m pytest test/engine {{ARGS}}
+
 # Run the cases on a platform. Extra arguments go to pytest.
 test PLATFORM="hardware" *ARGS: setup-rig
     #!/usr/bin/env bash
