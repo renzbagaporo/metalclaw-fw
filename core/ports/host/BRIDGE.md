@@ -42,6 +42,7 @@ quiet.
 | `uart` | `port`, `data` (a byte or a list of bytes the DUT sent) | |
 | `spi` | `bus`, `mosi`, `bits` (8) | `miso` |
 | `gpio` | `pin`, `level` (0, 1, or `"z"` for not driven) | |
+| `spi_clocked` | `bus`, `mosi`, `miso` (the frame the DUT's slave shifted out, or null) | |
 
 `route` reports where the DUT has routed its blocks, at the first tick
 and whenever its routing changes; each block it names replaces the pins
@@ -69,6 +70,7 @@ applies each at its time.
 | `gpio` | `pin`, `level` (0, 1, or `"z"` to release) |
 | `uart` | `port`, `data` (one byte; the harness paces bytes at the baud rate) |
 | `watch` | `pin`: from now on, report every level the DUT drives on it as a `gpio` request |
+| `spi_clock` | `bus`, `mosi`: clock one frame into the DUT's SPI block, a slave, at `t_ns`; answered by an `spi_clocked` request |
 
 A model makes an interrupt pulse as write, delay, write. The delay does not
 wait: it moves the later actions of the same request on by its length, so

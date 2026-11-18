@@ -290,3 +290,30 @@ def test_an_spi_page_target_answers_the_dut_a_byte_a_frame(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_an_spi_page_controller_clocks_the_dut_and_keeps_its_answers(tmp_path):
+    # pico-examples' spi_slave: the harness clocks the DUT's slave block, a
+    # frame per window; each frame is an spi_clock action and comes back as
+    # an spi_clocked request.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[SPI0])
+        harness.run("import metalclaw\nc = metalclaw.attach('spi_page_controller', 'c', sck=(18,), mosi=(19,), "
+                    "miso=(16,), cs=(17,))\nc.write_region('mosi', 0, bytes(range(256)))\nc.interval = 1\nc.pages = 1")
+        clocks = []
+        for _ in range(200):
+            reply = bridge.advance(1_000_000)
+            clocks += [a for a in reply.get("actions", []) if a["op"] == "spi_clock"]
+            if len(clocks) >= 256:
+                break
+        assert [a["mosi"] for a in clocks[:256]] == list(range(256))
+        for i, a in enumerate(clocks[:256]):
+            bridge.request(op="spi_clocked", bus=0, mosi=a["mosi"], miso=255 - i, t_ns=max(a["t_ns"], bridge.t_ns))
+        bridge.advance(20_000_000)
+        assert harness.run("print(bytes(c.read_region('miso', 0, 4)).hex())") == "fffefdfc"
+    finally:
+        bridge.close()
+        harness.close()

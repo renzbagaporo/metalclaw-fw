@@ -30,6 +30,7 @@ enum action_kind {
     ACTION_GPIO,
     ACTION_UART,
     ACTION_WATCH,
+    ACTION_SPI_CLOCK,
 };
 
 struct action {
@@ -66,6 +67,15 @@ static struct {
 } spi_buses[SPI_BUSES_MAX];
 
 static char line[LINE_MAX];
+
+static int spi_bus_for(uint8_t sck, uint8_t mosi, uint8_t miso) {
+    for (size_t i = 0; i < SPI_BUSES_MAX; i++) {
+        if (spi_buses[i].used && spi_buses[i].sck == sck && spi_buses[i].mosi == mosi && spi_buses[i].miso == miso) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
 static size_t line_len;
 static char reply[REPLY_MAX];
 static struct json_doc doc;
@@ -87,6 +97,18 @@ void mclw_host_event_gpio(uint8_t pin, uint8_t state) {
 
 void mclw_host_event_gpio_at(uint8_t pin, uint8_t state, uint64_t t_ns) {
     add_action(t_ns, ACTION_GPIO, pin, state);
+}
+
+static int spi_bus_for(uint8_t sck, uint8_t mosi, uint8_t miso);
+
+bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint64_t t_ns) {
+    int bus = spi_bus_for(sck, mosi_pin, miso_pin);
+
+    if (bus < 0) {
+        return false;
+    }
+    add_action(t_ns, ACTION_SPI_CLOCK, (uint8_t)bus, mosi);
+    return true;
 }
 
 void mclw_host_event_watch(uint8_t pin) {
@@ -136,6 +158,10 @@ static size_t put_actions(size_t at) {
                         "%s{\"t_ns\":%" PRIu64 ",\"op\":\"gpio\",\"pin\":%u,\"level\":%u}", i ? "," : "", a->t_ns,
                         a->pin, a->value);
                 }
+            } else if (a->kind == ACTION_SPI_CLOCK) {
+                at += (size_t)snprintf(reply + at, REPLY_MAX - at,
+                    "%s{\"t_ns\":%" PRIu64 ",\"op\":\"spi_clock\",\"bus\":%u,\"mosi\":%u}", i ? "," : "",
+                    a->t_ns, a->pin, a->value);
             } else if (a->kind == ACTION_WATCH) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"watch\",\"pin\":%u}", i ? "," : "", a->t_ns, a->pin);
@@ -323,6 +349,15 @@ static size_t handle(const char *text, size_t len) {
         } else {
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":255,\"error\":\"unknown spi bus\"");
         }
+    } else if (json_is(op, "spi_clocked")) {
+        int64_t bus = json_int(&doc, root, "bus", -1);
+        const struct json_node *miso = json_get(&doc, root, "miso");
+
+        if (bus >= 0 && bus < (int64_t)SPI_BUSES_MAX && spi_buses[bus].used) {
+            mclw_host_spi_peer_clocked(spi_buses[bus].sck, spi_buses[bus].mosi, spi_buses[bus].miso,
+                miso != NULL && miso->kind == JSON_NUMBER ? (int)miso->number : -1);
+        }
+        at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else if (json_is(op, "gpio")) {
         const struct json_node *level = json_get(&doc, root, "level");
         int value = level != NULL && level->kind == JSON_NUMBER ? (level->number != 0) : -1;
