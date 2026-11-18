@@ -360,13 +360,25 @@ for ch in range(16 if rp2350 else 12):
 """
 
 
+# 32 bytes of 10 bits at 9600 baud, rounded up.
+UART_DRAIN_S = 0.05
+
+
 def test_the_example_parts_saw_the_program(harness, example, parts, record_property):
     checks = [(part, check) for part in parts for check in part.checks]
     if not checks:
         pytest.skip(f"no part checks for {example.target}")
+    early = [(part, check) for part, check in checks if check.setup and check.before_restart]
+    if early:
+        # Halted, the program queues nothing more; what it had queued
+        # leaves within a 32-byte FIFO at 9600 baud.
+        example.halt_awake(None, example.ASLEEP_MAX_S)
+        harness.sleep(UART_DRAIN_S)
+        for part, check in early:
+            harness.run(f"part = {part.name}\n{check.setup}\n")
     example.restart()
     for part, check in checks:
-        if check.setup:
+        if check.setup and not check.before_restart:
             harness.run(f"part = {part.name}\n{check.setup}\n")
     harness.sleep(max(check.after_seconds for _, check in checks))
     problems = []
