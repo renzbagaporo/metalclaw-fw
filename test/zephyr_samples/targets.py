@@ -576,6 +576,12 @@ OWN: dict[str, Spec] = {
         r"<inf> main: Testing all LEDs \(channel API\)",
         forbidden=(*FORBIDDEN, r"<err>"), seconds=6.0,
         source="samples/drivers/led/lp50xx/src/main.c"),
+    # samples/drivers/led/lp5569/src/main.c: finds the device, then cycles
+    # its nine LEDs; its yaml wants these two lines.
+    "zephyr/drivers/led/lp5569": own(
+        r"<inf> app: Found LED device lp5569@32", r"<inf> app: Testing 9 LEDs \.\.",
+        forbidden=(*FORBIDDEN, r"<err>"), seconds=5.0,
+        source="samples/drivers/led/lp5569/src/main.c"),
     # samples/sensor/max6675/src/main.c:45: a reading a second. Its yaml
     # takes any number; the part holds 123.25 C, a whole count of 0.25 C.
     "zephyr/sensor/max6675": own(*(r"^Temperature: 123\.25 C$",) * 2,

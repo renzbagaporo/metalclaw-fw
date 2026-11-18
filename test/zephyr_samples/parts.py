@@ -199,6 +199,13 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
               for i in range(4)),
         )),
     ),
+    # The LP5569 at 0x32 on I2C0: enabled, and the sample's LEDs driven.
+    "zephyr/drivers/led/lp5569": (
+        Attach("lp5569", "leds", {"i2c": (4, 5, 0x32)}, {"i2c": 2}, checks=(
+            Check("part.get('enabled')", lambda v: v is True or v == 1, "the chip on", 3.0),
+            Check("part.get('writes')", lambda v: v >= 3, "the LEDs written", 3.0),
+        )),
+    ),
     # The AT24C02C at 0x50 on I2C0, erased at attach: the sample writes its
     # boot counter at offset 0.
     "zephyr/drivers/eeprom": (

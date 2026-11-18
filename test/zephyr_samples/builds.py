@@ -322,6 +322,9 @@ BUILDS: dict[str, Build] = {
     "zephyr/drivers/led/lp50xx": Build("drivers/led/lp50xx", test="sample.drivers.led.lp50xx", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/lp5012_14.overlay"),
         args=("CONFIG_LOG_PRINTK=n",)),
+    # samples/drivers/led/lp5569: a TI LP5569 at 0x32 on I2C0.
+    "zephyr/drivers/led/lp5569": Build("drivers/led/lp5569", test="sample.drivers.led.lp5569", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/lp5569_32.overlay")),
     # samples/drivers/eeprom: an AT24C02C at 0x50 on I2C0 as eeprom-0.
     "zephyr/drivers/eeprom": Build("drivers/eeprom", test="sample.drivers.eeprom", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/eeprom0_at24c02_50.overlay")),
