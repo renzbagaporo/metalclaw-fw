@@ -48,6 +48,8 @@ SPI, as the model `w25q16jv`;
 model `at24c02`;
 [`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
 I2C;
+[`ad5693r`](../devices/ad5693r/README.md), Analog Devices' AD5693R 16-bit DAC
+on I2C;
 [`max6675`](../devices/max6675/README.md), Maxim's MAX6675 thermocouple
 converter on SPI;
 [`lsm6dso`](../devices/lsm6dso/README.md), ST's LSM6DSO and LSM6DSL 6-axis
