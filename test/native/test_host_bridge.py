@@ -418,13 +418,14 @@ def test_a_command_typed_ahead_of_the_raw_repl_is_kept(tmp_path):
 
 
 def test_the_hello_pulls_every_dut_line_up(tmp_path):
-    # The harness's board pulls each DUT line up (pio_onewire's and dht's
-    # released lines read high).
+    # The harness's board pulls each header line up (pio_onewire's and
+    # dht's released lines read high); the Pico's own GP23-25 and GP29
+    # (VSYS/3) are left alone.
     harness, bridge = _bridged(tmp_path)
     try:
         bridge.advance(1_000_000)
         pulled = sorted(a["pin"] for a in bridge.actions if a["op"] == "pull" and a["level"] == 1)
-        assert pulled == list(range(30))
+        assert pulled == [*range(23), 26, 27, 28]
     finally:
         bridge.close()
         harness.close()

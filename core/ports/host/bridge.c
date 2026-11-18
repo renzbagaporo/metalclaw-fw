@@ -20,6 +20,9 @@
 
 // The DUT's GPIO lines (the RP2040's and the RP2350A's GP0-GP29).
 #define DUT_LINES 30u
+// The Pico's own signals, on no header pin: GP23 (SMPS mode), GP24 (VBUS
+// sense), GP25 (the LED) and GP29 (VSYS/3, which soc_voltage reads).
+#define ONBOARD_LINES ((1u << 23) | (1u << 24) | (1u << 25) | (1u << 29))
 #define BRIDGE_VERSION 1
 #define LINE_MAX 65536u
 #define REPLY_MAX 262144u
@@ -346,14 +349,16 @@ static size_t handle(const char *text, size_t len) {
         }
         mclw_host_uart_poll(mclw_host_event_ns());
     }
-    // The host harness is a board that pulls every DUT line up, as the
-    // pico-rp2 fixture's does (METALCLAW_LINE_PULLUPS, variant/
-    // mpconfigvariant.h): a line nothing drives reads high. The pulls go
-    // with the first reply after the hello's.
+    // The host harness is a board that pulls every DUT line on the Pico's
+    // headers up, as the pico-rp2 fixture's does (METALCLAW_LINE_PULLUPS,
+    // variant/mpconfigvariant.h): a line nothing drives reads high. The
+    // pulls go with the first reply after the hello's.
     if (pulls_due && !json_is(op, "hello")) {
         pulls_due = false;
         for (uint8_t pin = 0; pin < DUT_LINES; pin++) {
-            add_action(mclw_host_event_ns(), ACTION_PULL, pin, 1u);
+            if ((ONBOARD_LINES & (1u << pin)) == 0u) {
+                add_action(mclw_host_event_ns(), ACTION_PULL, pin, 1u);
+            }
         }
     }
     if (json_is(op, "hello")) {
