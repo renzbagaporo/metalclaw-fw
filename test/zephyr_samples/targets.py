@@ -560,6 +560,40 @@ OWN: dict[str, Spec] = {
         *(r"^Observation:\d+$", r"^Temperature:23\.5 C$", r"^Relative Humidity:47\.5%$") * 2,
         forbidden=(*FORBIDDEN, r"error", r"Cannot", r"not ready"), seconds=8.0,
         source="samples/sensor/hts221/src/main.c"),
+    # samples/drivers/haptics/drv2605/src/main.c: finds the device,
+    # configures its ROM sequence and starts it; build_only upstream.
+    "zephyr/drivers/haptics/drv2605": own(
+        r"<inf> main: Found DRV2605 device drv2605@5a",
+        forbidden=(*FORBIDDEN, r"<err>"), seconds=4.0,
+        source="samples/drivers/haptics/drv2605/src/main.c"),
+    # samples/drivers/led/lp50xx/src/main.c: names the controller and each
+    # LED with its color mapping (1:2:3, red, green, blue), then cycles
+    # colors and brightness forever, first through the channel API. Its
+    # yaml has no harness. The controller line is logged, deferred, and
+    # comes before or after the printed LED lines, so it is not judged.
+    "zephyr/drivers/led/lp50xx": own(
+        *(rf"^Found LED {i} - LED{i} - index:{i} - 3 colors - 1:2:3$" for i in range(4)),
+        r"<inf> main: Testing all LEDs \(channel API\)",
+        forbidden=(*FORBIDDEN, r"<err>"), seconds=6.0,
+        source="samples/drivers/led/lp50xx/src/main.c"),
+    # samples/drivers/led/lp5569/src/main.c: finds the device, then cycles
+    # its nine LEDs; its yaml wants these two lines.
+    "zephyr/drivers/led/lp5569": own(
+        r"<inf> app: Found LED device lp5569@32", r"<inf> app: Testing 9 LEDs \.\.",
+        forbidden=(*FORBIDDEN, r"<err>"), seconds=5.0,
+        source="samples/drivers/led/lp5569/src/main.c"),
+    # samples/drivers/rtc/src/main.c: sets 2024-11-17 04:19:00, then reads
+    # the clock every second. Its yaml wants 04:19:01, which the RP2040's
+    # RTC passes before the second read (builds.py), so these are the
+    # set time counting up a second per read, from :01 or :02 on. The
+    # first read, right after the set, returns the RTC's old date (1969 or
+    # so): rtc_rpi_pico reads back before the set has loaded, an upstream
+    # quirk not judged here.
+    "zephyr/drivers/rtc": own(
+        r"^RTC date and time: 2024-11-17 04:19:0[12]$", r"^RTC date and time: 2024-11-17 04:19:0[23]$",
+        r"^RTC date and time: 2024-11-17 04:19:0[34]$", r"^RTC date and time: 2024-11-17 04:19:0[45]$",
+        forbidden=(*FORBIDDEN, r"Cannot", r"not ready"), seconds=8.0,
+        source="samples/drivers/rtc/src/main.c"),
     # samples/sensor/max6675/src/main.c:45: a reading a second. Its yaml
     # takes any number; the part holds 123.25 C, a whole count of 0.25 C.
     "zephyr/sensor/max6675": own(*(r"^Temperature: 123\.25 C$",) * 2,

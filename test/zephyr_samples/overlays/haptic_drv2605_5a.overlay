@@ -1,0 +1,14 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * The adafruit_drv2605l shield's node on I2C0 (i2c0.overlay): a DRV2605L
+ * at 0x5A driving an ERM, labelled haptic as the sample wants.
+ */
+
+&i2c0 {
+	haptic: drv2605@5a {
+		compatible = "ti,drv2605";
+		reg = <0x5a>;
+		status = "okay";
+		actuator-mode = "ERM";
+	};
+};

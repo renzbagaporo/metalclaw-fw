@@ -64,6 +64,19 @@ class Check:
     # Run on the harness with the instance as `part` right after the
     # restart: what the part is to do for this run.
     setup: str = ""
+    # Run `setup` before the restart instead, with the DUT halted and what
+    # its UARTs had queued sent: a baseline the run's own traffic cannot
+    # beat, however late the harness gets to it in a loaded emulator.
+    before_restart: bool = False
+
+
+# The W25Q's counters at a restart, once an erase or program in flight has
+# ended (the model keeps BUSY for 9.6's typical times, a sector erase 45 ms;
+# the wait gives up after 3 s), and what the run did since.
+FLASH_AT_RESTART = ("import time\nfor _ in range(600):\n    if not part.busy:\n        break\n    time.sleep(0.005)\n"
+                    "flash_at_restart = (part.programs, part.erases, part.lost, part.ignored)\n")
+FLASH_SINCE_RESTART = ("tuple(now - then for now, then in zip((part.programs, part.erases, part.lost, part.ignored), "
+                       "flash_at_restart))")
 
 
 @dataclass(frozen=True)
@@ -323,14 +336,16 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     # lets about 2.5 s pass before lcd_init.
     "lcd_uart": (
         Attach("lcd_backpack", "lcd", {"uart": (9, 8)}, {}, {},
-               # Counted from just after the judged restart: the part is
-               # attached while an earlier run may be between its two bytes.
-               # The frame errors since then show a byte the line garbled.
+               # Counted from just before the judged restart, the DUT halted:
+               # the part is attached while an earlier run may be between its
+               # two bytes, and a snapshot taken after the restart could
+               # land past this run's first byte on a loaded emulator. The
+               # frame errors since then show a byte the line garbled.
                checks=(Check("(part.stats('uart')['bytes_rx'] - lcd_at_restart['bytes_rx'], "
                              "part.stats('uart')['frame_errors'] - lcd_at_restart['frame_errors'])",
                              lambda v: v[0] == 2,
                              "the run sent 0xFE 0x42 and nothing after its fault", 5.0,
-                             setup="lcd_at_restart = part.stats('uart')"),
+                             setup="lcd_at_restart = part.stats('uart')", before_restart=True),
                        Check("(part.contrast, part.brightness, part.columns, part.rows)",
                              lambda v: tuple(v) == (200, 255, 16, 2), "no setting changed from the factory state", 5.0),
                        Check("bytes(part.read_region('splash', 0, 16)) + bytes(part.read_region('splash', 20, 16))",
@@ -343,19 +358,18 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     ),
     # spi/spi_flash/spi_flash.c and pio/spi/spi_flash.c: spi_default's pins,
     # chip select GP17. The programs end with the sector erased, so the part
-    # counts what they did.
-    "spi_flash": (
+    # counts what they did. Counted from before the judged restart, the DUT
+    # halted and the part idle: the counters run from attach, across the
+    # rig's runs, and a restart that lands while an earlier run's erase
+    # keeps the part BUSY has the next run's first instructions ignored, as
+    # a W25Q does (7.1).
+    **{name: (
         Attach("w25q16jv", "flash", {"spi": (18, 19, 16, 17)}, {},
-               checks=(Check("(part.programs, part.erases, part.lost, part.ignored)",
-                             lambda v: v[0] >= 1 and v[1] >= 2 and v[2:] == (0, 0),
-                             "the program erased, programmed and erased the first sector, nothing refused"),)),
-    ),
-    "pio_spi_flash": (
-        Attach("w25q16jv", "flash", {"spi": (18, 19, 16, 17)}, {},
-               checks=(Check("(part.programs, part.erases, part.lost, part.ignored)",
-                             lambda v: v[0] >= 1 and v[1] >= 2 and v[2:] == (0, 0),
-                             "the program erased, programmed and erased the first sector, nothing refused"),)),
-    ),
+               checks=(Check(FLASH_SINCE_RESTART,
+                             lambda v: v[0] >= 1 and v[1] >= 2 and tuple(v[2:]) == (0, 0),
+                             "the program erased, programmed and erased the first sector, nothing refused",
+                             setup=FLASH_AT_RESTART, before_restart=True),)),
+    ) for name in ("spi_flash", "pio_spi_flash")},
     # Timed single-wire and clocked parts, behind the wire engines. Most of
     # these programs use GP2 and GP3, which reach no harness pin on fixture
     # 1 (they are its SWD lines), so they run on the carrier only.

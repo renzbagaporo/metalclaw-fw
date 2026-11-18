@@ -1,0 +1,12 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A TI LP5569 at 0x32 (ADDR_SEL0-1 at GND, SNVSAP8A Table 2) on I2C0
+ * (i2c0.overlay), as the sample's nrf52840dk overlay puts it on its I2C0.
+ */
+
+&i2c0 {
+	lp5569@32 {
+		compatible = "ti,lp5569";
+		reg = <0x32>;
+	};
+};

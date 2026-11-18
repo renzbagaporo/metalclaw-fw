@@ -254,6 +254,7 @@ def test_lcd_uart_counts_the_bytes_of_the_judged_run_only():
     (lcd,) = PARTS["lcd_uart"]
     count = lcd.checks[0]
     assert count.setup == "lcd_at_restart = part.stats('uart')"
+    assert count.before_restart
     assert count.expression == ("(part.stats('uart')['bytes_rx'] - lcd_at_restart['bytes_rx'], "
                                 "part.stats('uart')['frame_errors'] - lcd_at_restart['frame_errors'])")
     # One run: 0xFE 0x42, then its fault; a part attached mid-run must not
