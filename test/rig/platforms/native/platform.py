@@ -1,0 +1,366 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# The native platform: the DUT emulated in Renode, its parts served by the
+# host harness (core/ports/host) through the bridge (BRIDGE.md). The host
+# harness is Metalclaw's own runtime and models in a Linux process, so the
+# cases attach parts and judge them as on a bench; the emulator holds only
+# the DUT, so nothing waits on a second emulated chip.
+#
+# Environment:
+#   METALCLAW_DUT_IMAGE       the DUT's ELF (with example.json beside it)
+#   METALCLAW_RENODE_DIR      a Renode package with the bridge
+#   METALCLAW_RENODE_ROMS     the boot ROMs, as for the emulator platform
+#   METALCLAW_ARM_TOOLCHAIN_DIR  for objcopy
+#   METALCLAW_HOST_HARNESS    the host harness (default build/host/...)
+#   METALCLAW_NATIVE_WORK     a directory for the socket and logs
+#   METALCLAW_RENODE_INSTANCE ports per instance, as for the emulator
+
+import ast
+import os
+import re
+import select
+import socket
+import subprocess
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+from test.pico_examples.emulation import DEFAULT, Emulation, emulation_for
+from test.rig.platforms.hardware.platform import (
+    FIXTURE,
+    ROOT,
+    _required,
+    dut_image,
+    example_metadata,
+    fixture_for,
+    require_example_image,
+    soc_series,
+)
+from test.rig.platforms.emulator.bench import MASK_ROM_EXTRACTOR
+from test.rig.platforms.hardware.repl import Repl
+from test.rig.platforms.native.host import HostProcess, _raw_pty, host_harness_program
+
+MONITOR_PORT = 1334
+CONSOLE_PORT = 1434
+# The RP2040 Pico's DUT-only script; the bridge connects from it.
+SCRIPTS = {"rp2040": "scripts/multi-node/metalclaw_pico_native.resc"}
+ROMS = {"rp2040": "b2.elf"}
+START_TIMEOUT_S = 60.0
+# Wall seconds the DUT's clock may stand still before a harness sleep gives
+# up, as the console wait does (test/pico_examples/cases.py).
+CLOCK_STALL_S = 120.0
+
+# The DUT's pins are the harness's: the bridge names every line by the DUT
+# pin it is on.
+NATIVE_FIXTURE = {
+    **FIXTURE,
+    "dut_pins": {p: (p,) for p in range(30)},
+    "analog_pins": (),
+    "idle": {},
+}
+
+
+def instance() -> int:
+    return int(os.environ.get("METALCLAW_RENODE_INSTANCE", "0"))
+
+
+class Monitor:
+    """Renode's monitor on its telnet port: a command, then its output up
+    to the next prompt."""
+
+    PROMPT = re.compile(rb"\(([\w-]+|monitor)\) $")
+
+    def __init__(self, port: int, timeout: float = START_TIMEOUT_S):
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                self.sock = socket.create_connection(("127.0.0.1", port), timeout=5.0)
+                break
+            except OSError:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.2)
+        self._read_prompt(timeout)
+
+    def _read_prompt(self, timeout: float) -> str:
+        got = b""
+        deadline = time.monotonic() + timeout
+        while not self.PROMPT.search(got[-64:]):
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError(f"Renode monitor: no prompt after {got[-300:]!r}")
+            ready, _, _ = select.select([self.sock], [], [], left)
+            if ready:
+                chunk = self.sock.recv(65536)
+                if not chunk:
+                    raise EOFError("Renode monitor closed")
+                got += chunk
+        return got.decode(errors="replace")
+
+    def command(self, line: str, timeout: float = 30.0) -> str:
+        self.sock.sendall(line.encode() + b"\n")
+        return self._read_prompt(timeout)
+
+    def close(self) -> None:
+        self.sock.close()
+
+
+class ConsolePty:
+    """The DUT's console from Renode's socket terminal, relayed to a raw
+    pseudo-terminal the cases open by path, as a harness's serial port."""
+
+    def __init__(self, port: int, timeout: float = START_TIMEOUT_S):
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                self.sock = socket.create_connection(("127.0.0.1", port), timeout=5.0)
+                break
+            except OSError:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.2)
+        self.master, self._slave = _raw_pty()
+        self.path = os.ttyname(self._slave)
+        self._stop_r, self._stop_w = os.pipe()
+        self._thread = threading.Thread(target=self._forward, daemon=True)
+        self._thread.start()
+
+    def _forward(self) -> None:
+        sock = self.sock.fileno()
+        while True:
+            ready, _, _ = select.select([sock, self.master, self._stop_r], [], [])
+            if self._stop_r in ready:
+                return
+            try:
+                if sock in ready:
+                    data = self.sock.recv(65536)
+                    if not data:
+                        return
+                    os.write(self.master, data)
+                if self.master in ready:
+                    self.sock.sendall(os.read(self.master, 65536))
+            except OSError:
+                return
+
+    def close(self) -> None:
+        os.write(self._stop_w, b"x")
+        self._thread.join(timeout=5)
+        self.sock.close()
+        for fd in (self.master, self._slave, self._stop_r, self._stop_w):
+            os.close(fd)
+
+
+def flat_image(image: Path, work: Path) -> Path:
+    """The DUT image as the bytes of its flash from 0x10000000: the ELF's,
+    or the Intel HEX a build names to download in its place (one that also
+    erases a storage partition)."""
+    metadata = example_metadata(image) or {}
+    source, kind = image, "elf32-littlearm"
+    if metadata.get("flash_image"):
+        source, kind = image.parent / metadata["flash_image"], "ihex"
+    objcopy = Path(_required("METALCLAW_ARM_TOOLCHAIN_DIR")).glob("*/bin/arm-none-eabi-objcopy")
+    objcopy = next(iter(sorted(objcopy)), None)
+    if objcopy is None:
+        pytest.exit("no arm-none-eabi-objcopy under METALCLAW_ARM_TOOLCHAIN_DIR", returncode=2)
+    out = work / "dut_flash.bin"
+    subprocess.run([str(objcopy), "-I", kind, "-O", "binary", str(source), str(out)], check=True)
+    return out
+
+
+class NativeBench:
+    def __init__(self, renode_dir: Path, roms: Path, image: Path, work: Path, number: int):
+        self.renode_dir = renode_dir
+        self.roms = roms
+        self.image = image
+        self.work = work
+        self.instance = number
+        self.chip = soc_series(image)
+        self.monitor_port = MONITOR_PORT + number
+        self.console_port = CONSOLE_PORT + number
+        self.socket_path = work / "native.sock"
+        self.host = None
+        self.renode = None
+        self.monitor = None
+        self.console = None
+
+    def start(self) -> None:
+        if self.chip not in SCRIPTS:
+            pytest.skip(f"native mode has no DUT script for {self.chip!r} yet")
+        self.work.mkdir(parents=True, exist_ok=True)
+        flash = flat_image(self.image, self.work)
+        # The RP2040's boot ROM comes as an ELF; the script loads the 16 KiB
+        # binary in it.
+        rom = self.work / "dut_rom.bin"
+        rom.unlink(missing_ok=True)
+        subprocess.run(["python3", str(self.renode_dir / MASK_ROM_EXTRACTOR), str(self.roms / ROMS[self.chip]),
+                        str(rom)], check=True, capture_output=True, text=True)
+        self.host = HostProcess(host_harness_program(), self.socket_path, log=self.work / "host.log")
+        commands = [
+            f"$dut_rom=@{rom}",
+            f"$console_port={self.console_port}",
+            f"include @{self.renode_dir / SCRIPTS[self.chip]}",
+            f"xipMemory LoadBinary @{flash}",
+            "start",
+        ]
+        argv = [str(self.renode_dir / "renode"), "--disable-gui", "--plain", "--port", str(self.monitor_port)]
+        for c in commands:
+            argv += ["-e", c]
+        env = {**os.environ, "METALCLAW_BRIDGE": str(self.socket_path)}
+        with open(self.work / "renode.log", "ab") as log:
+            self.renode = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, env=env,
+                                           start_new_session=True)
+        self.monitor = Monitor(self.monitor_port)
+        self.console = ConsolePty(self.console_port)
+
+    def restart(self) -> None:
+        self.monitor.command("machine Reset")
+        self.monitor.command("start")
+
+    def pause(self) -> None:
+        self.monitor.command("pause")
+
+    def stop(self) -> None:
+        for close in (lambda: self.console and self.console.close(),
+                      lambda: self.monitor and self.monitor.command("quit", timeout=5.0)):
+            try:
+                close()
+            except Exception:
+                pass
+        if self.renode is not None:
+            try:
+                self.renode.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(self.renode.pid, 9)
+                self.renode.wait()
+        if self.host is not None:
+            self.host.close()
+
+
+class NativeHarness:
+    """The host harness, as the cases use a harness: its REPL, and its
+    clock, which is the DUT's virtual time."""
+
+    def __init__(self, bench: NativeBench):
+        self.bench = bench
+        self._held = None
+
+    def run(self, code: str, timeout: float = 5.0) -> str:
+        if self._held is None:
+            self._held = Repl(path=self.bench.host.path).__enter__()
+        return self._held.run(code, timeout)
+
+    def board(self) -> str:
+        return "native"
+
+    def board_info(self) -> dict:
+        return ast.literal_eval(self.run("import metalclaw\nprint(metalclaw.board())").strip())
+
+    def clock(self) -> float:
+        return int(self.run("import metalclaw\nprint(metalclaw.now_us())").strip()) / 1e6
+
+    # Bench seconds: of the DUT's time, which may run slower than the host's.
+    def sleep(self, seconds: float) -> None:
+        start = last = self.clock()
+        moved = time.monotonic()
+        while last - start < seconds:
+            time.sleep(0.01)
+            now = self.clock()
+            if now > last:
+                last, moved = now, time.monotonic()
+            elif time.monotonic() - moved > CLOCK_STALL_S:
+                raise TimeoutError(f"the DUT's clock stood at {now:.3f} s for {CLOCK_STALL_S:.0f} s of wall time")
+
+    def dut_console(self) -> str:
+        return self.bench.console.path
+
+    def close(self) -> None:
+        if self._held is not None:
+            self._held.__exit__(None, None, None)
+            self._held = None
+
+
+class NoProbeMemory:
+    def link(self):
+        pytest.skip("this case reads the DUT's memory through a probe, which native mode does not have yet")
+
+
+class NativeExample:
+    ASLEEP_MAX_S = 10.0
+
+    def __init__(self, bench: NativeBench):
+        self.bench = bench
+        self.image = bench.image
+        self.metadata = example_metadata(bench.image)
+        self.target = self.metadata["target"]
+        self.memory = NoProbeMemory()
+
+    def parts_dut_pins(self) -> set[int]:
+        from test.pico_examples.parts import parts_dut_pins
+        return parts_dut_pins(self.target, self.metadata.get("board"))
+
+    def restart(self) -> None:
+        self.bench.restart()
+
+    # The DUT stops where it is; the next restart runs it again.
+    def halt_awake(self, wake_harness_pin, timeout) -> None:
+        self.bench.pause()
+
+    def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
+        pytest.skip("native mode has no RUN pin to press yet")
+
+
+@pytest.fixture(scope="session")
+def emulation() -> Emulation:
+    try:
+        return emulation_for(example_metadata(dut_image()))
+    except pytest.exit.Exception:
+        return DEFAULT
+
+
+@pytest.fixture(scope="session")
+def bench(pytestconfig):
+    image = dut_image()
+    work = Path(os.environ.get("METALCLAW_NATIVE_WORK", ROOT / "build/native")) / str(instance())
+    b = NativeBench(Path(_required("METALCLAW_RENODE_DIR")), Path(_required("METALCLAW_RENODE_ROMS")),
+                    image, work, instance())
+    try:
+        b.start()
+        yield b
+    finally:
+        b.stop()
+
+
+@pytest.fixture(scope="session")
+def harness(bench) -> NativeHarness:
+    h = NativeHarness(bench)
+    yield h
+    h.close()
+
+
+@pytest.fixture(scope="session")
+def fixture(harness: NativeHarness) -> dict:
+    return fixture_for(NATIVE_FIXTURE, harness.board_info())
+
+
+@pytest.fixture(scope="session")
+def probe():
+    return None
+
+
+@pytest.fixture(scope="session")
+def example(bench: NativeBench, harness: NativeHarness) -> NativeExample:
+    require_example_image(bench.image)
+    e = NativeExample(bench)
+    e.restart()
+    return e
+
+
+@pytest.fixture(scope="module")
+def dut_usb():
+    pytest.skip("native mode does not bridge the DUT's own USB")
+
+
+@pytest.fixture(scope="session")
+def dut():
+    pytest.skip("native mode runs pico-examples programs and Zephyr samples, not the rig's DUT image")

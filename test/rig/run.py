@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PLATFORMS = {
     "emulator": "test.rig.platforms.emulator.platform",
     "hardware": "test.rig.platforms.hardware.platform",
+    "native": "test.rig.platforms.native.platform",
 }
 
 
