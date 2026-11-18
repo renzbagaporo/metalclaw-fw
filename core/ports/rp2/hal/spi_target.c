@@ -407,6 +407,9 @@ struct mclw_spi_target {
     volatile bool shadow_pending;
     bool busy_image;
     uint8_t busy_windows;
+    // A window that set the busy bits was dropped, or its record lost, so
+    // nothing will be delivered to lower them: the poll lowers them.
+    volatile bool busy_orphaned;
     // The status in Y, the first byte of every window.
     uint8_t primed;
     uint8_t page_slot[MCLW_COMMAND_PAGES_MAX];
@@ -1482,6 +1485,9 @@ static void __not_in_flash_func(command_take)(struct mclw_spi_target *t, const s
             if (forced && t->busy_windows != 0u) {
                 t->busy_windows--;
             }
+            if (forced) {
+                t->busy_orphaned = true;
+            }
             t->stats.missed_windows++;
             if (!repeat) {
                 t->stats.lost_windows++;
@@ -2289,6 +2295,7 @@ void mclw_hal_spi_target_disarm(struct mclw_spi_target *t) {
         t->queue_first = 0;
         t->queue_count = 0;
         t->busy_windows = 0;
+        t->busy_orphaned = false;
         t->shadow_pending = false;
     }
     mclw_hal_critical_exit(state);
@@ -2457,6 +2464,7 @@ int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_comma
     t->queue_first = 0;
     t->queue_count = 0;
     t->busy_windows = 0;
+    t->busy_orphaned = false;
     t->shadow_pending = false;
     memset(&t->stats, 0, sizeof(t->stats));
     command_build(t);
@@ -2522,17 +2530,23 @@ void mclw_hal_spi_target_poll(void) {
                 if (++t->stuck_polls >= 2u) {
                     dma_debug_hw->ch[t->rw_dma].dbg_ctdreq = 0;
                     t->stats.missed_windows++;
+                    t->busy_orphaned = true;
                     t->stuck_polls = 0;
                 }
             } else {
                 t->stuck_polls = 0;
             }
         }
-        // A busy window the queue had no room for leaves the busy bits
-        // served with nothing to deliver that would lower them; the host
-        // polling them keeps the queue full, so this cannot wait for it.
-        if (t->image == SPI_IMAGE_COMMAND && t->busy_image && t->busy_windows == 0u &&
+        // A busy window the queue had no room for, or whose record was
+        // lost, leaves the busy bits served with nothing to deliver that
+        // would lower them; the host polling them keeps the queue full, so
+        // this cannot wait for it. Only then: the reset program raises the
+        // bits as a busy window ends, before its record reaches
+        // command_take, and lowering them in that gap served the model's
+        // idle status ahead of the erase or program it had yet to see.
+        if (t->image == SPI_IMAGE_COMMAND && t->busy_image && t->busy_orphaned && t->busy_windows == 0u &&
             t->status[SPI_STATUS_SELECT] == SPI_STATUS_BUSY) {
+            t->busy_orphaned = false;
             command_busy_settle(t);
         }
         mclw_hal_critical_exit(state);
