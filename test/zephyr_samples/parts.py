@@ -263,6 +263,12 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
                {"acceleration": (250, -500, 1125), "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
         Attach("icm42688", "lid", {"spi": (18, 19, 16, 17)}),
     ),
+    # 6dof_motion_drdy: the ICM-42688 on SPI0 (SCK GP18, MOSI GP19, MISO
+    # GP16, CS GP17), INT1 on GP15. Raw counts, as devices/icm4268x's README.
+    "zephyr/sensor/6dof_motion_drdy": (
+        Attach("icm42688", "imu", {"spi": (18, 19, 16, 17), "int1": (15,)}, {},
+               {"accel": (2048, -2048, 1024), "gyro": (164, -164, 8200), "temperature": 1325}),
+    ),
     # MCP9808: temperature in m°C, a multiple of its 0.0625 °C step.
     **{f"zephyr/sensor/{sample}": (
         Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}, {"temperature": 25250}),

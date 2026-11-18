@@ -19,6 +19,9 @@ from test.zephyr_samples.parts import lora_frame
 # what the sample printed before the reset (a shell prompt, an unfinished
 # line) stays on the line it starts in.
 BANNER = r"\*\*\* Booting Zephyr OS build .* \*\*\*$"
+# Its start, from which a run's forbidden output is judged: what the program
+# from before the restart printed, the console read catches too.
+BANNER_START = r"\*\*\* Booting Zephyr OS build "
 
 # Zephyr's fatal error and assertion reports (kernel/fatal.c, sys/__assert.h),
 # and a second boot banner: a fault prints no report with CONFIG_LOG off, but
@@ -152,6 +155,7 @@ OVERRIDES: dict[str, dict] = {
 
 def own(*console: str, source: str, **fields) -> Spec:
     fields = {"seconds": SECONDS, "forbidden": FORBIDDEN, **fields}
+    fields = {"forbidden_from": BANNER_START, **fields}
     return Spec(console=(BANNER, *console), lines=True, source=source, **fields)
 
 
@@ -159,6 +163,11 @@ def banner(metadata: dict) -> tuple[str, ...]:
     # The banner pattern, for an image built with the banner on (a sample may
     # turn CONFIG_BOOT_BANNER off: basic/hash_map).
     return (BANNER,) if metadata.get("boot_banner", True) else ()
+
+
+def banner_start(metadata: dict) -> str:
+    # Where forbidden output is judged from, for an image with the banner.
+    return BANNER_START if metadata.get("boot_banner", True) else ""
 
 
 # The shell's prompt on the console UART (CONFIG_SHELL_PROMPT_UART's
@@ -177,7 +186,7 @@ def shell_spec(metadata: dict, source: str, prompt: str = PROMPT) -> Spec:
     return Spec(console=(*banner(metadata), prompt,
                          *(f"^(?:{c['expected']})" for c in commands if c.get("expected"))),
                 input=((prompt, b"\n"), *((prompt, f"{c['command']}\n".encode()) for c in commands)),
-                seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
+                seconds=SECONDS, forbidden=FORBIDDEN, forbidden_from=banner_start(metadata), lines=True,
                 source=f"{source}; samples/{metadata['sample']}/test_shell.yml")
 
 
@@ -220,6 +229,17 @@ OWN: dict[str, Spec] = {
         *(r"temp.23\.4[4-6] Cel, pressure.98\.76[4-6]\d* kPa",) * 3,
         forbidden=(*FORBIDDEN, r"failed", r"Error", r"cancelling"),
         source="samples/sensor/pressure_interrupt/src/main.c"),
+    # samples/sensor/6dof_motion_drdy/src/main.c:95-110: prints the reading
+    # each data-ready trigger fetched; build_only upstream. The icm42688
+    # part holds accel (2048, -2048, 1024) at 16 g full scale, 2048 LSB/g,
+    # gyro (164, -164, 8200) at 2000 dps, 16.4 LSB/dps, and temperature
+    # 1325, raw / 132.48 + 25 °C (DS-000347 3.1, 14.7): 35.00 °C. Three
+    # readings show the trigger running.
+    "zephyr/sensor/6dof_motion_drdy": own(
+        *(r"temp 35\.00 Cel\s+accel 9\.80\d* -9\.80\d* 4\.90\d* m/s/s\s+"
+          r"gyro\s+0\.17\d* -0\.17\d* 8\.72\d* rad/s",) * 3,
+        forbidden=(*FORBIDDEN, r"failed", r"Error", r"cancelling", r"Cannot configure"),
+        source="samples/sensor/6dof_motion_drdy/src/main.c"),
     # samples/drivers/gnss/src/main.c:15-27: prints each fix the driver
     # publishes; its yaml has no harness. The u-blox UBX driver maps a 2D or
     # 3D fix to GNSS_FIX_STATUS_GNSS_FIX, 1 (drivers/gnss/u_blox/gnss_ubx_common.c,
@@ -579,7 +599,8 @@ def zephyr_spec(metadata: dict | None) -> Spec | None:
         # subsys/testsuite/include/zephyr/tc_util.h), which twister's Test
         # harness reads.
         spec = Spec(console=(*banner(metadata), r"^PROJECT EXECUTION SUCCESSFUL$"), seconds=SECONDS,
-                    forbidden=(*FORBIDDEN, r"PROJECT EXECUTION FAILED"), lines=True, source=source)
+                    forbidden=(*FORBIDDEN, r"PROJECT EXECUTION FAILED"), forbidden_from=banner_start(metadata),
+                    lines=True, source=source)
         return replace(spec, **OVERRIDES.get(metadata["target"], {}))
     if metadata.get("harness") == "shell":
         return replace(shell_spec(metadata, source), **OVERRIDES.get(metadata["target"], {}))
@@ -591,6 +612,6 @@ def zephyr_spec(metadata: dict | None) -> Spec | None:
         patterns, ordered = regex[:1], True
     else:
         patterns, ordered = regex, config.get("ordered", True)
-    spec = Spec(console=(*banner(metadata), *patterns), seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
-                ordered=ordered, source=source)
+    spec = Spec(console=(*banner(metadata), *patterns), seconds=SECONDS, forbidden=FORBIDDEN,
+                forbidden_from=banner_start(metadata), lines=True, ordered=ordered, source=source)
     return replace(spec, **OVERRIDES.get(metadata["target"], {}))

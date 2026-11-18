@@ -1,0 +1,22 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * The ICM-42688 of devices/icm4268x/test/dut/rp2.overlay with its INT1 pin
+ * on GP15: active high, the polarity Zephyr's driver writes to INT_CONFIG
+ * (DS-000347 14.3). It is also 6dof_motion_drdy's sensor, at 50 Hz: the
+ * sample prints every reading, and the part's 500 Hz test rate outruns the
+ * 115200-baud console.
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/sensor/icm42688.h>
+
+/ {
+	aliases {
+		6dof-motion-drdy0 = &imu;
+	};
+};
+
+&imu {
+	int-gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+	accel-odr = <ICM42688_DT_ACCEL_ODR_50>;
+	gyro-odr = <ICM42688_DT_GYRO_ODR_50>;
+};

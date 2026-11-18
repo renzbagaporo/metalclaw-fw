@@ -177,6 +177,16 @@ BUILDS: dict[str, Build] = {
                   "test/zephyr_samples/overlays/bmp388_int_gp15.overlay"),
         confs=("devices/bmp388/test/dut/rp2.conf",),
         args=("CONFIG_BMP388_TRIGGER_GLOBAL_THREAD=y", "CONFIG_PRESSURE_THRESHOLD=n", "CONFIG_PRESSURE_DELTA=n")),
+    # samples/sensor/6dof_motion_drdy: build_only upstream, for an
+    # ICM-42670-P; the ICM-42688 here, INT1 on GP15, its trigger on (the
+    # part's DUT config turns it off). Its CONFIG_LOG would defer printk,
+    # whose boot banner the trigger's printf lines then cut into or, on the
+    # Pico 2, the log drops: printk prints at once instead.
+    "zephyr/sensor/6dof_motion_drdy": Build(
+        "sensor/6dof_motion_drdy", test="sample.sensor.6dof_motion_drdy",
+        overlays=("devices/icm4268x/test/dut/rp2.overlay", "test/zephyr_samples/overlays/icm42688_int1_gp15.overlay"),
+        confs=("devices/icm4268x/test/dut/rp2.conf",),
+        args=("CONFIG_ICM4268X_TRIGGER_GLOBAL_THREAD=y", "CONFIG_LOG_PRINTK=n")),
     # samples/drivers/gnss: the rig's neo_m8n node on uart1 (DUT TX GP8, RX
     # GP9), which also sets the gnss alias.
     "zephyr/drivers/gnss": Build(

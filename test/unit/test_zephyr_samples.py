@@ -39,6 +39,14 @@ def test_a_second_banner_or_a_fatal_error_fails():
     assert spec.match(BOOT + "ok\r\n")[1] == []
 
 
+def test_what_the_run_before_the_restart_printed_is_not_judged():
+    spec = zephyr_spec(metadata(config={"type": "one_line", "regex": ["ok"]}))
+    before = ">>> ZEPHYR FATAL ERROR 0: CPU exception\r\npartial line"
+    assert spec.match(before + BOOT + "ok\r\n")[1] == []
+    assert spec.match(before + BOOT + "ok\r\n>>> ZEPHYR FATAL ERROR 0: CPU exception\r\n")[1]
+    assert spec.match(before + "ok\r\n")[1]
+
+
 def test_ztest_takes_the_project_summary():
     spec = zephyr_spec(metadata(harness="ztest"))
     assert spec.match(BOOT + "PROJECT EXECUTION SUCCESSFUL\r\n") == ([], [])

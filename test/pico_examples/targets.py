@@ -82,6 +82,11 @@ class Spec:
     # With `lines`: each pattern matched on any line, in any order (twister's
     # multi_line with `ordered: false`).
     ordered: bool = True
+    # Where the run's own output starts, when it can tell (a boot banner):
+    # `forbidden` is matched from the first match of this on, since the
+    # console read starts while the program from before the restart may
+    # still be printing. Matched on the whole console when it has none.
+    forbidden_from: str = ""
 
     def for_board(self, board: str | None) -> "Spec | None":
         # The criteria for this board's build, or None where they cannot judge it.
@@ -107,7 +112,9 @@ class Spec:
         # and the forbidden ones found.
         patterns = self.console if patterns is None else patterns
         missing = [p for p, end in zip(patterns, self.match_ends(text, patterns)) if end is None]
-        found = [p for p in self.forbidden if re.search(p, text)]
+        start = re.search(self.forbidden_from, text) if self.forbidden_from else None
+        judged = text[start.start():] if start is not None else text
+        found = [p for p in self.forbidden if re.search(p, judged)]
         return missing, found
 
     def match_ends(self, text: str, patterns: tuple[str, ...] | None = None) -> list[int | None]:
