@@ -181,11 +181,21 @@ def shell_spec(metadata: dict, source: str, prompt: str = PROMPT) -> Spec:
     # with a line end, and a line of its response must match its `expected`
     # from the line's start. The Enter goes in at the first prompt seen,
     # which may be one from before the restart still in the bridge; the
-    # commands start at the prompt after it.
+    # commands start at the prompt after it. A command with an `expected`
+    # is done once that has come, so the next waits for it and then a
+    # prompt: one the shell redraws under a log line in the middle of the
+    # command (littlefs formatting at `fs mount`) is not its end, and what
+    # is typed into a command that has interrupts locked is lost, as on
+    # silicon.
     commands = metadata.get("shell_commands") or []
+    typed = [(prompt, b"\n")]
+    for c in commands:
+        typed.append((prompt, f"{c['command']}\n".encode()))
+        if c.get("expected"):
+            typed.append((f"^(?:{c['expected']})", b""))
     return Spec(console=(*banner(metadata), prompt,
                          *(f"^(?:{c['expected']})" for c in commands if c.get("expected"))),
-                input=((prompt, b"\n"), *((prompt, f"{c['command']}\n".encode()) for c in commands)),
+                input=tuple(typed),
                 seconds=SECONDS, forbidden=FORBIDDEN, forbidden_from=banner_start(metadata), lines=True,
                 source=f"{source}; samples/{metadata['sample']}/test_shell.yml")
 
