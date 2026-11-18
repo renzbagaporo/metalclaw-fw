@@ -126,7 +126,8 @@ def test_a_shell_test_types_each_command_at_a_prompt_and_reads_its_reply():
         {"command": "kernel version", "expected": "Zephyr version .*"},
         {"command": "kernel sleep 100"}]}
     spec = zephyr_spec(m)
-    assert [data for _, data in spec.input] == [b"\n", b"kernel cycles\n", b"kernel version\n", b"kernel sleep 100\n"]
+    assert [data for _, data in spec.input if data] == [b"\n", b"kernel cycles\n", b"kernel version\n",
+                                                         b"kernel sleep 100\n"]
     text = (BOOT + "\x1b[1;32muart:~$ \x1b[mkernel cycles\r\ncycles: 123 hw cycles\r\n"
             "\x1b[1;32muart:~$ \x1b[mkernel version\r\nZephyr version 4.4.0\r\n")
     assert spec.match(text)[0] == []
@@ -208,3 +209,36 @@ def test_a_quoted_list_entry_loses_its_quotes_as_in_twister(tmp_path):
     args = cmake_args(Build("x"), test, tmp_path, "rpi_pico")
     assert "-DCONF_FILE=prj_ram.conf" in args
     assert "-DEXTRA_DTC_OVERLAY_FILE=ramdisk.overlay" in args
+
+
+def test_a_shell_command_waits_for_the_last_ones_reply_not_a_redrawn_prompt():
+    # fs mount formats littlefs, and the log lines it prints between erases
+    # redraw the prompt: the next command waits for "Successfully mounted".
+    from test.pico_examples.cases import Typist
+    m = {**metadata(harness="shell"), "shell_commands": [
+        {"command": "fs mount littlefs /lfs", "expected": "Successfully mounted littlefs at /lfs"},
+        {"command": "fs ls /lfs", "expected": ".*mc.txt"}]}
+    spec = zephyr_spec(m)
+
+    class Port:
+        def __init__(self):
+            self.out = b""
+
+        def write(self, data):
+            self.out += data
+
+        def flush(self):
+            pass
+    port = Port()
+    typist = Typist(port, spec.input, lines=spec.lines)
+    text = BOOT + "uart:~$ "
+    typist(text)
+    text += "\r\nuart:~$ "
+    typist(text)
+    assert port.out == b"\nfs mount littlefs /lfs\n"
+    text += "fs mount littlefs /lfs\r\n[00:00:01.000,000] <inf> littlefs: formatting\r\nuart:~$ "
+    typist(text)
+    assert port.out == b"\nfs mount littlefs /lfs\n"
+    text += "\r\nSuccessfully mounted littlefs at /lfs\r\nuart:~$ "
+    typist(text)
+    assert port.out == b"\nfs mount littlefs /lfs\nfs ls /lfs\n"
