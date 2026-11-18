@@ -35,6 +35,7 @@
 #include <string.h>
 
 #include "metalclaw/command.h"
+#include "metalclaw/hal/gpio.h"
 #include "metalclaw/hal/i2c_target.h"
 #include "metalclaw/hal/platform.h"
 #include "metalclaw/hal/spi_target.h"
@@ -65,6 +66,16 @@ static uint64_t ticked_ms;
 
 uint32_t mclw_hal_critical_enter(void) {
     return 0;
+}
+
+// The MPU-9250's INT pin: nothing is bound here, and no time passes.
+void mclw_hal_gpio_write(struct mclw_gpio *gpio, bool level) {
+    (void)gpio;
+    (void)level;
+}
+
+void mclw_hal_delay_us(uint32_t us) {
+    (void)us;
 }
 
 void mclw_hal_critical_exit(uint32_t state) {
