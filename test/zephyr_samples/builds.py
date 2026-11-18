@@ -331,6 +331,15 @@ BUILDS: dict[str, Build] = {
     "zephyr/drivers/led/sx1509b_intensity": Build(
         "drivers/led/sx1509b_intensity", test="sample.drivers.led.sx1509b_intensity", overlays=(
             "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/sx1509b_3e_leds.overlay")),
+    # samples/drivers/led/sct2024: an SCT2024 on SPI0, LA/ GP20, OE/ GP21.
+    "zephyr/drivers/led/sct2024": Build("drivers/led/sct2024", test="sample.drivers.led.sct2024",
+                                        overlays=("test/zephyr_samples/overlays/sct2024_spi0.overlay",)),
+    # samples/drivers/led/is31fl319x: an IS31FL3194 at 0x53 on I2C0.
+    "zephyr/drivers/led/is31fl319x": Build("drivers/led/is31fl319x", test="sample.drivers.led.is31fl319x", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/is31fl3194_53.overlay")),
+    # samples/drivers/led/is31fl3733: an IS31FL3733 at 0x50 on I2C0.
+    "zephyr/drivers/led/is31fl3733": Build("drivers/led/is31fl3733", test="sample.drivers.led.is31fl3733", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/is31fl3733_50.overlay")),
     # samples/drivers/led/lp3943: a TI LP3943 at 0x60 on I2C0.
     "zephyr/drivers/led/lp3943": Build("drivers/led/lp3943", test="sample.drivers.led.lp3943", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/lp3943_60.overlay")),

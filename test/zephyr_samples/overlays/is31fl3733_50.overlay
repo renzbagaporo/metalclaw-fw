@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An IS31FL3733 at 0x50 on I2C0 (i2c0.overlay), ADDR1 and ADDR2 to GND
+ * (data sheet Table 1), as the FRDM-K22F overlay places it. No SDB pin:
+ * the part stays out of hardware shutdown.
+ */
+
+&i2c0 {
+	is31fl3733@50 {
+		compatible = "issi,is31fl3733";
+		reg = <0x50>;
+	};
+};
