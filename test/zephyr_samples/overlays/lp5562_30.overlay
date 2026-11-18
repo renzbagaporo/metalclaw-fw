@@ -1,0 +1,12 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A TI LP5562 at 0x30 (ADDR_SEL 00, write address 60h, SNVS820B Table 24)
+ * on I2C0 (i2c0.overlay).
+ */
+
+&i2c0 {
+	lp5562@30 {
+		compatible = "ti,lp5562";
+		reg = <0x30>;
+	};
+};
