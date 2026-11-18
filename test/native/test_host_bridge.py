@@ -466,3 +466,33 @@ def test_a_models_delay_does_not_shift_the_duts_edges(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_a_tmp116_s_data_ready_clears_on_read_and_waits_out_its_averaging(tmp_path):
+    # TMP116 datasheet 7.4.1: Data_Ready (configuration bit 13) sets at each
+    # result and clears when the configuration is read; a configuration
+    # write starts over, the first result after the active conversion time
+    # (eight averages: 124 ms).
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(i2c=[{"bus": 0, "sda": 4, "scl": 5}])
+        harness.run("import metalclaw\nt = metalclaw.attach('tmp116', 't', i2c=(4, 5, 0x48))")
+
+        def config():
+            return int.from_bytes(bridge.i2c(0, 0x48, b"\x01", read=2), "big")
+        for _ in range(1100):
+            bridge.advance(1_000_000)
+        assert config() & 0x2000
+        assert not config() & 0x2000
+        bridge.i2c(0, 0x48, b"\x01\x02\x20")
+        for _ in range(100):
+            bridge.advance(1_000_000)
+        assert not config() & 0x2000
+        for _ in range(30):
+            bridge.advance(1_000_000)
+        assert config() & 0x2000
+    finally:
+        bridge.close()
+        harness.close()

@@ -149,8 +149,12 @@ static void MCLW_RAM_FUNC(put_reg)(struct tmp1xx_state *s, uint8_t pointer, uint
     int i = index_of(s->part, pointer);
     uint8_t at = s->pointers[pointer];
     uint8_t flags = i >= 0 && s->part->registers[i].writable != 0 ? MCLW_REG_WRITABLE : 0;
+    // A read of the TMP116's configuration clears Data_Ready (bit 13, the
+    // high byte's bit 5), and only that (datasheet 7.4.1.3).
+    uint8_t high = s->part->kind == TMP1XX_TMP116 && pointer == TMP1XX_PTR_CONFIG
+        ? (uint8_t)(flags | MCLW_REG_CLEAR_BIT(5)) : flags;
 
-    mclw_regmap_set(&s->map, 0, at, (uint8_t)(value >> 8), flags);
+    mclw_regmap_set(&s->map, 0, at, (uint8_t)(value >> 8), high);
     mclw_regmap_set(&s->map, 0, (uint8_t)(at + 1u), (uint8_t)value, flags);
     if (i >= 0) {
         s->held[i] = value;
@@ -209,8 +213,19 @@ static uint32_t period_us(struct tmp1xx_state *s) {
     }
 }
 
-static uint32_t conversion_us(const struct tmp1xx_state *s) {
-    return s->part->kind == TMP1XX_TMP108 ? 27000u : s->part->kind == TMP1XX_TMP112 ? 26000u : 15500u;
+// From a configuration write to its first result. TMP116: the active
+// conversion time, 15.5 ms per conversion averaged, AVG 1/8/32/64 (TMP116
+// datasheet 7.4.1.2: eight averages take 124 ms).
+static uint32_t conversion_us(struct tmp1xx_state *s) {
+    static const uint32_t averaged[] = { 1u, 8u, 32u, 64u };
+
+    if (s->part->kind == TMP1XX_TMP108) {
+        return 27000u;
+    }
+    if (s->part->kind == TMP1XX_TMP112) {
+        return 26000u;
+    }
+    return 15500u * averaged[(get_reg(s, TMP1XX_PTR_CONFIG) >> 5) & 3u];
 }
 
 // Whether the part converts now, and whether it stops after this one.
@@ -329,6 +344,11 @@ static void MCLW_RAM_FUNC(tmp1xx_on_write)(struct mclw_regmap *map, uint8_t bank
             (v & TMP112_OS) != 0) {
             s->os_pending = true;
             v = (uint16_t)(v & ~TMP112_OS);
+        }
+        // The TMP116 starts over from a configuration write, its next
+        // result to come.
+        if (part->kind == TMP1XX_TMP116 && r->pointer == TMP1XX_PTR_CONFIG) {
+            v = (uint16_t)(v & ~TMP116_DATA_READY);
         }
         put_reg(s, r->pointer, v);
         if (r->pointer == TMP1XX_PTR_CONFIG) {
