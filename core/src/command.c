@@ -35,6 +35,10 @@ void mclw_command_set_busy_status(struct mclw_command_image *image, uint8_t bits
     image->busy_status = bits;
 }
 
+void mclw_command_set_ready_status(struct mclw_command_image *image, uint8_t bits) {
+    image->ready_status = bits;
+}
+
 void mclw_command_add_busy_opcode(struct mclw_command_image *image, uint8_t opcode) {
     image->busy_opcodes[opcode / 8u] |= (uint8_t)(1u << (opcode % 8u));
 }

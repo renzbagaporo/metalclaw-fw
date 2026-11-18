@@ -596,6 +596,22 @@ OWN: dict[str, Spec] = {
         r"^SX1509B intensity sample$",
         forbidden=(*FORBIDDEN, r"Error configuring", r"not ready", r"<err>"), seconds=4.0,
         source="samples/drivers/led/sx1509b_intensity/src/main.c"),
+    # samples/drivers/spi_flash_at45/src/main.c, with the test's page-layout
+    # and PM conf files: its yaml's patterns no longer match what the
+    # source prints ("Using \w+" against "Using flash@0"; "low power state"
+    # against "suspended state"), so these are the source's lines. With the
+    # driver's read-modify-write (on by default) it erases nothing.
+    "zephyr/drivers/spi_flash_at45": own(
+        r"^Using flash@0, chip size: 524288 bytes \(page: 256\)$",
+        r"^Reading the first byte of the test region \.\.\. OK$",
+        r"^Preparing test content starting with 0x[0-9A-F]{2}\.$",
+        r"^Writing the first half of the test region\.\.\. OK$",
+        r"^Writing the second half of the test region\.\.\. OK$",
+        r"^Reading the whole test region\.\.\. OK$",
+        r"^Checking the read content\.\.\. OK$",
+        r"^Putting the flash device into suspended state\.\.\. OK$",
+        forbidden=(*FORBIDDEN, r"FAILED", r"ERROR at"), seconds=10.0,
+        source="samples/drivers/spi_flash_at45/src/main.c"),
     # samples/drivers/led/lp3943/src/main.c: finds the device, then turns
     # its 16 LEDs on and off in turn; its yaml has no harness.
     "zephyr/drivers/led/lp3943": own(

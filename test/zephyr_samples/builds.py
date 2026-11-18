@@ -381,6 +381,10 @@ BUILDS: dict[str, Build] = {
     # samples/drivers/spi_flash: a W25Q16JV on SPI0, its sector at 0xff000.
     "zephyr/drivers/spi_flash": Build("drivers/spi_flash", test="sample.drivers.spi.flash",
                                       overlays=("test/zephyr_samples/overlays/w25q16jv_spi0.overlay",)),
+    # samples/drivers/spi_flash_at45: an AT45DB041E on SPI0, the test region
+    # at 0xfe00; the test's own page-layout and PM conf files.
+    "zephyr/drivers/spi_flash_at45": Build("drivers/spi_flash_at45", test="sample.drivers.spi.flash.at45",
+                                           overlays=("test/zephyr_samples/overlays/at45db041e_spi0.overlay",)),
     # samples/drivers/spi_bitbang: spibb0 on GP12-15, MOSI looped to MISO.
     "zephyr/drivers/spi_bitbang": Build("drivers/spi_bitbang",
                                         overlays=("test/zephyr_samples/overlays/spibb0_gp12_15.overlay",)),
