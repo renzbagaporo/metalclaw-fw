@@ -341,12 +341,16 @@ static size_t handle(const char *text, size_t len) {
     }
     root = &doc.nodes[0];
     op = json_get(&doc, root, "op");
+    // When this request happened: what the DUT reports (an edge) is timed
+    // by it, never by a delay something else ran up.
+    uint64_t request_ns;
     {
         int64_t t_ns = json_int(&doc, root, "t_ns", -1);
 
         if (t_ns >= 0) {
             mclw_host_advance((uint64_t)t_ns);
         }
+        request_ns = t_ns >= 0 ? (uint64_t)t_ns : mclw_host_event_ns();
         mclw_host_uart_poll(mclw_host_event_ns());
     }
     // The host harness is a board that pulls every DUT line on the Pico's
@@ -430,9 +434,9 @@ static size_t handle(const char *text, size_t len) {
         uint8_t pin = (uint8_t)json_int(&doc, root, "pin", 0xff);
 
         mclw_host_gpio_dut(pin, value);
-        mclw_host_wire_edge(pin, value, mclw_host_event_ns());
+        mclw_host_wire_edge(pin, value, request_ns);
         if (value >= 0) {
-            mclw_host_uart_edge(pin, value, mclw_host_event_ns());
+            mclw_host_uart_edge(pin, value, request_ns);
         }
         mclw_host_spi_sink_line(pin, value);
         if (value >= 0) {
