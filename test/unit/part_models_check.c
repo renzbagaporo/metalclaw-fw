@@ -89,6 +89,11 @@ void mclw_hal_gpio_write(struct mclw_gpio *gpio, bool level) {
     gpio->level = level;
 }
 
+// A model's pulse on a pin: no time passes here.
+void mclw_hal_delay_us(uint32_t us) {
+    (void)us;
+}
+
 void mclw_trace(struct mclw_instance *inst, enum mclw_trace_kind kind, uint32_t addr, uint16_t len,
     int16_t result) {
     (void)inst;
