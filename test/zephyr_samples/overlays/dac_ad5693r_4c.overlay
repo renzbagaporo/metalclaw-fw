@@ -1,0 +1,22 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * The adafruit_ad5693r shield's node on I2C0 (i2c0.overlay): an AD5693R
+ * at 0x4C (A0 low), 16 bits, as zephyr,user's dac.
+ */
+
+/ {
+	zephyr,user {
+		dac = <&dac_ad5693r>;
+		dac-channel-id = <0>;
+		dac-resolution = <16>;
+	};
+};
+
+&i2c0 {
+	dac_ad5693r: dac@4c {
+		status = "okay";
+		compatible = "adi,ad5693";
+		reg = <0x4c>;
+		#io-channel-cells = <1>;
+	};
+};

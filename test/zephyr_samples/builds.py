@@ -290,6 +290,21 @@ BUILDS: dict[str, Build] = {
     "zephyr/drivers/counter/maxim_ds3231": Build(
         "drivers/counter/maxim_ds3231", test="sample.basic.maxim_ds3231", overlays=(
             "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ds3231_68_isw_gp15.overlay")),
+    # samples/drivers/biometrics/fingerprint: a ZFM-20 on uart1 (GP8 TX,
+    # GP9 RX), where its app.overlay puts the zfm-x0; its yaml allows only
+    # native_sim.
+    "zephyr/drivers/biometrics/fingerprint": Build(
+        "drivers/biometrics/fingerprint", test="sample.drivers.biometrics.fingerprint", overlays=(
+            "test/zephyr_samples/overlays/uart1_gp8_gp9.overlay",
+            "test/zephyr_samples/overlays/fingerprint_zfm20_uart1.overlay")),
+    # samples/drivers/dac: the adafruit_mcp4728 shield's node, an MCP4728
+    # at 0x60 on I2C0, as zephyr,user's dac (the shield itself targets the
+    # Feather's zephyr_i2c).
+    "zephyr/drivers/dac@mcp4728": Build("drivers/dac", test="sample.drivers.dac", variant="mcp4728", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/dac_mcp4728_60.overlay")),
+    # The same with the adafruit_ad5693r shield's node, an AD5693R at 0x4C.
+    "zephyr/drivers/dac@ad5693r": Build("drivers/dac", test="sample.drivers.dac", variant="ad5693r", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/dac_ad5693r_4c.overlay")),
     # samples/drivers/eeprom: an AT24C02C at 0x50 on I2C0 as eeprom-0.
     "zephyr/drivers/eeprom": Build("drivers/eeprom", test="sample.drivers.eeprom", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/eeprom0_at24c02_50.overlay")),
