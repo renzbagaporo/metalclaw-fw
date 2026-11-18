@@ -53,6 +53,8 @@ START_TIMEOUT_S = 60.0
 # Wall seconds the DUT's clock may stand still before a harness sleep gives
 # up, as the console wait does (test/pico_examples/cases.py).
 CLOCK_STALL_S = 120.0
+REPL_STRETCH = 4.0
+REPL_MIN_S = 20.0
 
 # The DUT's pins are the harness's: the bridge names every line by the DUT
 # pin it is on.
@@ -194,6 +196,11 @@ class NativeBench:
         self.monitor_port = MONITOR_PORT + number
         self.console_port = CONSOLE_PORT + number
         self.socket_path = work / "native.sock"
+        # A Unix socket's path is at most 107 bytes; a deep work directory
+        # gets one under the runtime directory instead.
+        if len(str(self.socket_path)) > 100:
+            runtime = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
+            self.socket_path = runtime / f"metalclaw-native-{os.getpid()}-{number}.sock"
         self.host = None
         self.renode = None
         self.monitor = None
@@ -264,10 +271,13 @@ class NativeHarness:
         self.bench = bench
         self._held = None
 
+    # A REPL deadline is host time, shared with the emulator and the other
+    # lanes on a loaded host: an attach that takes a second alone took over
+    # five with seven lanes running.
     def run(self, code: str, timeout: float = 5.0) -> str:
         if self._held is None:
             self._held = Repl(path=self.bench.host.path).__enter__()
-        return self._held.run(code, timeout)
+        return self._held.run(code, max(timeout * REPL_STRETCH, REPL_MIN_S))
 
     def board(self) -> str:
         return "native"
