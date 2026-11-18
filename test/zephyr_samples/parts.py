@@ -287,9 +287,12 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     "zephyr/drivers/stepper/generic": (Attach("square_wave", "button", {"out": (15,)},
                                               properties={"period": 1_000_000_000, "high": 900_000_000}),),
     # DS18B20 on GP15: 21.375 °C is 342 sixteenths, exact at 12 bits. Open
-    # drain with no pull-up of its own, so only the carrier's lines carry it.
+    # drain with no pull-up of its own; the overlay turns on the DUT pad's
+    # pull-up (GPIO_PULL_UP), where pico-examples' gpio_init leaves the
+    # pad's pull-down on, and that alone carries the bus on fixture 1's
+    # bare lines: both samples passed there twice each.
     **{f"zephyr/{target}": (Attach("ds18b20", "thermo", {"dq": (15,)},
-                                   properties={"temperature": 21375, "serial": 0xC0FFEE}, needs_line_pullups=True),)
+                                   properties={"temperature": 21375, "serial": 0xC0FFEE}),)
        for target in ("sensor/ds18b20", "drivers/w1/scanner")},
     # HT16K33 at 0x70. samples/drivers/ht16k33/src/main.c:26-31 turns its 128
     # LEDs on one by one, 100 ms apart, from LED 0; the driver keeps LED n in

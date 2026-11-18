@@ -2,8 +2,9 @@
 /*
  * A bit-banged 1-Wire bus on GP15 (zephyr,w1-gpio), open drain, with a
  * DS18B20 on it: the sensor/ds18b20 sample finds the sensor by its
- * compatible, drivers/w1/scanner the bus by its w1 label. The line needs
- * a pull-up stronger than a pad's: the carrier's 5.1 k.
+ * compatible, drivers/w1/scanner the bus by its w1 label. The DUT pad's
+ * pull-up carries the line where the bench has none (fixture 1); the
+ * carrier adds its 5.1 k.
  */
 #include <zephyr/dt-bindings/gpio/gpio.h>
 
