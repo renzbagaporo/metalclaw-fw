@@ -566,6 +566,16 @@ OWN: dict[str, Spec] = {
         r"<inf> main: Found DRV2605 device drv2605@5a",
         forbidden=(*FORBIDDEN, r"<err>"), seconds=4.0,
         source="samples/drivers/haptics/drv2605/src/main.c"),
+    # samples/drivers/led/lp50xx/src/main.c: names the controller and each
+    # LED with its color mapping (1:2:3, red, green, blue), then cycles
+    # colors and brightness forever, first through the channel API. Its
+    # yaml has no harness. The controller line is logged, deferred, and
+    # comes before or after the printed LED lines, so it is not judged.
+    "zephyr/drivers/led/lp50xx": own(
+        *(rf"^Found LED {i} - LED{i} - index:{i} - 3 colors - 1:2:3$" for i in range(4)),
+        r"<inf> main: Testing all LEDs \(channel API\)",
+        forbidden=(*FORBIDDEN, r"<err>"), seconds=6.0,
+        source="samples/drivers/led/lp50xx/src/main.c"),
     # samples/sensor/max6675/src/main.c:45: a reading a second. Its yaml
     # takes any number; the part holds 123.25 C, a whole count of 0.25 C.
     "zephyr/sensor/max6675": own(*(r"^Temperature: 123\.25 C$",) * 2,

@@ -72,9 +72,11 @@ def test_the_program_prints_what_its_spec_expects(check, target):
 @pytest.mark.parametrize("target", TARGETS)
 def test_the_part_passes_the_rigs_checks(check, target):
     _, attach, part = run_program(check, target)
-    # The rig runs a check's setup on the part just after the restart; here
-    # that is the part before the program's one run, whose counters were 0.
-    at_restart = types.SimpleNamespace(stats=lambda binding: {k: 0 for k in part.stats(binding)})
+    # The rig runs a check's setup on the part at the restart; here that is
+    # the part before the program's one run: its counters 0, BUSY clear.
+    at_restart = types.SimpleNamespace(**{k: (False if isinstance(v, bool) else 0 if isinstance(v, int) else v)
+                                          for k, v in vars(part).items()})
+    at_restart.stats = lambda binding: {k: 0 for k in part.stats(binding)}
     for c in attach.checks:
         scope = {"part": at_restart}
         if c.setup:

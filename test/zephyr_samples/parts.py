@@ -190,6 +190,15 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
                   "effects 1-4 played whole and done", 3.0),
         )),
     ),
+    # The LP5012 at 0x14 on I2C0: enabled, and the channel test's first
+    # color, red, on all four modules for its first seconds.
+    "zephyr/drivers/led/lp50xx": (
+        Attach("lp5012", "leds", {"i2c": (4, 5, 0x14)}, {"i2c": 2}, checks=(
+            Check("part.get('enabled')", lambda v: v is True or v == 1, "the chip on", 3.0),
+            *(Check(f"part.get('led{i}')", lambda v: list(v) == [255, 0, 0], f"module {i} red", 3.0)
+              for i in range(4)),
+        )),
+    ),
     # The AT24C02C at 0x50 on I2C0, erased at attach: the sample writes its
     # boot counter at offset 0.
     "zephyr/drivers/eeprom": (
