@@ -24,7 +24,6 @@ def _strip(harness):
                 f"strip = metalclaw.attach('ws2812b', 'strip', din=({DIN},))\nstrip.count = 1\n")
 
 
-@pytest.mark.xfail(strict=True, reason="the emulated PIO misses sub-microsecond edges (package 40)")
 def test_a_ws2812b_frame_is_captured_from_its_pulses(harness, stimulus):
     _strip(harness)
     at = stimulus.until(stimulus.t_ns) + 100_000
@@ -36,12 +35,15 @@ def test_a_ws2812b_frame_is_captured_from_its_pulses(harness, stimulus):
     assert harness.run("print(bytes(strip.read_region('leds', 0, 3)).hex())").strip() == "102030"
 
 
-def test_a_pulse_outside_both_windows_spoils_the_frame(harness, stimulus):
-    # 600 ns is neither a 0 (at most 550) nor a 1 (at least 650).
+@pytest.mark.parametrize("zero_ns, one_ns", [(150, 800), (400, 1050)], ids=["short", "long"])
+def test_a_pulse_outside_the_programs_checks_spoils_the_frame(harness, stimulus, zero_ns, one_ns):
+    # The program checks the line high at 250 ns and low again by 950 ns
+    # (wire_encode_pulse_bits): a high shorter, or longer, spoils the frame.
+    # Between the windows it reads at 600 ns and cannot tell, as on silicon.
     _strip(harness)
     at = stimulus.until(stimulus.t_ns) + 100_000
     stimulus.drive(DIN, 0, at - 60_000)
-    end = _frame(stimulus, at, bytes([0xFF, 0x00, 0xFF]), zero_ns=400, one_ns=600)
+    end = _frame(stimulus, at, bytes([0xFF, 0x00, 0xFF]), zero_ns=zero_ns, one_ns=one_ns)
     stimulus.until(end + 2_000_000)
     stimulus.go()
     assert harness.run("print(strip.frames, strip.bad_frames)").strip() == "0 1"

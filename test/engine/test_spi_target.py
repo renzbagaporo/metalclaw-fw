@@ -10,11 +10,7 @@ from test.engine.stimulus import SpiController
 
 SCK, MOSI, MISO, CS = 18, 19, 16, 22
 CHIP_ID = 0x50
-# The emulated PIO samples its pins too coarsely for sub-microsecond edges
-# yet (renode-rp2, package 40): at 1 MHz it sees no SCK edge, so the
-# silicon rate is expected to fail until that lands; 20 kHz passes.
-PIO_TIMING = pytest.mark.xfail(strict=True, reason="the emulated PIO misses sub-microsecond edges (package 40)")
-RATES = [20_000, pytest.param(1_000_000, marks=PIO_TIMING)]
+RATES = [20_000, 1_000_000]
 
 
 @pytest.fixture(scope="module", params=RATES, ids=lambda hz: f"{hz // 1000}kHz")
