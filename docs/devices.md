@@ -50,6 +50,8 @@ model `at24c02`;
 I2C;
 [`max6675`](../devices/max6675/README.md), Maxim's MAX6675 thermocouple
 converter on SPI;
+[`ds3231`](../devices/ds3231/README.md), Maxim's DS3231 real-time clock on
+I2C with its INT/SQW pin;
 [`lsm6dso`](../devices/lsm6dso/README.md), ST's LSM6DSO and LSM6DSL 6-axis
 IMUs on I2C with their INT1 pin, two models;
 [`veml60xx`](../devices/veml60xx/README.md), Vishay's VEML6031X00 and
