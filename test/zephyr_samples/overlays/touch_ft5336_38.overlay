@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * A FocalTech FT5336 touch controller at 0x38 on I2C0 (i2c0.overlay),
+ * polled: no int-gpios, so the driver reads it on its timer.
+ */
+
+&i2c0 {
+	ft5336@38 {
+		compatible = "focaltech,ft5336";
+		reg = <0x38>;
+		status = "okay";
+	};
+};

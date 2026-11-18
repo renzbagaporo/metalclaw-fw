@@ -477,6 +477,14 @@ OWN: dict[str, Spec] = {
         r"input event: dev=buttons .*type= 1 code= 11 value=1", r"input event: dev=buttons .*type= 1 code= 11 value=0",
         r"input event: dev=qdec .*type= 2 code=  8 value=-?[1-9]", ordered=False,
         source="samples/subsys/input/input_dump; subsys/input/input_utils.c"),
+    # The same with the FT5336: its driver reports the point's Y registers
+    # as the event's X and its X registers as Y (input_ft5336.c: col, row),
+    # so the part's (120, 200) comes out as ABS_X 200 (EV_ABS 3, code 0)
+    # and ABS_Y 120 (code 1), with BTN_TOUCH (EV_KEY 1, code 330) down.
+    "zephyr/subsys/input/input_dump@ft5336": own(
+        r"input event: dev=ft5336@38 .*type= 3 code=  0 value=200", r"input event: dev=ft5336@38 .*type= 3 code=  1 value=120",
+        r"input event: dev=ft5336@38 .*type= 1 code=330 value=1", ordered=False, forbidden=(*FORBIDDEN, r"<err>"),
+        source="samples/subsys/input/input_dump; drivers/input/input_ft5336.c"),
     # samples/sensor/sensor_shell (harness keyboard): `sensor get` on the
     # INA237 prints each channel, the value in parentheses after its
     # timestamp (drivers/sensor/sensor_shell.c:528-531): the part's 3.3 V

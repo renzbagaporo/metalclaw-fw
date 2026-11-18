@@ -64,6 +64,10 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("square_wave", "button", {"out": (15,)}, properties={"period": 1_000_000_000, "high": 900_000_000}),
         Attach("quadrature_encoder", "encoder", {"ab": (10, 11)}, properties={"travel": 2000, "rate": 100}),
     ),
+    # The FT5336 at 0x38 on I2C0, a finger down at (120, 200) throughout.
+    "zephyr/subsys/input/input_dump@ft5336": (
+        Attach("ft5336", "touch", {"i2c": (4, 5, 0x38)}, {"i2c": 2}, {"position": (120, 200), "pressed": True}),
+    ),
     # The SM351LT's output on GP15, closed (low) half of every 3 s: the
     # sample polls every 2 s, so its readings cycle through both levels.
     "zephyr/sensor/sm351lt": (Attach("square_wave", "magnet", {"out": (15,)},

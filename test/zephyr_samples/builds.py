@@ -458,6 +458,10 @@ BUILDS: dict[str, Build] = {
     # input event, from sw0 on GP15 and a gpio-qdec wheel on GP10/GP11.
     "zephyr/subsys/input/input_dump": Build("subsys/input/input_dump", test="sample.input.input_dump", overlays=(
         "test/zephyr_samples/overlays/sw0_gp15.overlay", "test/zephyr_samples/overlays/qdec_gp10_11.overlay")),
+    # input_dump again with an FT5336 touch controller at 0x38 on I2C0.
+    "zephyr/subsys/input/input_dump@ft5336": Build(
+        "subsys/input/input_dump", test="sample.input.input_dump", variant="ft5336", overlays=(
+            "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/touch_ft5336_38.overlay")),
     # samples/sensor/sensor_shell: the keyboard test, with an INA237 of ours.
     "zephyr/sensor/sensor_shell": Build("sensor/sensor_shell", test="sample.sensor.shell", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ina237_40.overlay")),

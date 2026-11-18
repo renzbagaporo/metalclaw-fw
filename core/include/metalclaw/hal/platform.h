@@ -57,4 +57,22 @@ typedef void (*mclw_hal_poll_t)(void *ctx);
 int mclw_hal_poll_register(mclw_hal_poll_t fn, void *ctx);
 bool mclw_hal_in_worker(void);
 
+// How the worker keeps up, for diagnosis: rounds run, the longest time
+// from one round's start to the next, the most work items one round ran,
+// each poll's longest single run with its function, and the runtime-lock
+// tries the worker lost to the script's thread. Microseconds of
+// mclw_hal_time_us. Reset clears the maxima and counts.
+#define MCLW_WORKER_POLLS_MAX 8u
+struct mclw_worker_stats {
+    uint32_t rounds;
+    uint32_t max_round_gap_us;
+    uint32_t max_work_per_round;
+    uint32_t lock_misses;
+    uint32_t poll_count;
+    uintptr_t poll_fn[MCLW_WORKER_POLLS_MAX];
+    uint32_t poll_max_us[MCLW_WORKER_POLLS_MAX];
+};
+
+void mclw_hal_worker_stats(struct mclw_worker_stats *out, bool reset);
+
 #endif

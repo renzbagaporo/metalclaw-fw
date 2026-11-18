@@ -47,12 +47,14 @@ def test_a_program_without_needs_and_a_rig_image_get_the_defaults():
 # ---- emulator limits -------------------------------------------------------
 
 
-def test_the_emulator_limits_are_the_unprovisioned_the_too_slow_and_the_core_order():
-    assert set(EMULATOR_LIMITS) == set(emu.UNPROVISIONED) | set(emu.SPEED_LIMITS) | set(emu.CORE_ORDER_LIMITS)
+def test_the_emulator_limits_are_the_unprovisioned_the_too_slow_the_core_order_and_the_races():
+    assert set(EMULATOR_LIMITS) == (set(emu.UNPROVISIONED) | set(emu.SPEED_LIMITS) | set(emu.CORE_ORDER_LIMITS)
+                                    | set(emu.RACE_LIMITS))
     assert set(emu.SPEED_LIMITS) == {"hstx_spi_lcd", "hello_pwm", "pio_hub75"}
     for target in emu.SPEED_LIMITS:
         assert "times slower than real time" in EMULATOR_LIMITS[target], target
     assert set(emu.CORE_ORDER_LIMITS) == {"multicore_doorbell"}
+    assert set(emu.RACE_LIMITS) == {"lcd_uart"}
 
 
 # The OTP programs never run on a bench (hazards.py). hello_otp is judged in
