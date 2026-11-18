@@ -147,6 +147,11 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('writes')", lambda v: v > 0, "the sample's boot counter written", 3.0),
         )),
     ),
+    # The MAX6675 on SPI0 (SCK GP18, MOSI GP19, MISO GP16, CS GP17), its
+    # thermocouple at 123.25 C.
+    "zephyr/sensor/max6675": (
+        Attach("max6675", "tc", {"spi": (18, 19, 16, 17)}, {}, {"temperature": 123250}),
+    ),
     # The LSM6DSL at 0x6A on I2C0, INT1 on GP15, at rest: 1 g on z.
     "zephyr/sensor/lsm6dsl": (
         Attach("lsm6dsl", "imu", {"i2c": (4, 5, 0x6a), "int1": (15,)}, {"i2c": 2},
