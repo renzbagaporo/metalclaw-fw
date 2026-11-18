@@ -113,6 +113,26 @@ build: build-mpy-cross
     test -f "{{rp2_build_dir}}/firmware.uf2"
     ls -l "{{rp2_build_dir}}/firmware.uf2"
 
+# The host harness: Metalclaw as a Linux process (core/ports/host),
+# MicroPython's unix port with the `metalclaw` module, the core and every
+# device. METALCLAW_BRIDGE=<socket path> at run time connects it to an
+# emulated DUT; without it the harness runs standalone on the host's clock.
+host_build_dir := build_dir / "host"
+host_harness := host_build_dir / "mpy/metalclaw-host"
+
+build-host: build-mpy-cross
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cmake -S "{{project_dir}}/core/ports/host" -B "{{host_build_dir}}/lib" > /dev/null
+    cmake --build "{{host_build_dir}}/lib" -j{{jobs}}
+    make -C "{{micropython_dir}}/ports/unix" -j{{jobs}} \
+        VARIANT_DIR="{{project_dir}}/core/ports/host/variant" \
+        BUILD="{{host_build_dir}}/mpy" \
+        PROG=metalclaw-host \
+        USER_C_MODULES="{{project_dir}}/core" \
+        METALCLAW_HOST_LIBS="{{host_build_dir}}/lib/libmetalclaw_port_host.a {{host_build_dir}}/lib/core/libmetalclaw_core.a"
+    ls -l "{{host_harness}}"
+
 # Python environment for the rig, tools and client.
 venv := project_dir / ".venv"
 rig_python := venv / "bin/python"
