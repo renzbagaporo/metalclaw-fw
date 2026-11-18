@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* An SHT3x-DIS at 0x44 (ADDR low) on I2C0 (i2c0.overlay). */
+
+&i2c0 {
+	sht3xd@44 {
+		compatible = "sensirion,sht3xd";
+		reg = <0x44>;
+		status = "okay";
+	};
+};

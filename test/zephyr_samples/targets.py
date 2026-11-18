@@ -516,6 +516,16 @@ OWN: dict[str, Spec] = {
                                      source="samples/drivers/fuel_gauge/src/main.c"),
     # samples/drivers/auxdisplay/src/main.c: writes its greeting and logs
     # only a failure; the part's DDRAM judges it.
+    # samples/sensor/sht3xd/src/main.c:95 and sht4x/src/main.c:70: a reading
+    # every two seconds; sht4x is build_only upstream, and sht3xd's yaml
+    # has no harness. The parts hold 23.5 C and 45 %RH, within their 16-bit
+    # words' 3 mC and 2 m%RH.
+    "zephyr/sensor/sht3xd": own(*(r"SHT3XD: 23\.50 Cel ; 45\.00 %RH",) * 2,
+                                forbidden=(*FORBIDDEN, r"failed", r"not ready"), seconds=8.0,
+                                source="samples/sensor/sht3xd/src/main.c"),
+    "zephyr/sensor/sht4x": own(*(r"SHT4X: 23\.50 Temp\. \[C\] ; 45\.00 RH \[%\]",) * 2,
+                               forbidden=(*FORBIDDEN, r"Failed", r"not ready"), seconds=8.0,
+                               source="samples/sensor/sht4x/src/main.c"),
     # samples/drivers/misc/grove_display/src/main.c: prints only when the
     # LCD is not ready; its yaml's harness is "grove", a person looking.
     # The parts judge it.

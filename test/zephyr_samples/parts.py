@@ -135,6 +135,10 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('writes')", lambda v: v >= 4, "the driver's LED writes", 5.0),
         )),
     ),
+    # Sensirion's humidity sensors at 0x44 on I2C0, at 23.5 C and 45 %RH.
+    **{f"zephyr/sensor/{sample}": (Attach(model, "rh", {"i2c": (4, 5, 0x44)}, {"i2c": 2},
+                                          {"temperature": 23500, "humidity": 45000}),)
+       for sample, model in (("sht3xd", "sht3x"), ("sht4x", "sht4x"))},
     # TI's temperature sensors at 0x48 on I2C0 (GP4/GP5), at 23.5 C.
     **{f"zephyr/sensor/{sample}": (Attach(model, "thermo", {"i2c": (4, 5, 0x48)}, {"i2c": 2}, {"temperature": 23500}),)
        for sample, model in (("tmp108", "tmp108"), ("tmp112", "tmp112"), ("tmp11x", "tmp116"))},

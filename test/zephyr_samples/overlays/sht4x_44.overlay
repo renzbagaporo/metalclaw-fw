@@ -1,0 +1,11 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* An SHT4x at 0x44 on I2C0 (i2c0.overlay), high repeatability. */
+
+&i2c0 {
+	sht4x@44 {
+		compatible = "sensirion,sht4x";
+		reg = <0x44>;
+		repeatability = <2>;
+		status = "okay";
+	};
+};
