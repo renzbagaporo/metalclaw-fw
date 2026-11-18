@@ -44,6 +44,8 @@ NMEA and takes PMTK commands through its I2C buffer;
 gyroscope on SPI or I2C;
 [`w25q`](../devices/w25q/README.md), the Winbond W25Q16JV serial NOR flash on
 SPI, as the model `w25q16jv`;
+[`at24`](../devices/at24/README.md), the AT24C02C 2-Kbit I2C EEPROM, as the
+model `at24c02`;
 [`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
 I2C;
 [`lsm6dso`](../devices/lsm6dso/README.md), ST's LSM6DSO and LSM6DSL 6-axis
