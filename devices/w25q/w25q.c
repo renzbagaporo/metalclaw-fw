@@ -48,6 +48,7 @@ enum {
     PROP_SPI_MODE,
     PROP_ID_READ,
     PROP_HELD_BASE,
+    PROP_LAST_IGNORED,
 };
 
 enum {
@@ -72,6 +73,8 @@ struct w25q_state {
     uint32_t erases;
     uint32_t lost;
     uint32_t ignored;
+    // The last instruction ignored and why (enum ignore_reason).
+    uint8_t last_ignored[2];
     // Whether the image answers Read JEDEC ID, and the address of the first
     // held byte.
     bool id_read;
@@ -104,6 +107,11 @@ static const struct mclw_property_desc w25q_properties[] = {
       .min = 0, .max = 1 },
     { .name = "held_base", .type = MCLW_TYPE_U32, .count = 1, .access = MCLW_ACCESS_RW, .unit = NULL,
       .min = 0, .max = CAPACITY_BYTES - W25Q_HELD_BYTES },
+    // The last instruction ignored: its opcode, then why: 1 BUSY, 2 powered
+    // down, 3 no WEL or a malformed frame, 4 the ID not readable, 5 Reset
+    // without Enable Reset, 6 unknown.
+    { .name = "last_ignored", .type = MCLW_TYPE_U32, .count = 2, .access = MCLW_ACCESS_RO, .unit = NULL,
+      .min = 0, .max = 255 },
 };
 
 static const struct mclw_region_desc w25q_regions[] = {
@@ -189,6 +197,21 @@ static void erase(struct w25q_state *s, uint32_t address, uint32_t size, uint32_
     start(s, duration_us);
 }
 
+enum ignore_reason {
+    IGNORED_BUSY = 1,
+    IGNORED_POWER_DOWN,
+    IGNORED_NO_WEL,
+    IGNORED_ID,
+    IGNORED_RESET,
+    IGNORED_UNKNOWN,
+};
+
+static void ignore(struct w25q_state *s, uint8_t opcode, enum ignore_reason reason) {
+    s->ignored++;
+    s->last_ignored[0] = opcode;
+    s->last_ignored[1] = (uint8_t)reason;
+}
+
 // 8.2, Write Enable (06h): an erase or program needs WEL; once accepted, WEL
 // clears when it completes. While BUSY, every instruction but Read Status is
 // ignored (7.1, BUSY); after Power-down only Release Power-down is taken
@@ -206,9 +229,9 @@ static void w25q_on_window(struct mclw_command_image *image, const uint8_t *byte
         return;
     }
     if (s->busy && opcode != W25Q_READ_STATUS_1) {
-        s->ignored++;
+        ignore(s, opcode, IGNORED_BUSY);
     } else if (s->power_down && opcode != W25Q_RELEASE_POWER_DOWN) {
-        s->ignored++;
+        ignore(s, opcode, IGNORED_POWER_DOWN);
     } else {
         bool wel = (s->status & W25Q_SR1_WEL) != 0;
 
@@ -226,14 +249,14 @@ static void w25q_on_window(struct mclw_command_image *image, const uint8_t *byte
                 break;
             case W25Q_READ_JEDEC_ID:
                 if (!s->id_read) {
-                    s->ignored++;
+                    ignore(s, opcode, IGNORED_ID);
                 }
                 break;
             case W25Q_PAGE_PROGRAM:
                 if (wel && len >= 5) {
                     page_program(s, &bytes[1], len - 1);
                 } else {
-                    s->ignored++;
+                    ignore(s, opcode, IGNORED_NO_WEL);
                 }
                 break;
             case W25Q_SECTOR_ERASE:
@@ -249,7 +272,7 @@ static void w25q_on_window(struct mclw_command_image *image, const uint8_t *byte
                         erase(s, address, 64u * 1024u, T_BE2_US);
                     }
                 } else {
-                    s->ignored++;
+                    ignore(s, opcode, IGNORED_NO_WEL);
                 }
                 break;
             case W25Q_CHIP_ERASE:
@@ -257,7 +280,7 @@ static void w25q_on_window(struct mclw_command_image *image, const uint8_t *byte
                 if (wel && len == 1) {
                     erase(s, 0, CAPACITY_BYTES, T_CE_US);
                 } else {
-                    s->ignored++;
+                    ignore(s, opcode, IGNORED_NO_WEL);
                 }
                 break;
             case W25Q_POWER_DOWN:
@@ -276,11 +299,11 @@ static void w25q_on_window(struct mclw_command_image *image, const uint8_t *byte
                     s->status = 0;
                     s->busy = false;
                 } else {
-                    s->ignored++;
+                    ignore(s, opcode, IGNORED_RESET);
                 }
                 break;
             default:
-                s->ignored++;
+                ignore(s, opcode, IGNORED_UNKNOWN);
                 break;
         }
     }
@@ -371,6 +394,8 @@ static int w25q_reset(struct mclw_instance *inst, bool factory) {
     s->erases = 0;
     s->lost = 0;
     s->ignored = 0;
+    s->last_ignored[0] = 0;
+    s->last_ignored[1] = 0;
     publish(s);
     return 0;
 }
@@ -416,6 +441,10 @@ static int w25q_get(struct mclw_instance *inst, size_t property, struct mclw_val
             return 0;
         case PROP_HELD_BASE:
             out->v[0] = s->held_base;
+            return 0;
+        case PROP_LAST_IGNORED:
+            out->v[0] = s->last_ignored[0];
+            out->v[1] = s->last_ignored[1];
             return 0;
         default:
             return -EINVAL;
