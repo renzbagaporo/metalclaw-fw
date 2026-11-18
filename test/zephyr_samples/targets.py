@@ -516,6 +516,27 @@ OWN: dict[str, Spec] = {
                                      source="samples/drivers/fuel_gauge/src/main.c"),
     # samples/drivers/auxdisplay/src/main.c: writes its greeting and logs
     # only a failure; the part's DDRAM judges it.
+    # samples/drivers/counter/maxim_ds3231/src/main.c: build_only upstream.
+    # main() reads the part's power-on oscillator fault, sets the clock to
+    # the next hour on the square wave, synchronizes, then sets alarm 1 five
+    # seconds on; its handler sets a counter alarm ten seconds after that,
+    # and alarm 2 fires at each minute's 00 seconds (min_alarm_handler).
+    # set_alarm returns a non-negative value on success (the sample tests
+    # rc >= 0). The minute line's adjustment prints a negative one as -1
+    # and the nanoseconds above it; its error compares the part's seconds
+    # with the DUT's clock since the sync, which a false sync edge would
+    # put a thousand ppm and more off.
+    "zephyr/drivers/counter/maxim_ds3231": own(
+        r"^DS3231 has experienced an oscillator fault$",
+        r"^Synchronize final: 0 0 in \d+ ms$",
+        r"^Synchronize complete in \d+ ms: 0 0$",
+        r"^Set sec alarm [0-9a-f]+ at \d+ ~ .*: \d+$",
+        r"^Sec signaled at \d+ ms, param 0x[0-9a-f]+, delay \d+; set 0$",
+        r"^Counter callback at \d+ ms, id 0, ticks \d+, ud 0x[0-9a-f]+$",
+        r"^\d{4}-\d\d-\d\d \d\d:\d\d:00 \w{3} \d{3}: adj -?[01]\.\d{9}, "
+        r"uptime \d+:\d\d:\d\d\.\d{3}, clk err -?\d{1,3} ppm$",
+        forbidden=(*FORBIDDEN, r"not ready", r"failed"), seconds=80.0,
+        source="samples/drivers/counter/maxim_ds3231/src/main.c"),
     # samples/sensor/max6675/src/main.c:45: a reading a second. Its yaml
     # takes any number; the part holds 123.25 C, a whole count of 0.25 C.
     "zephyr/sensor/max6675": own(*(r"^Temperature: 123\.25 C$",) * 2,
