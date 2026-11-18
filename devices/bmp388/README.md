@@ -28,6 +28,17 @@ bytes of the old sample and of the new one.
 | --- | --- | --- | --- | --- |
 | 0 | `i2c` | `i2c_target` | one of the two | an I2C target, from the tuple `(sda, scl, address)` |
 | 1 | `spi` | `spi_target` | one of the two | an SPI target, from the tuple `(sck, mosi, miso, cs)` |
+| 2 | `int` | `gpio_out` | no | the INT pad |
+
+With `int` bound, the part converts on its own clock as the datasheet's
+3.3 and 3.7 describe: in normal mode (PWR_CTRL mode 11 with a sensor
+enabled) every 5 ms x 2^`odr_sel` (ODR, saturated at 17), in forced mode once
+and back to sleep; each conversion publishes the sample and sets INT_STATUS
+`drdy`. INT is active while `drdy_en` (INT_CTRL bit 6) is set and `drdy` is
+held: until INT_STATUS is read, and unlatched (`int_latch` 0) for 2.5 ms at
+most. `int_level` picks the active level; the pad is driven push-pull at
+either level (`int_od` is not modelled). The conversions run without `int`
+too.
 
 `init` refuses an attach with both or neither. The SPI binding advertises
 modes 0 and 3, mode 3 by default (Zephyr's driver forces it), MSB first. On

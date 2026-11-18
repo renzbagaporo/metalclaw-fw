@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "metalclaw/bus.h"
+#include "metalclaw/hal/gpio.h"
 #include "metalclaw/hal/i2c_target.h"
 #include "metalclaw/hal/spi_target.h"
 #include "metalclaw/hal/platform.h"
@@ -29,6 +30,7 @@ enum {
 enum {
     BINDING_I2C,
     BINDING_SPI,
+    BINDING_INT,
 };
 
 #define BMP388_RAW_MAX 0xffffff
@@ -39,6 +41,13 @@ struct bmp388_state {
     struct mclw_spi_target *spi;
     int32_t pressure_pa;
     int32_t temperature_mc;
+    // INT (datasheet 3.7): the pin, when bound; the next conversion in
+    // normal mode and its period (0: not converting); when data-ready last
+    // asserted.
+    struct mclw_gpio *int_pin;
+    uint64_t next_us;
+    uint32_t period_us;
+    uint64_t drdy_at_us;
 };
 
 // SPI framing from the datasheet: bit 7 of the command byte set for a read,
@@ -120,6 +129,14 @@ static const struct mclw_binding_desc bmp388_bindings[] = {
             .default_mode = 3,
             .msb_first = true,
         },
+        .uart = { 0 },
+    },
+    {
+        .name = "int",
+        .kind = MCLW_BINDING_GPIO_OUT,
+        .required = false,
+        .usb = NULL,
+        .spi = { 0 },
         .uart = { 0 },
     },
 };
@@ -239,6 +256,55 @@ static int arm(struct bmp388_state *state) {
     return mclw_hal_spi_target_arm_regmap(state->spi, &state->map, &bmp388_framing);
 }
 
+// The INT pad (3.7): data ready contributes while INT_STATUS holds it and
+// drdy_en is set; unlatched, only for 2.5 ms after it asserted. The pin is
+// driven push-pull at either polarity; int_od's open drain is not modelled.
+static void drive_int(struct bmp388_state *state, uint64_t now_us) {
+    uint8_t ctrl = mclw_regmap_get(&state->map, 0, BMP388_REG_INT_CTRL);
+    bool status = (mclw_regmap_get(&state->map, 0, BMP388_REG_INT_STATUS) & BMP388_INT_STATUS_DRDY) != 0;
+    bool active = (ctrl & BMP388_INT_CTRL_DRDY_EN) != 0 && status &&
+        ((ctrl & BMP388_INT_CTRL_LATCH) != 0 || now_us < state->drdy_at_us + BMP388_DRDY_UNLATCHED_US);
+
+    if (state->int_pin != NULL) {
+        mclw_hal_gpio_write(state->int_pin, active == ((ctrl & BMP388_INT_CTRL_LEVEL) != 0));
+    }
+}
+
+// Conversions (3.3): normal mode converts every 5 ms x 2^odr_sel while a
+// sensor is enabled; forced mode converts once and returns to sleep. Each
+// conversion publishes the sample and its data ready.
+static void bmp388_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
+    struct bmp388_state *state = inst->state;
+    uint8_t pwr = mclw_regmap_get(&state->map, 0, BMP388_REG_PWR_CTRL);
+    uint8_t mode = (pwr >> BMP388_PWR_CTRL_MODE_POS) & BMP388_PWR_CTRL_MODE_MASK;
+    bool enabled = (pwr & (BMP388_PWR_CTRL_PRESS_EN | BMP388_PWR_CTRL_TEMP_EN)) != 0;
+
+    if (mode == BMP388_PWR_CTRL_MODE_NORMAL && enabled) {
+        uint32_t odr = mclw_regmap_get(&state->map, 0, BMP388_REG_ODR) & BMP388_ODR_MASK;
+        uint32_t period_us = BMP388_ODR_BASE_US << (odr > BMP388_ODR_SEL_MAX ? BMP388_ODR_SEL_MAX : odr);
+
+        if (period_us != state->period_us) {
+            state->period_us = period_us;
+            state->next_us = now_us + period_us;
+        } else if (now_us >= state->next_us) {
+            publish_sample(inst);
+            state->drdy_at_us = now_us;
+            while (state->next_us <= now_us) {
+                state->next_us += period_us;
+            }
+        }
+    } else {
+        state->period_us = 0;
+        if (mode != BMP388_PWR_CTRL_MODE_SLEEP && mode != BMP388_PWR_CTRL_MODE_NORMAL && enabled) {
+            publish_sample(inst);
+            state->drdy_at_us = now_us;
+            mclw_regmap_set(&state->map, 0, BMP388_REG_PWR_CTRL,
+                (uint8_t)(pwr & ~(BMP388_PWR_CTRL_MODE_MASK << BMP388_PWR_CTRL_MODE_POS)), MCLW_REG_WRITABLE);
+        }
+    }
+    drive_int(state, now_us);
+}
+
 static int publish_part(struct mclw_instance *inst) {
     struct bmp388_state *state = inst->state;
 
@@ -256,6 +322,9 @@ static int bmp388_init(struct mclw_instance *inst, const struct mclw_binding *bi
     }
     state->i2c = bindings[BINDING_I2C].present ? bindings[BINDING_I2C].i2c : NULL;
     state->spi = bindings[BINDING_SPI].present ? bindings[BINDING_SPI].spi : NULL;
+    state->int_pin = bindings[BINDING_INT].present ? bindings[BINDING_INT].gpio : NULL;
+    state->period_us = 0;
+    state->drdy_at_us = 0;
     state->pressure_pa = BMP388_PRESSURE_DEFAULT_PA;
     state->temperature_mc = BMP388_TEMPERATURE_DEFAULT_MC;
     return publish_part(inst);
@@ -267,6 +336,7 @@ static void bmp388_deinit(struct mclw_instance *inst) {
     disarm(state);
     state->i2c = NULL;
     state->spi = NULL;
+    state->int_pin = NULL;
 }
 
 static int bmp388_reset(struct mclw_instance *inst, bool factory) {
@@ -336,7 +406,7 @@ static const struct mclw_model_ops bmp388_ops = {
     .clear_faults = NULL,
     .read_region = NULL,
     .write_region = NULL,
-    .time_advanced = NULL,
+    .time_advanced = bmp388_time_advanced,
     .usb_rx = NULL,
 };
 
