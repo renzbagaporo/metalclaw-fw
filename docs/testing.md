@@ -343,8 +343,12 @@ harness's pins one to one. The cases of the harness's own USB functions
 ```sh
 just build-host
 just build-dut
-METALCLAW_RENODE_DIR=<a package with the bridge> just test native
+just setup-emulator-roms setup-renode
+just test native
 ```
+
+The `emulator` workflow runs the same, as its `native` job, for each image
+it tests.
 
 The host harness runs on its own too, with its REPL on stdin and its clock
 the host's monotonic clock, and `test/native` drives it as the emulator

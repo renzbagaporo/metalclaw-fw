@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# The rig on the emulator platform: the bench in Renode, started by hand.
+# The rig in Renode, started by hand: on the emulator platform (the whole
+# bench emulated) and on the native platform (the harness built for Linux,
+# bridged to an emulated DUT).
 # A run tests only the DUT images the change since the last passing
 # scheduled run can reach (test/rig/select.py), or every image when there
 # is none. A scheduled run is skipped when master has not moved since the
@@ -237,4 +239,56 @@ jobs:
         with:
           name: ${{ steps.name.outputs.artifact }}
           path: build/emulator/
+          if-no-files-found: ignore
+
+  native:
+    needs: [plan, firmware]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.40.0
+      - name: Tool directories
+        run: |
+          {
+            echo "METALCLAW_ARM_TOOLCHAIN_DIR=$HOME/.arm-none-eabi"
+            echo "METALCLAW_RENODE_HOME=$HOME/.renode"
+          } >> "$GITHUB_ENV"
+      - name: Host packages
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 build-essential cmake pkg-config python3-venv
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.arm-none-eabi
+          key: arm-none-eabi-${{ hashFiles('justfile') }}
+          fail-on-cache-miss: true
+      - name: Host harness
+        run: just setup build-host
+      - name: Renode and boot ROMs
+        run: just setup-emulator-roms setup-renode
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: build
+      - name: Rig
+        env:
+          METALCLAW_DUT_DEVICE: ${{ matrix.image }}
+        run: just test native -v -p no:cacheprovider --junitxml=build/native/junit.xml
+      - if: always()
+        id: name
+        run: echo "artifact=native-${MATRIX_IMAGE//\//-}" >> "$GITHUB_OUTPUT"
+        env:
+          MATRIX_IMAGE: ${{ matrix.image }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: build/native/
           if-no-files-found: ignore

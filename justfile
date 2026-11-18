@@ -47,9 +47,9 @@ arm_toolchain_sha256 := "62a63b981fe391a9cbad7ef51b17e49aeaa3e7b0d029b36ca1e9c3b
 # The emulator platform: Renode's portable package, released from the fork
 # that carries the RP2040 and RP2350 models and the bench script, the two
 # boot ROMs, and probe-rs with host timeouts that stretch for emulated SWD.
-renode_commit := "890816e532609a9e982b34c70c0f77cf707bd635"
+renode_commit := "a5d6cd510172cd961da6b3348dabd3cf4af392c5"
 renode_package_url := "https://github.com/renzbagaporo/renode/releases/download/rp2-portable-" + replace_regex(renode_commit, "^(.{12}).*", "$1") + "/renode-1.17.0.linux-portable-headless.tar.gz"
-renode_package_sha256 := "889a7cafb5488921a529ed5203ac55855a30d5880eef72b59866008742b1ea08"
+renode_package_sha256 := "e1d245e94ca0d479409defaf702c8737e206350785fe11c8ba9b107e406dec71"
 renode_home := env_var_or_default("METALCLAW_RENODE_HOME", project_dir / "../.renode")
 renode_dir := env_var_or_default("METALCLAW_RENODE_DIR", renode_home / renode_commit)
 renode_roms := env_var_or_default("METALCLAW_RENODE_ROMS", renode_home / "roms")
@@ -152,9 +152,7 @@ test PLATFORM="hardware" *ARGS: setup-rig
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ "{{PLATFORM}}" == native ]]; then
-        # The bridge's package until a release pins it: METALCLAW_RENODE_DIR.
-        : "${METALCLAW_RENODE_DIR:?set METALCLAW_RENODE_DIR to a Renode package with the native bridge}"
-        export METALCLAW_RENODE_ROMS="${METALCLAW_RENODE_ROMS:-{{renode_roms}}}"
+        export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
     fi
     if [[ "{{PLATFORM}}" == emulator ]]; then
         export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
