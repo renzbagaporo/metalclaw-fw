@@ -89,6 +89,7 @@ struct mclw_command_image {
     bool short_register_read;
     uint8_t filler;
     uint8_t busy_status;
+    uint8_t ready_status;
     uint8_t busy_opcodes[256 / 8];
     uint8_t response_count;
     struct mclw_command_response responses[MCLW_COMMAND_RESPONSES_MAX];
@@ -130,6 +131,10 @@ void mclw_command_set_filler(struct mclw_command_image *image, uint8_t filler);
 // The status bits the engine sets at the release of a window that began
 // with `opcode`, until the model has taken that window.
 void mclw_command_set_busy_status(struct mclw_command_image *image, uint8_t bits);
+// For a part whose status shows ready rather than busy (an AT45's
+// RDY/BUSY, set when ready): the bits the engine clears instead, over the
+// same span.
+void mclw_command_set_ready_status(struct mclw_command_image *image, uint8_t bits);
 void mclw_command_add_busy_opcode(struct mclw_command_image *image, uint8_t opcode);
 bool mclw_command_busy_opcode(const struct mclw_command_image *image, uint8_t opcode);
 // -ENOSPC when the image is full.
