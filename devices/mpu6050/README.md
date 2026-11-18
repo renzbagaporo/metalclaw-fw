@@ -18,8 +18,16 @@ target engine with it; the register pointer auto-increments, so a burst from
 | index | name | kind | required | resolved into |
 | --- | --- | --- | --- | --- |
 | 0 | `i2c` | `i2c_target` | yes | an I2C target, from the tuple `(sda, scl, address)` |
+| 1 | `int` | `gpio_out` | no | the INT pin |
 
 The address is 0x68 with AD0 low, 0x69 with it high.
+
+With `int` bound, each sample's data ready drives INT while INT_ENABLE's
+DATA_RDY_EN is set (register map RM-MPU-6000A 4.15-4.16): held until
+INT_STATUS clears when INT_PIN_CFG's LATCH_INT_EN is set, else a 50 us pulse
+per sample.
+INT_LEVEL picks active high (0) or low (1); the pin is driven push-pull at
+either (INT_OPEN is not modelled).
 
 ```python
 import metalclaw
