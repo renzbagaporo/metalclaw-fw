@@ -317,3 +317,46 @@ class Uart:
                 break
             level = value
         return level
+
+
+class SpiController:
+    """An SPI controller, mode 0, as a DUT's would be: CS low, each byte's
+    bits MSB first with MOSI set while SCK is low and MISO read from what
+    the harness drove at each rising edge, CS high. `gap_ns` of CS high
+    comes before each window, for the target to arm its next."""
+
+    def __init__(self, stim: Stimulus, sck: int, mosi: int, miso: int, cs: int, hz: int = 1_000_000,
+                 gap_ns: int = 20_000):
+        self.stim, self.sck, self.mosi, self.miso, self.cs = stim, sck, mosi, miso, cs
+        self.bit_ns, self.gap_ns = 1_000_000_000 // hz, gap_ns
+        stim.watch(miso)
+        stim.drive(cs, 1, stim.t_ns)
+        stim.drive(sck, 0, stim.t_ns)
+        stim.drive(mosi, 0, stim.t_ns)
+
+    def transfer(self, out: bytes) -> bytes:
+        half = self.bit_ns // 2
+        t = self.stim.until(self.stim.t_ns) + self.gap_ns
+        self.stim.drive(self.cs, 0, t)
+        t += self.bit_ns
+        rises, level = [], 0
+        for byte in out:
+            for b in range(7, -1, -1):
+                bit = (byte >> b) & 1
+                if bit != level:
+                    self.stim.drive(self.mosi, bit, t)
+                    level = bit
+                self.stim.drive(self.sck, 1, t + half)
+                rises.append(t + half)
+                self.stim.drive(self.sck, 0, t + self.bit_ns)
+                t += self.bit_ns
+        self.stim.drive(self.cs, 1, t + half)
+        self.stim.until(t + self.bit_ns)
+        self.stim.go()
+        data = bytearray()
+        for i in range(0, len(rises), 8):
+            value = 0
+            for at in rises[i:i + 8]:
+                value = (value << 1) | (1 if self.stim.harness_level(self.miso, at) != 0 else 0)
+            data.append(value)
+        return bytes(data)

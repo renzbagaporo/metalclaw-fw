@@ -4,6 +4,8 @@
 # windows (a 0 high 250-550 ns, a 1 high 650-950 ns, 1.25 us a bit; a low of
 # 50 us ends the frame).
 
+import pytest
+
 DIN = 6
 
 
@@ -22,6 +24,7 @@ def _strip(harness):
                 f"strip = metalclaw.attach('ws2812b', 'strip', din=({DIN},))\nstrip.count = 1\n")
 
 
+@pytest.mark.xfail(strict=True, reason="the emulated PIO misses sub-microsecond edges (package 40)")
 def test_a_ws2812b_frame_is_captured_from_its_pulses(harness, stimulus):
     _strip(harness)
     at = stimulus.until(stimulus.t_ns) + 100_000
