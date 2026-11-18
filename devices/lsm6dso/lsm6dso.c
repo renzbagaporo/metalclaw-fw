@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-// ST LSM6DSO 6-axis IMU on I2C: the main register page as a register map
-// the harness serves from hardware, sampling the accelerometer and
-// gyroscope at their ODRs on the tick, with data-ready on the INT1 pin.
-// Table numbers are the datasheet's, DS12140 Rev 3 (June 2024).
+// ST LSM6DSO and LSM6DSL 6-axis IMUs on I2C: the main register page as a
+// register map the harness serves from hardware, sampling the
+// accelerometer and gyroscope at their ODRs on the tick, with data-ready on
+// the INT1 pin. Table numbers are the LSM6DSO datasheet's, DS12140 Rev 3
+// (June 2024); the LSM6DSL's (DocID028475 Rev 6) gives the same main page,
+// sensitivities and data-ready configuration but for the reset values its
+// part config names.
 
 #include <errno.h>
 #include <stdbool.h>
@@ -34,10 +37,21 @@
 #define REG_OUTX_L_G 0x22u
 #define REG_OUTX_L_A 0x28u
 #define REG_LAST 0x7fu
-#define WHO_AM_I_LSM6DSO 0x6cu
-// CTRL3_C (table 52): BOOT 7, H_LACTIVE 5 (1 active low), SW_RESET 0;
-// reset value 04h (IF_INC). COUNTER_BDR_REG1's dataready_pulsed is bit 7.
-// INT1_CTRL: INT1_DRDY_XL 0, INT1_DRDY_G 1. STATUS_REG: XLDA 0, GDA 1, TDA 2.
+struct lsm6dso_part {
+    uint8_t who_am_i;
+    uint8_t pin_ctrl;
+    uint8_t ctrl9_xl;
+};
+
+// LSM6DSO table 20: WHO_AM_I 6Ch, PIN_CTRL 3Fh, CTRL9_XL E0h. LSM6DSL table
+// 19: WHO_AM_I 6Ah, no PIN_CTRL, CTRL9_XL 00h.
+static const struct lsm6dso_part lsm6dso_part = { 0x6c, 0x3f, 0xe0 };
+static const struct lsm6dso_part lsm6dsl_part = { 0x6a, 0x00, 0x00 };
+// CTRL3_C (table 50): BOOT 7, H_LACTIVE 5 (1 active low), SW_RESET 0;
+// reset value 04h (IF_INC). COUNTER_BDR_REG1's dataready_pulsed is bit 7
+// (table 34).
+// INT1_CTRL (table 38): INT1_DRDY_XL 0, INT1_DRDY_G 1. STATUS_REG (table
+// 79): XLDA 0, GDA 1, TDA 2.
 #define CTRL3_BOOT 0x80u
 #define CTRL3_H_LACTIVE 0x20u
 #define CTRL3_SW_RESET 0x01u
@@ -45,7 +59,7 @@
 #define STATUS_XLDA 0x01u
 #define STATUS_GDA 0x02u
 #define STATUS_TDA 0x04u
-// Pulsed data-ready lasts 75 us (9.11).
+// Pulsed data-ready lasts 75 us (table 34).
 #define DRDY_PULSE_US 75u
 
 enum {
@@ -62,6 +76,7 @@ enum {
 
 struct lsm6dso_state {
     struct mclw_regmap map;
+    const struct lsm6dso_part *part;
     struct mclw_i2c_target *i2c;
     struct mclw_gpio *int1;
     int32_t accel_mg[3];
@@ -112,22 +127,22 @@ static int16_t MCLW_RAM_FUNC(to_counts)(int64_t numerator, int64_t denominator) 
     return (int16_t)(v < INT16_MIN ? INT16_MIN : (v > INT16_MAX ? INT16_MAX : v));
 }
 
-// Table 20's reset values: PIN_CTRL 3Fh, WHO_AM_I 6Ch, CTRL3_C 04h,
-// CTRL9_XL E0h, the rest zero; the sources, status and outputs are
+// The reset values: the part's WHO_AM_I, PIN_CTRL and CTRL9_XL, CTRL3_C
+// 04h, the rest zero; the sources, status and outputs are
 // read-only, STATUS_REG clearing when read (see the README).
 static void MCLW_RAM_FUNC(reset_registers)(struct lsm6dso_state *s) {
     for (uint16_t reg = 0; reg <= REG_LAST; reg++) {
         bool ro = reg == REG_WHO_AM_I || reg >= REG_ALL_INT_SRC;
         mclw_regmap_set(&s->map, 0, (uint8_t)reg, 0, ro ? 0 : MCLW_REG_WRITABLE);
     }
-    mclw_regmap_set(&s->map, 0, REG_PIN_CTRL, 0x3f, MCLW_REG_WRITABLE);
-    mclw_regmap_set(&s->map, 0, REG_WHO_AM_I, WHO_AM_I_LSM6DSO, 0);
+    mclw_regmap_set(&s->map, 0, REG_PIN_CTRL, s->part->pin_ctrl, MCLW_REG_WRITABLE);
+    mclw_regmap_set(&s->map, 0, REG_WHO_AM_I, s->part->who_am_i, 0);
     mclw_regmap_set(&s->map, 0, REG_CTRL3_C, 0x04, MCLW_REG_WRITABLE);
-    mclw_regmap_set(&s->map, 0, REG_CTRL9_XL, 0xe0, MCLW_REG_WRITABLE);
+    mclw_regmap_set(&s->map, 0, REG_CTRL9_XL, s->part->ctrl9_xl, MCLW_REG_WRITABLE);
     mclw_regmap_set(&s->map, 0, REG_STATUS, 0, MCLW_REG_CLEAR_ON_READ);
 }
 
-// SW_RESET and BOOT restore the registers and clear themselves (table 52).
+// SW_RESET and BOOT restore the registers and clear themselves (table 50).
 static void MCLW_RAM_FUNC(lsm6dso_on_write)(struct mclw_regmap *map, uint8_t bank, uint8_t reg, uint8_t value,
     void *ctx) {
     struct lsm6dso_state *s = ctx;
@@ -150,7 +165,7 @@ static uint32_t odr_period_us(uint8_t code) {
 }
 
 // Table 2: 0.061 mg/LSB at +-2 g, doubling with each FS step; FS_XL codes
-// 00 2 g, 01 16 g, 10 4 g, 11 8 g (table 46).
+// 00 2 g, 01 16 g, 10 4 g, 11 8 g (table 45).
 static void MCLW_RAM_FUNC(sample_accel)(struct lsm6dso_state *s) {
     static const int64_t ug_per_lsb[4] = { 61, 488, 122, 244 };
     int64_t per = ug_per_lsb[(get(s, REG_CTRL1_XL) >> 2) & 3u];
@@ -162,7 +177,7 @@ static void MCLW_RAM_FUNC(sample_accel)(struct lsm6dso_state *s) {
 }
 
 // Table 2: 8.75 mdps/LSB at 250 dps, 17.5, 35 and 70 at 500, 1000 and 2000
-// (FS_G 00-11, table 49), 4.375 at 125 dps with FS_125.
+// (FS_G 00-11, table 47), 4.375 at 125 dps with FS_125.
 static void MCLW_RAM_FUNC(sample_gyro)(struct lsm6dso_state *s) {
     static const int64_t udps_per_lsb[4] = { 8750, 17500, 35000, 70000 };
     uint8_t ctrl2 = get(s, REG_CTRL2_G);
@@ -174,13 +189,13 @@ static void MCLW_RAM_FUNC(sample_gyro)(struct lsm6dso_state *s) {
     }
 }
 
-// Table 3: 256 LSB/C, 0 at 25 C.
+// Table 4: 256 LSB/C, 0 at 25 C.
 static void MCLW_RAM_FUNC(sample_temperature)(struct lsm6dso_state *s) {
     mclw_regmap_set_le16(&s->map, 0, REG_OUT_TEMP_L,
         (uint16_t)to_counts(((int64_t)s->temperature_mc - 25000) * 256, 1000));
 }
 
-// INT1 (9.11, tables 34-35): the routed data-ready flags, latched until
+// INT1 (tables 34 and 38): the routed data-ready flags, latched until
 // read or, with dataready_pulsed, a 75 us pulse per sample; active high
 // unless H_LACTIVE. Push-pull either way (PP_OD is not modelled).
 static void drive_int1(struct lsm6dso_state *s, uint8_t new_flags) {
@@ -205,6 +220,7 @@ static void drive_int1(struct lsm6dso_state *s, uint8_t new_flags) {
 static int lsm6dso_init(struct mclw_instance *inst, const struct mclw_binding *bindings) {
     struct lsm6dso_state *s = inst->state;
 
+    s->part = inst->model->config;
     s->i2c = bindings[BINDING_I2C].i2c;
     s->int1 = bindings[BINDING_INT1].present ? bindings[BINDING_INT1].gpio : NULL;
     for (uint8_t axis = 0; axis < 3; axis++) {
@@ -337,19 +353,23 @@ static const struct mclw_model_ops lsm6dso_ops = {
     .usb_control = NULL,
 };
 
-const struct mclw_model mclw_model_lsm6dso = {
-    .abi_version = MCLW_ABI_VERSION,
-    .id = "lsm6dso",
-    .family = "lsm6dso",
-    .config = NULL,
-    .properties = lsm6dso_properties,
-    .property_count = sizeof(lsm6dso_properties) / sizeof(lsm6dso_properties[0]),
-    .regions = NULL,
-    .region_count = 0,
-    .faults = NULL,
-    .fault_count = 0,
-    .bindings = lsm6dso_bindings,
-    .binding_count = sizeof(lsm6dso_bindings) / sizeof(lsm6dso_bindings[0]),
-    .state_size = sizeof(struct lsm6dso_state),
-    .ops = &lsm6dso_ops,
-};
+#define LSM6DSO_MODEL(symbol, name, part_config) \
+    const struct mclw_model symbol = { \
+        .abi_version = MCLW_ABI_VERSION, \
+        .id = name, \
+        .family = "lsm6dso", \
+        .config = &part_config, \
+        .properties = lsm6dso_properties, \
+        .property_count = sizeof(lsm6dso_properties) / sizeof(lsm6dso_properties[0]), \
+        .regions = NULL, \
+        .region_count = 0, \
+        .faults = NULL, \
+        .fault_count = 0, \
+        .bindings = lsm6dso_bindings, \
+        .binding_count = sizeof(lsm6dso_bindings) / sizeof(lsm6dso_bindings[0]), \
+        .state_size = sizeof(struct lsm6dso_state), \
+        .ops = &lsm6dso_ops, \
+    }
+
+LSM6DSO_MODEL(mclw_model_lsm6dso, "lsm6dso", lsm6dso_part);
+LSM6DSO_MODEL(mclw_model_lsm6dsl, "lsm6dsl", lsm6dsl_part);

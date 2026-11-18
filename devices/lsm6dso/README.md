@@ -1,10 +1,14 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIT -->
 # lsm6dso
 
-ST's LSM6DSO 6-axis IMU on I2C, as the model `lsm6dso`: the main register
-page as a register map the harness serves from hardware, with data-ready on
-INT1 (datasheet DS12140 Rev 3, June 2024, `LSM6DSO-st.pdf`, as xdevs.com
-hosts it: ST's site does not serve it to a script).
+ST's LSM6DSO and LSM6DSL 6-axis IMUs on I2C, as the models `lsm6dso` and
+`lsm6dsl`: the main register page as a register map the harness serves from
+hardware, with data-ready on INT1. Datasheets: DS12140 Rev 3, June 2024
+(`LSM6DSO-st.pdf`, as xdevs.com hosts it) and DocID028475 Rev 6, May 2017
+(`LSM6DSL-st.pdf`, as SparkFun hosts it); ST's site does not serve them to a
+script. The two parts share the main page, sensitivities and data-ready
+configuration; the LSM6DSL answers WHO_AM_I 6Ah, has no PIN_CTRL and resets
+CTRL9_XL to 00h.
 
 ## Bindings
 
@@ -32,8 +36,8 @@ imu.samples
 
 ## Registers and sampling
 
-Table 20's main page at its reset values (PIN_CTRL 3Fh, WHO_AM_I 6Ch,
-CTRL3_C 04h, CTRL9_XL E0h); the sources, status and outputs are read-only.
+The LSM6DSO's table 20 main page at its reset values (PIN_CTRL 3Fh,
+WHO_AM_I 6Ch, CTRL3_C 04h, CTRL9_XL E0h; the LSM6DSL's table 19 as above); the sources, status and outputs are read-only.
 SW_RESET or BOOT in CTRL3_C restores them. The accelerometer samples at
 CTRL1_XL's ODR and the gyroscope at CTRL2_G's (table 44: 12.5 Hz to
 6.66 kHz, and the accelerometer's 1.6 Hz), at most once a millisecond tick,
