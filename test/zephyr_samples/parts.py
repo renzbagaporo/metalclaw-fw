@@ -203,6 +203,14 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
               for i in range(4)),
         )),
     ),
+    # The IS31FL3216A at 0x74 on I2C0: out of shutdown, and the sample's
+    # fades loaded into the outputs update by update.
+    "zephyr/drivers/led/is31fl3216a": (
+        Attach("is31fl3216a", "leds", {"i2c": (4, 5, 0x74)}, {"i2c": 2}, checks=(
+            Check("part.get('on')", lambda v: v is True or v == 1, "out of software shutdown", 3.0),
+            Check("part.get('updates')", lambda v: v >= 20, "the fade's PWM loaded update by update", 3.0),
+        )),
+    ),
     # The LP5562 at 0x30 on I2C0: enabled, and the sample's colours and
     # blinks written.
     "zephyr/drivers/led/lp5562": (
