@@ -582,6 +582,18 @@ OWN: dict[str, Spec] = {
         r"<inf> app: Found LED device lp5569@32", r"<inf> app: Testing 9 LEDs \.\.",
         forbidden=(*FORBIDDEN, r"<err>"), seconds=5.0,
         source="samples/drivers/led/lp5569/src/main.c"),
+    # samples/drivers/rtc/src/main.c: sets 2024-11-17 04:19:00, then reads
+    # the clock every second. Its yaml wants 04:19:01, which the RP2040's
+    # RTC passes before the second read (builds.py), so these are the
+    # set time counting up a second per read, from :01 or :02 on. The
+    # first read, right after the set, returns the RTC's old date (1969 or
+    # so): rtc_rpi_pico reads back before the set has loaded, an upstream
+    # quirk not judged here.
+    "zephyr/drivers/rtc": own(
+        r"^RTC date and time: 2024-11-17 04:19:0[12]$", r"^RTC date and time: 2024-11-17 04:19:0[23]$",
+        r"^RTC date and time: 2024-11-17 04:19:0[34]$", r"^RTC date and time: 2024-11-17 04:19:0[45]$",
+        forbidden=(*FORBIDDEN, r"Cannot", r"not ready"), seconds=8.0,
+        source="samples/drivers/rtc/src/main.c"),
     # samples/sensor/max6675/src/main.c:45: a reading a second. Its yaml
     # takes any number; the part holds 123.25 C, a whole count of 0.25 C.
     "zephyr/sensor/max6675": own(*(r"^Temperature: 123\.25 C$",) * 2,
