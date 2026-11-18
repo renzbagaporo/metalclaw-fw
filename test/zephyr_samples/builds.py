@@ -167,6 +167,16 @@ BUILDS: dict[str, Build] = {
         "sensor/pressure_polling", test="sample.sensor.pressure_sensor",
         overlays=("devices/bmp388/test/dut/rp2.overlay", "test/zephyr_samples/overlays/pressure_sensor_bmp388.overlay"),
         confs=("devices/bmp388/test/dut/rp2.conf",)),
+    # samples/sensor/pressure_interrupt: build_only upstream (judged by our
+    # own criterion); the same BMP388 with its INT pad on GP15, its trigger
+    # on (the rig's DUT config turns it off), and only the data-ready trigger
+    # the BMP388 driver offers.
+    "zephyr/sensor/pressure_interrupt": Build(
+        "sensor/pressure_interrupt", test="sample.sensor.pressure_interrupt",
+        overlays=("devices/bmp388/test/dut/rp2.overlay", "test/zephyr_samples/overlays/pressure_sensor_bmp388.overlay",
+                  "test/zephyr_samples/overlays/bmp388_int_gp15.overlay"),
+        confs=("devices/bmp388/test/dut/rp2.conf",),
+        args=("CONFIG_BMP388_TRIGGER_GLOBAL_THREAD=y", "CONFIG_PRESSURE_THRESHOLD=n", "CONFIG_PRESSURE_DELTA=n")),
     # samples/drivers/gnss: the rig's neo_m8n node on uart1 (DUT TX GP8, RX
     # GP9), which also sets the gnss alias.
     "zephyr/drivers/gnss": Build(

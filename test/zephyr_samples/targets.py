@@ -210,6 +210,16 @@ OWN: dict[str, Spec] = {
         r"temp 23\.4[4-6] Cel, pressure 98\.76[4-6]\d* kPa",
         forbidden=(*FORBIDDEN, r"Error"),
         source="samples/sensor/pressure_polling/src/main.c"),
+    # samples/sensor/pressure_interrupt/src/main.c:36-61: logs each
+    # data-ready trigger's reading; build_only upstream. The bmp388 part
+    # holds 23.450 °C and 98765 Pa and raises INT on GP15 at each
+    # conversion: three readings show the trigger running. Its deferred log
+    # renders the format's space before each %f as a NUL byte
+    # ("temp\x0023.45"), so any one character stands there.
+    "zephyr/sensor/pressure_interrupt": own(
+        *(r"temp.23\.4[4-6] Cel, pressure.98\.76[4-6]\d* kPa",) * 3,
+        forbidden=(*FORBIDDEN, r"failed", r"Error", r"cancelling"),
+        source="samples/sensor/pressure_interrupt/src/main.c"),
     # samples/drivers/gnss/src/main.c:15-27: prints each fix the driver
     # publishes; its yaml has no harness. The u-blox UBX driver maps a 2D or
     # 3D fix to GNSS_FIX_STATUS_GNSS_FIX, 1 (drivers/gnss/u_blox/gnss_ubx_common.c,

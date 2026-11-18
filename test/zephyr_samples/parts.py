@@ -80,6 +80,11 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     "zephyr/sensor/pressure_polling": (
         Attach("bmp388", "baro", {"i2c": (4, 5, 0x76)}, {"i2c": 2}, {"pressure": 98765, "temperature": 23450}),
     ),
+    # pressure_interrupt: the same part, its INT pad on GP15.
+    "zephyr/sensor/pressure_interrupt": (
+        Attach("bmp388", "baro", {"i2c": (4, 5, 0x76), "int": (15,)}, {"i2c": 2},
+               {"pressure": 98765, "temperature": 23450}),
+    ),
     # samples/drivers/lora/send/src/main.c:23-71: sends "helloworld 0" to
     # "helloworld 9" in turn, each MAX_DATA_LEN 12 bytes, a second apart.
     "zephyr/drivers/lora/send": (

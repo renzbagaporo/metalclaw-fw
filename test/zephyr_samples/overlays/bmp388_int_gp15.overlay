@@ -1,0 +1,11 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * The rig's BMP388 (devices/bmp388/test/dut/rp2.overlay, I2C0 at 0x76)
+ * with its INT pad on GP15, active high as the part comes out of reset
+ * (BMP388 datasheet 3.7.1): the driver's data-ready trigger.
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&barometer {
+	int-gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+};
