@@ -1,0 +1,15 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An LSM6DSL at 0x6A (SA0 low) on I2C0 (i2c0.overlay), its INT1 on GP15,
+ * active high as CTRL3_C leaves it (DocID028475 table 57).
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&i2c0 {
+	lsm6dsl@6a {
+		compatible = "st,lsm6dsl";
+		reg = <0x6a>;
+		irq-gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
+};

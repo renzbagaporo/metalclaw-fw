@@ -1,0 +1,24 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An AT24C02C at 0x50 (A2-A0 low) on I2C0 (i2c0.overlay) as eeprom-0: 256
+ * bytes, 8-byte pages, an 8-bit word address, a 5 ms write cycle
+ * (Atmel-8700G).
+ */
+
+/ {
+	aliases {
+		eeprom-0 = &eeprom0_at24c02;
+	};
+};
+
+&i2c0 {
+	eeprom0_at24c02: eeprom@50 {
+		compatible = "atmel,at24";
+		reg = <0x50>;
+		size = <256>;
+		pagesize = <8>;
+		address-width = <8>;
+		timeout = <5>;
+		status = "okay";
+	};
+};
