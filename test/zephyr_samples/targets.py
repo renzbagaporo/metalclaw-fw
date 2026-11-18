@@ -140,11 +140,12 @@ OVERRIDES: dict[str, dict] = {
     # (src/main.c:46-58), so the reset cuts the UART's transmit FIFO short: the
     # callback line ends early and "Resetting device..." never reaches the
     # console, which the yaml's last two patterns need. The callback line's
-    # start, then the second boot, show the same run.
+    # start, then the second boot, show the same run; the cut lands a few
+    # bytes earlier on the Pico 2 ("thread" against the Pico 1's "thread: c").
     "zephyr/subsys/task_wdt": {
         "console": (BANNER, r"Task watchdog sample application\.", r"Control thread started\.",
                     r"Main thread still alive\.\.\.", r"Control thread getting stuck\.\.\.",
-                    r"Task watchdog channel 1 callback, thread: c", BANNER),
+                    r"Task watchdog channel 1 callback, thread", BANNER),
         "forbidden": FAULTS, "seconds": 20.0},
 }
 
