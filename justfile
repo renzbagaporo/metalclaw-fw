@@ -125,6 +125,8 @@ build-host: build-mpy-cross
     set -euo pipefail
     cmake -S "{{project_dir}}/core/ports/host" -B "{{host_build_dir}}/lib" > /dev/null
     cmake --build "{{host_build_dir}}/lib" -j{{jobs}}
+    # make knows nothing of the two libraries, so the link is always redone.
+    rm -f "{{host_harness}}"
     make -C "{{micropython_dir}}/ports/unix" -j{{jobs}} \
         VARIANT_DIR="{{project_dir}}/core/ports/host/variant" \
         BUILD="{{host_build_dir}}/mpy" \

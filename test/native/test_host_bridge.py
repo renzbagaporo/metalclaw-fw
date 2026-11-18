@@ -67,3 +67,16 @@ def test_the_runtime_clock_is_the_duts_virtual_time(bridged):
     import time
     time.sleep(0.2)
     assert int(harness.run("print(metalclaw.now_us())")) == after
+
+
+def test_the_lp3943_takes_the_samples_led_writes(bridged):
+    # zephyr/drivers/led/lp3943's first step, led_on(0): LS0 (06h) bits 1-0
+    # to 01 (SNVS256E Table 6-8), as Zephyr's driver writes it, register then
+    # value, after reading LS0 back.
+    harness, bridge = bridged
+    harness.run("import metalclaw\nleds = metalclaw.attach('lp3943', 'leds', i2c=(4, 5, 0x60))")
+    assert bridge.i2c(0, 0x60, write=b"\x06", read=1) == b"\x00"
+    assert bridge.i2c(0, 0x60, write=b"\x06\x01") == b""
+    assert int(harness.run("print(leds.selectors)")) == 0x01
+    # Input 1 (00h) reads the LED switched on as low.
+    assert bridge.i2c(0, 0x60, write=b"\x00", read=1) == b"\xfe"
