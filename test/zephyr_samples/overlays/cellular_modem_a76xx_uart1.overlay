@@ -1,0 +1,21 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An A76XX-series modem (the a7672x model) on uart1, DUT TX GP8 and RX GP9
+ * (uart1_gp8_gp9.overlay), aliased modem for samples/net/cellular_modem,
+ * its PWRKEY on GP6, active low, as devices/cellular/test/dut has it.
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		modem = &modem;
+	};
+};
+
+&uart1 {
+	modem: modem {
+		compatible = "simcom,a76xx";
+		mdm-power-gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
+};

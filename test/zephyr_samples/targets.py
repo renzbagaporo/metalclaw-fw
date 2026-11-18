@@ -240,6 +240,17 @@ OWN: dict[str, Spec] = {
           r"gyro\s+0\.17\d* -0\.17\d* 8\.72\d* rad/s",) * 3,
         forbidden=(*FORBIDDEN, r"failed", r"Error", r"cancelling", r"Cannot configure"),
         source="samples/sensor/6dof_motion_drdy/src/main.c"),
+    # samples/net/cellular_modem/src/main.c: 16 echoes to the test endpoint's
+    # UDP 7780, 128 datagrams to 7781 and its count of them back, the modem
+    # suspended and resumed, 16 echoes again; its yaml has no harness. The
+    # a7672x part is that endpoint (devices/cellular/README.md). Its shell
+    # shares the console, so a line may follow the shell's prompt.
+    "zephyr/net/cellular_modem": own(
+        r"Resolved to 203\.0\.113\.7$", r"Server received 128/128 packets$", r"Server dropped 0 packets$",
+        r"L4 connected$", r"Successfully sent and received 16 of 16 packets$", r"Sample complete$",
+        seconds=180.0,
+        forbidden=(*FORBIDDEN, r"Failed", r"not connected in time", r"Invalid response", r"query failed"),
+        source="samples/net/cellular_modem/src/main.c"),
     # samples/drivers/gnss/src/main.c:15-27: prints each fix the driver
     # publishes; its yaml has no harness. The u-blox UBX driver maps a 2D or
     # 3D fix to GNSS_FIX_STATUS_GNSS_FIX, 1 (drivers/gnss/u_blox/gnss_ubx_common.c,

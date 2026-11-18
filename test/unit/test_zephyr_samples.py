@@ -62,6 +62,12 @@ def test_own_criteria_replace_the_yaml():
         assert zephyr_spec(metadata(harness="led", target=target)) is OWN[target]
 
 
+def test_a_builds_platform_arg_applies_on_its_board_only(tmp_path):
+    build = Build("x", args=("CONFIG_A=y", "platform:rpi_pico:CONFIG_B=y"))
+    assert cmake_args(build, {}, tmp_path, "rpi_pico")[-2:] == ["-DCONFIG_A=y", "-DCONFIG_B=y"]
+    assert cmake_args(build, {}, tmp_path, "rpi_pico2/rp2350a/m33")[-1] == "-DCONFIG_A=y"
+
+
 def test_a_test_becomes_twisters_cmake_arguments(tmp_path):
     test = {"extra_args": "DEBUG_PRINTF=1 EXTRA_CONF_FILE=prj_x.conf", "extra_configs": ["CONFIG_A=y"],
             "extra_dtc_overlay_files": ["a.overlay"]}

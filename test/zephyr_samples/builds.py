@@ -32,6 +32,8 @@ class Build:
     # sample with no yaml, built as it is.
     test: str | None = None
     # Extra CMake cache entries ("NAME=value"), after the test's own.
+    # CMake cache entries; a "platform:<board>:" one only on that board, as
+    # twister's extra_args.
     args: tuple[str, ...] = ()
     # Devicetree overlays and Kconfig fragments of ours, repository-relative,
     # added after the test's own (EXTRA_DTC_OVERLAY_FILE, EXTRA_CONF_FILE):
@@ -187,6 +189,22 @@ BUILDS: dict[str, Build] = {
         overlays=("devices/icm4268x/test/dut/rp2.overlay", "test/zephyr_samples/overlays/icm42688_int1_gp15.overlay"),
         confs=("devices/icm4268x/test/dut/rp2.conf",),
         args=("CONFIG_ICM4268X_TRIGGER_GLOBAL_THREAD=y", "CONFIG_LOG_PRINTK=n")),
+    # samples/net/cellular_modem: an A76XX on uart1. Its endpoint is the
+    # sample's Kconfig option: the model's DNS answers a dotted IPv4 name
+    # with that address, and its network answers on every address.
+    "zephyr/net/cellular_modem": Build(
+        "net/cellular_modem", test="sample.net.cellular_modem",
+        overlays=("test/zephyr_samples/overlays/uart1_gp8_gp9.overlay",
+                  "test/zephyr_samples/overlays/cellular_modem_a76xx_uart1.overlay"),
+        # The extra CMUX work buffer turns on MSC flow control a frame
+        # before a DLCI's receive buffer fills (MODEM_CMUX_MSC_FC_THRESHOLD),
+        # as the rig's own cellular DUT has it: without it the 1024-byte
+        # echoes overran it, the sample's debug logging slowing the reader.
+        args=('CONFIG_SAMPLE_CELLULAR_MODEM_ENDPOINT_HOSTNAME="203.0.113.7"',
+              "CONFIG_MODEM_CMUX_WORK_BUFFER_SIZE_EXTRA=512",
+              # The RP2040 has no entropy source Zephyr drives (as
+              # test/rig/dut/boards/rpi_pico.conf); the Pico 2's TRNG is one.
+              "platform:rpi_pico:CONFIG_TEST_RANDOM_GENERATOR=y")),
     # samples/drivers/gnss: the rig's neo_m8n node on uart1 (DUT TX GP8, RX
     # GP9), which also sets the gnss alias.
     "zephyr/drivers/gnss": Build(

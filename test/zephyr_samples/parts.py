@@ -263,6 +263,13 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
                {"acceleration": (250, -500, 1125), "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
         Attach("icm42688", "lid", {"spi": (18, 19, 16, 17)}),
     ),
+    # cellular_modem: an A7672X on uart1 (DUT TX GP8, RX GP9), PWRKEY on
+    # GP6, its LCP asking for a 1500-byte MRU: the sample sends
+    # 1024-byte datagrams, and Zephyr's PPP takes the peer's MRU as its MTU
+    # (subsys/net/l2/ppp/lcp.c) with no IPv4 fragmentation.
+    "zephyr/net/cellular_modem": (
+        Attach("a7672x", "modem", {"uart": (9, 8), "pwrkey": (6,)}, {}, {"mru": 1500}),
+    ),
     # 6dof_motion_drdy: the ICM-42688 on SPI0 (SCK GP18, MOSI GP19, MISO
     # GP16, CS GP17), INT1 on GP15. Raw counts, as devices/icm4268x's README.
     "zephyr/sensor/6dof_motion_drdy": (

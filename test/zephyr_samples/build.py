@@ -139,7 +139,7 @@ def cmake_args(build: Build, test: dict, work: Path, zephyr_board: str) -> list[
     lists["EXTRA_DTC_OVERLAY_FILE"] += [str(ROOT / o) for o in build.overlays]
     lists["EXTRA_CONF_FILE"] += [str(ROOT / c) for c in build.confs]
     args += [f"-D{name}=" + ";".join(values) for name, values in lists.items() if values]
-    return args + [f"-D{a}" for a in build.args]
+    return args + [f"-D{a}" for a in board_configs(list(build.args), zephyr_board)]
 
 
 def shell_commands(test: dict, sample_dir: Path) -> list[dict]:
