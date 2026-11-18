@@ -48,6 +48,8 @@ SPI, as the model `w25q16jv`;
 model `at24c02`;
 [`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
 I2C;
+[`lp5569`](../devices/lp5569/README.md), TI's LP5569 9-channel LED driver on
+I2C;
 [`ad5693r`](../devices/ad5693r/README.md), Analog Devices' AD5693R 16-bit DAC
 on I2C;
 [`hts221`](../devices/hts221/README.md), ST's HTS221 humidity and temperature
