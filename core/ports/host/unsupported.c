@@ -6,71 +6,8 @@
 #include <errno.h>
 #include <stddef.h>
 
-#include "metalclaw/hal/spi_peer.h"
 #include "metalclaw/hal/swd.h"
 #include "metalclaw/hal/usb.h"
-
-// ---- SPI peer ----------------------------------------------------------------
-
-struct mclw_spi_peer *mclw_hal_spi_peer_target(struct mclw_gpio *sck, struct mclw_gpio *mosi,
-    struct mclw_gpio *miso, struct mclw_gpio *cs, int *err) {
-    (void)sck;
-    (void)mosi;
-    (void)miso;
-    (void)cs;
-    *err = -ENOTSUP;
-    return NULL;
-}
-
-struct mclw_spi_peer *mclw_hal_spi_peer_controller(struct mclw_gpio *sck, struct mclw_gpio *mosi,
-    struct mclw_gpio *miso, struct mclw_gpio *cs, uint32_t hz, int *err) {
-    (void)sck;
-    (void)mosi;
-    (void)miso;
-    (void)cs;
-    (void)hz;
-    *err = -ENOTSUP;
-    return NULL;
-}
-
-void mclw_hal_spi_peer_close(struct mclw_spi_peer *peer) {
-    (void)peer;
-}
-
-void mclw_hal_spi_peer_load(struct mclw_spi_peer *peer, const uint8_t *bytes, size_t len) {
-    (void)peer;
-    (void)bytes;
-    (void)len;
-}
-
-void mclw_hal_spi_peer_received(const struct mclw_spi_peer *peer, size_t at, uint8_t *bytes, size_t len) {
-    (void)peer;
-    (void)at;
-    (void)bytes;
-    (void)len;
-}
-
-void mclw_hal_spi_peer_restart(struct mclw_spi_peer *peer) {
-    (void)peer;
-}
-
-int mclw_hal_spi_peer_transfer(struct mclw_spi_peer *peer, const uint8_t *out, uint8_t *in, size_t len) {
-    (void)peer;
-    (void)out;
-    (void)in;
-    (void)len;
-    return -ENOTSUP;
-}
-
-bool mclw_hal_spi_peer_busy(const struct mclw_spi_peer *peer) {
-    (void)peer;
-    return false;
-}
-
-uint32_t mclw_hal_spi_peer_count(const struct mclw_spi_peer *peer) {
-    (void)peer;
-    return 0;
-}
 
 // ---- SWD ---------------------------------------------------------------------
 

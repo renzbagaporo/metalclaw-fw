@@ -304,8 +304,11 @@ static size_t handle(const char *text, size_t len) {
             uint8_t mosi_pin = pin_or(root, "mosi", spi_buses[bus].mosi);
             uint8_t mosi = (uint8_t)json_int(&doc, root, "mosi", 0);
 
-            if (mclw_host_spi_frame(sck, mosi_pin, pin_or(root, "miso", spi_buses[bus].miso), mosi, &miso) != 0) {
-                (void)mclw_host_spi_sink_frame(sck, mosi_pin, mosi);
+            uint8_t miso_pin = pin_or(root, "miso", spi_buses[bus].miso);
+
+            if (mclw_host_spi_frame(sck, mosi_pin, miso_pin, mosi, &miso) != 0 &&
+                !mclw_host_spi_sink_frame(sck, mosi_pin, mosi)) {
+                (void)mclw_host_spi_peer_frame(sck, mosi_pin, miso_pin, mosi, &miso);
             }
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u", miso);
         } else {

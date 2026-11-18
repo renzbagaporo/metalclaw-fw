@@ -72,6 +72,9 @@ bool mclw_host_spi_sink_cs(uint8_t pin, bool level);
 bool mclw_host_spi_sink_frame(uint8_t sck, uint8_t mosi_pin, uint8_t mosi);
 void mclw_host_spi_sink_line(uint8_t pin, int level);
 
+// spi_peer.c: a frame for a target peer on that bus; false when none.
+bool mclw_host_spi_peer_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint8_t *miso);
+
 // i2c_target.c, called by the bridge on the worker thread, one bus event
 // at a time as the DUT's controller makes them. start and write return
 // whether the target acknowledges; a START to an address no target

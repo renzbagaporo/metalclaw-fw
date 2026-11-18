@@ -270,3 +270,23 @@ def test_a_jumper_repeats_the_dut_s_levels_on_its_other_pin(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_an_spi_page_target_answers_the_dut_a_byte_a_frame(tmp_path):
+    # pico-examples' spi_master: the DUT's PL022 raises CS between frames,
+    # so each frame is a window; the target sends its page and keeps the
+    # DUT's.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[SPI0])
+        harness.run("import metalclaw\np = metalclaw.attach('spi_page_target', 'p', sck=(18,), mosi=(19,), "
+                    "miso=(16,), cs=(17,))\np.write_region('miso', 0, bytes(range(10, 20)))")
+        got = bytes(bridge.request(op="spi", bus=0, mosi=0x80 + i, bits=8)["miso"] for i in range(4))
+        bridge.advance(2_000_000)
+        assert got == bytes([10, 11, 12, 13])
+        assert harness.run("print(bytes(p.read_region('mosi', 0, 4)).hex())") == "80818283"
+    finally:
+        bridge.close()
+        harness.close()
