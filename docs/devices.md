@@ -54,6 +54,8 @@ on I2C;
 sensor on I2C;
 [`lsm303dlhc`](../devices/lsm303dlhc/README.md), the magnetometer of ST's
 LSM303DLHC on I2C, as the model `lsm303dlhc_magn`;
+[`drv2605`](../devices/drv2605/README.md), TI's DRV2605L haptic driver on I2C,
+as the model `drv2605l`;
 [`max6675`](../devices/max6675/README.md), Maxim's MAX6675 thermocouple
 converter on SPI;
 [`ds3231`](../devices/ds3231/README.md), Maxim's DS3231 real-time clock on
