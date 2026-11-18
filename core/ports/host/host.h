@@ -52,6 +52,11 @@ void mclw_host_event_uart(uint8_t rx_pin, uint8_t byte, uint64_t t_ns);
 
 // gpio.c: the level the DUT drives on `pin`, 0 or 1, or -1 for released.
 void mclw_host_gpio_dut(uint8_t pin, int level);
+// The pin a link from `pin` repeats it on, or -1.
+int mclw_host_gpio_link_peer(uint8_t pin);
+// bridge.c: whether the DUT has `pin` routed to a UART's TX, whose bytes
+// the emulator hands over whole.
+bool mclw_host_pin_is_uart_tx(uint8_t pin);
 
 // uart.c: bytes the DUT transmitted on `dut_tx_pin`, for the UART that
 // receives on it.

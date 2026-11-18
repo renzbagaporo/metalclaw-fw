@@ -321,7 +321,20 @@ class MonitorMemory:
     def __init__(self, bench: "NativeBench"):
         self.bench = bench
 
+    # Peripheral registers (from 0x40000000 on: the RP2040's and RP2350's
+    # APB, AHB and SIO) take whole words, as a probe reads them.
+    PERIPHERALS = 0x40000000
+
     def read_words(self, address: int, count: int, timeout=None) -> list[int]:
+        if address >= self.PERIPHERALS:
+            words = []
+            for i in range(count):
+                out = self.bench.monitor.command(f"sysbus ReadDoubleWord {address + 4 * i:#x}")
+                found = re.findall(r"0x[0-9A-Fa-f]+", out)
+                if not found:
+                    raise RuntimeError(f"Renode monitor: no word read at {address + 4 * i:#x}: {out!r}")
+                words.append(int(found[-1], 16))
+            return words
         data = b""
         while len(data) < 4 * count:
             n = min(self.CHUNK, 4 * count - len(data))
@@ -333,6 +346,10 @@ class MonitorMemory:
         return [int.from_bytes(data[i:i + 4], "little") for i in range(0, len(data), 4)]
 
     def write_words(self, address: int, words, timeout=None) -> None:
+        if address >= self.PERIPHERALS:
+            for i, word in enumerate(words):
+                self.bench.monitor.command(f"sysbus WriteDoubleWord {address + 4 * i:#x} {word & 0xFFFFFFFF:#x}")
+            return
         data = b"".join((w & 0xFFFFFFFF).to_bytes(4, "little") for w in words)
         for at in range(0, len(data), self.CHUNK):
             part = data[at:at + self.CHUNK]

@@ -97,6 +97,15 @@ void mclw_host_event_uart(uint8_t rx_pin, uint8_t byte, uint64_t t_ns) {
     add_action(t_ns, ACTION_UART, rx_pin, byte);
 }
 
+bool mclw_host_pin_is_uart_tx(uint8_t pin) {
+    for (size_t i = 0; i < UART_PORTS_MAX; i++) {
+        if (uart_ports[i].used && uart_ports[i].tx == pin) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static int uart_port_for_rx(uint8_t rx_pin) {
     for (size_t i = 0; i < UART_PORTS_MAX; i++) {
         if (uart_ports[i].used && uart_ports[i].rx == rx_pin) {

@@ -70,7 +70,8 @@ void mclw_host_gpio_dut(uint8_t pin, int level) {
         g->fell = true;
     }
     dut_level[pin] = (int8_t)level;
-    if (g->owner != NULL && g->link != LINK_NONE && g->peer != NULL) {
+    // A UART's TX goes over as bytes (uart.c), not as its edges.
+    if (g->owner != NULL && g->link != LINK_NONE && g->peer != NULL && !mclw_host_pin_is_uart_tx(pin)) {
         uint8_t out;
 
         if (g->link == LINK_FOLLOW) {
@@ -82,6 +83,20 @@ void mclw_host_gpio_dut(uint8_t pin, int level) {
         mclw_host_event_gpio(g->peer->pin, out);
     }
     mclw_hal_critical_exit(state);
+}
+
+int mclw_host_gpio_link_peer(uint8_t pin) {
+    int peer = -1;
+
+    if (pin >= GPIO_MAX) {
+        return -1;
+    }
+    uint32_t state = mclw_hal_critical_enter();
+    if (gpios[pin].owner != NULL && gpios[pin].link != LINK_NONE && gpios[pin].peer != NULL) {
+        peer = gpios[pin].peer->pin;
+    }
+    mclw_hal_critical_exit(state);
+    return peer;
 }
 
 // The worker's poll: each square wave's edges for the next stretch.
