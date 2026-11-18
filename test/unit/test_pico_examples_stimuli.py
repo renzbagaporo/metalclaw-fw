@@ -56,7 +56,8 @@ def test_a_jumper_takes_both_pins_from_one_window():
     assert "source=(4,), sink=(5,)" in tx.code(FIXTURE)
     assert "source=(11,), sink=(10,)" in tx.code(METALCLAW_PICO_RP2_FIXTURE)
     sda, scl = PARTS["slave_mem_i2c"]
-    assert sda.model == scl.model == "jumper_open_drain"
+    # SCL on the clock jumper, which keeps the target's clock stretching.
+    assert (sda.model, scl.model) == ("jumper_open_drain", "jumper_open_drain_clock")
     assert "a=(4,), b=(6,)" in sda.code(FIXTURE) and "a=(5,), b=(7,)" in scl.code(FIXTURE)
     assert "a=(11,), b=(14,)" in sda.code(METALCLAW_PICO_RP2_FIXTURE)
 
