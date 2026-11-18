@@ -316,6 +316,12 @@ BUILDS: dict[str, Build] = {
     # a DRV2605L at 0x5A on I2C0; its yaml is build_only.
     "zephyr/drivers/haptics/drv2605": Build("drivers/haptics/drv2605", test="sample.haptics.drv2605", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/haptic_drv2605_5a.overlay")),
+    # samples/drivers/led/lp50xx: a TI LP5012 at 0x14 on I2C0, four RGB
+    # LEDs. Its printk lines went through the deferred log, which dropped
+    # the banner and the controller line: printk prints at once instead.
+    "zephyr/drivers/led/lp50xx": Build("drivers/led/lp50xx", test="sample.drivers.led.lp50xx", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/lp5012_14.overlay"),
+        args=("CONFIG_LOG_PRINTK=n",)),
     # samples/drivers/eeprom: an AT24C02C at 0x50 on I2C0 as eeprom-0.
     "zephyr/drivers/eeprom": Build("drivers/eeprom", test="sample.drivers.eeprom", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/eeprom0_at24c02_50.overlay")),
