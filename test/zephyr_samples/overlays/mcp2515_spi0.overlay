@@ -1,0 +1,44 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An MCP2515 on SPI0 (SCK GP18, MOSI GP19, MISO GP16), chip select on GP17
+ * as a GPIO, INT on GP15 (active low, DS20001801J 7.0), as zephyr,canbus.
+ * 250 kHz, the clock the harness serves the part's immediate reads at; an
+ * 8 MHz oscillator, the common module's, and 125 kbit/s.
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	chosen {
+		zephyr,canbus = &mcp2515;
+	};
+};
+
+&pinctrl {
+	spi0_mcp2515: spi0_mcp2515 {
+		group1 {
+			pinmux = <SPI0_SCK_P18>, <SPI0_TX_P19>;
+		};
+
+		group2 {
+			pinmux = <SPI0_RX_P16>;
+			input-enable;
+		};
+	};
+};
+
+&spi0 {
+	pinctrl-0 = <&spi0_mcp2515>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio0 17 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	mcp2515: can@0 {
+		compatible = "microchip,mcp2515";
+		reg = <0>;
+		spi-max-frequency = <250000>;
+		int-gpios = <&gpio0 15 GPIO_ACTIVE_LOW>;
+		osc-freq = <8000000>;
+		bitrate = <125000>;
+		status = "okay";
+	};
+};

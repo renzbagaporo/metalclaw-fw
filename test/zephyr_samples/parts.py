@@ -114,6 +114,10 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("mpu6050", "imu", {"i2c": (4, 5, 0x68)}, {"i2c": 2},
                {"acceleration": (250, -500, 1125), "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
     ),
+    # The CAN samples: the MCP2515 on SPI0 (SCK GP18, MOSI GP19, MISO GP16,
+    # CS GP17), INT on GP15.
+    **{f"zephyr/{sample}": (Attach("mcp2515", "can", {"spi": (18, 19, 16, 17), "int": (15,)}),)
+       for sample in ("drivers/can/counter", "drivers/can/babbling", "subsys/canbus/isotp", "net/sockets/can")},
     # spi_flash: the W25Q16JV, answering Read JEDEC ID, which Zephyr's
     # spi-nor driver checks at boot, and holding the sector the sample
     # erases and writes at 0xff000.

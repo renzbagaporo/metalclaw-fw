@@ -270,6 +270,13 @@ BUILDS: dict[str, Build] = {
     # ours as zephyr,display.
     "zephyr/drivers/display": Build("drivers/display", test="sample.display.builtin", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay")),
+    # The CAN samples: an MCP2515 on SPI0 as zephyr,canbus, in its own
+    # loopback mode (the bench has no CAN bus).
+    **{f"zephyr/{sample}": Build(sample, test=test, overlays=("test/zephyr_samples/overlays/mcp2515_spi0.overlay",))
+       for sample, test in (("drivers/can/counter", "sample.drivers.can.counter"),
+                            ("drivers/can/babbling", "sample.drivers.can.babbling"),
+                            ("subsys/canbus/isotp", "sample.subsys.canbus.isotp"),
+                            ("net/sockets/can", None))},
     # samples/drivers/spi_flash: a W25Q16JV on SPI0, its sector at 0xff000.
     "zephyr/drivers/spi_flash": Build("drivers/spi_flash", test="sample.drivers.spi.flash",
                                       overlays=("test/zephyr_samples/overlays/w25q16jv_spi0.overlay",)),
