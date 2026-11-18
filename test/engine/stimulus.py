@@ -258,3 +258,62 @@ class I2cController:
         self.stim.until(self._stop(t))
         self.stim.go()
         return I2cResult(acked, bytes(data))
+
+
+class Uart:
+    """A UART on two of the harness's pins, as a DUT's would be: `send`
+    times each frame's bits on `to_harness` (the harness's RX), `received`
+    decodes what the harness drove on `from_harness` (its TX), 8N1 at
+    `baud`, each bit read in its middle."""
+
+    def __init__(self, stim: Stimulus, to_harness: int, from_harness: int, baud: int = 9600):
+        self.stim, self.tx, self.rx = stim, to_harness, from_harness
+        self.bit_ns = 1_000_000_000 // baud
+        self._busy_until = 0
+        stim.watch(from_harness)
+        stim.drive(to_harness, 1, stim.t_ns)
+
+    def send(self, data: bytes) -> int:
+        """Queues `data` from the next hold on; returns when it ends."""
+        t = max(self.stim.until(self.stim.t_ns), self._busy_until) + self.bit_ns
+        level = 1
+        for byte in data:
+            for i, bit in enumerate([0, *((byte >> b) & 1 for b in range(8)), 1]):
+                if bit != level:
+                    self.stim.drive(self.tx, bit, t + i * self.bit_ns)
+                    level = bit
+            t += 10 * self.bit_ns
+        self._busy_until = t
+        self.stim.go()
+        return t
+
+    def received(self, since_ns: int = 0, until_ns: int | None = None) -> bytes:
+        """The frames the harness sent from since_ns on, read up to until_ns
+        (by default the emulator's time now)."""
+        end = self.stim.t_ns if until_ns is None else until_ns
+        with self.stim._cond:
+            edges = [(t, 1 if v is None else v) for t, v in self.stim.harness.get(self.rx, []) if t >= since_ns]
+        out, i = bytearray(), 0
+        while i < len(edges):
+            start, level = edges[i]
+            if level != 0 or start + 10 * self.bit_ns > end:
+                i += 1
+                continue
+            byte = 0
+            for b in range(8):
+                mid = start + (1 + b) * self.bit_ns + self.bit_ns // 2
+                byte |= (self._level(edges, mid) & 1) << b
+            out.append(byte)
+            stop = start + 9 * self.bit_ns + self.bit_ns // 2
+            while i < len(edges) and edges[i][0] <= stop:
+                i += 1
+        return bytes(out)
+
+    @staticmethod
+    def _level(edges, t):
+        level = 1
+        for at, value in edges:
+            if at > t:
+                break
+            level = value
+        return level
