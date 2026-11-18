@@ -1,0 +1,28 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An MPU-9250 at 0x68 on I2C0 (i2c0.overlay) as magn0, its AK8963 behind
+ * the part's auxiliary I2C master, INT on GP15 active high as the part
+ * leaves reset. A 10 Hz sample rate (SMPLRT_DIV 99): magn_trig prints at
+ * every data ready.
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		magn0 = &magn0_mpu9250;
+	};
+};
+
+&i2c0 {
+	magn0_mpu9250: mpu9250@68 {
+		compatible = "invensense,mpu9250";
+		reg = <0x68>;
+		irq-gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+		gyro-sr-div = <99>;
+		gyro-dlpf = <41>;
+		gyro-fs = <2000>;
+		accel-fs = <16>;
+		accel-dlpf = "44.8";
+		status = "okay";
+	};
+};

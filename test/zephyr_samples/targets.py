@@ -516,6 +516,14 @@ OWN: dict[str, Spec] = {
                                      source="samples/drivers/fuel_gauge/src/main.c"),
     # samples/drivers/auxdisplay/src/main.c: writes its greeting and logs
     # only a failure; the part's DDRAM judges it.
+    # samples/sensor/magn_polling/src/main.c:36 and magn_trig/src/main.c:54:
+    # the field in gauss, Zephyr's AK8963 driver scaling counts by 1499 uG
+    # at a sensitivity adjustment of 128 (drivers/sensor/tdk/mpu9250/
+    # ak8963.c): 200, -100 and 300 counts. magn_polling's yaml harness is
+    # "sensor"; magn_trig is judged by its yaml.
+    "zephyr/sensor/magn_polling": own(*(r"\( x y z \) = \( 0\.299800  -0\.149900  0\.449700 \)",) * 3,
+                                      forbidden=(*FORBIDDEN, r"failed", r"not ready"), seconds=6.0,
+                                      source="samples/sensor/magn_polling/src/main.c"),
     # samples/sensor/lps22hb/src/main.c:34-40: each observation's pressure
     # and temperature. Its yaml asks for a "Relative Humidity" line the
     # source never prints, so these are the source's lines; the part holds

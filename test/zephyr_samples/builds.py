@@ -279,6 +279,12 @@ BUILDS: dict[str, Build] = {
     # (GP4/GP5).
     "zephyr/drivers/led/pca9633": Build("drivers/led/pca9633", test="sample.drivers.led.pca9633",
                                         args=("SHIELD=rpi_pico_uno_flexypin",)),
+    # samples/sensor/magn_polling and magn_trig: an MPU-9250's AK8963 as
+    # magn0, its data-ready on GP15.
+    **{f"zephyr/sensor/{sample}": Build(f"sensor/{sample}", test=test, overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/magn0_mpu9250_68.overlay"))
+       for sample, test in (("magn_polling", "sample.sensor.magn_polling"),
+                            ("magn_trig", "sample.sensor.magn_trigger"))},
     # samples/sensor/lps22hb: ST's LPS22HB at 0x5C on I2C0.
     "zephyr/sensor/lps22hb": Build("sensor/lps22hb", test="sample.sensor.lps22hb", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/lps22hb_5c.overlay")),

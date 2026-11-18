@@ -135,6 +135,11 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('writes')", lambda v: v >= 4, "the driver's LED writes", 5.0),
         )),
     ),
+    # The MPU-9250 at 0x68 on I2C0, INT on GP15, its AK8963 at 30, -15 and
+    # 45 uT: 200, -100 and 300 counts of 0.15 uT.
+    **{f"zephyr/sensor/{sample}": (Attach("mpu9250", "imu", {"i2c": (4, 5, 0x68), "int": (15,)}, {"i2c": 2},
+                                          {"magnetic_field": (30000, -15000, 45000)}),)
+       for sample in ("magn_polling", "magn_trig")},
     # The LPS22HB at 0x5C on I2C0, at 100 kPa and 23.5 C.
     "zephyr/sensor/lps22hb": (
         Attach("lps22hb", "baro", {"i2c": (4, 5, 0x5c)}, {"i2c": 2}, {"pressure": 100000, "temperature": 23500}),
