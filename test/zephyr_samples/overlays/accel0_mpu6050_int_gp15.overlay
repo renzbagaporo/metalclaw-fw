@@ -1,0 +1,25 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An MPU-6050 at 0x68 on I2C0 (i2c0.overlay) as accel0, its INT pin on
+ * GP15, active high as the part leaves reset (INT_PIN_CFG INT_LEVEL 0,
+ * register map RM-MPU-6000A 4.15): the driver's data-ready trigger. The
+ * sample prints every reading, so the sample rate divider is 99 (SMPLRT_DIV,
+ * 4.2): the default 0 prints faster than the 115200-baud console carries.
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		accel0 = &accel0_mpu6050;
+	};
+};
+
+&i2c0 {
+	accel0_mpu6050: mpu6050@68 {
+		compatible = "invensense,mpu6050";
+		reg = <0x68>;
+		int-gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+		smplrt-div = <99>;
+		status = "okay";
+	};
+};

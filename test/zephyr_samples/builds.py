@@ -210,6 +210,10 @@ BUILDS: dict[str, Build] = {
                                   # shield): no alert pin, so its trigger
                                   # options fall away and it polls.
                                   ("jc42", "sample.sensor.jc42", "mcp9808_ambient"))},
+    # samples/sensor/accel_trig: an MPU-6050 as accel0, its INT pin on GP15,
+    # for the data-ready trigger the sample sets by default.
+    "zephyr/sensor/accel_trig": Build("sensor/accel_trig", test="sample.sensor.accel_trig", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/accel0_mpu6050_int_gp15.overlay")),
     # samples/sensor/accel_polling: a LIS2DH-family part as accel0.
     "zephyr/sensor/accel_polling": Build("sensor/accel_polling", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/accel0_lis2dh.overlay")),
