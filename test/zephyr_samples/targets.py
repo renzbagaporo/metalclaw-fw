@@ -516,6 +516,13 @@ OWN: dict[str, Spec] = {
                                      source="samples/drivers/fuel_gauge/src/main.c"),
     # samples/drivers/auxdisplay/src/main.c: writes its greeting and logs
     # only a failure; the part's DDRAM judges it.
+    # samples/sensor/lps22hb/src/main.c:34-40: each observation's pressure
+    # and temperature. Its yaml asks for a "Relative Humidity" line the
+    # source never prints, so these are the source's lines; the part holds
+    # 100 kPa and 23.5 C.
+    "zephyr/sensor/lps22hb": own(*(r"^Pressure:100\.0 kPa$", r"^Temperature:23\.5 C$") * 2,
+                                 forbidden=(*FORBIDDEN, r"error", r"Cannot read"), seconds=6.0,
+                                 source="samples/sensor/lps22hb/src/main.c"),
     # samples/sensor/veml6031/src/main.c:56 and veml6046/src/main.c:75: one
     # line per integration time, gain and divider setting it sweeps, with
     # the raw counts; their yaml's harness is "sensor". The parts hold 1000

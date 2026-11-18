@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/* An LPS22HB at 0x5C (SA0 low) on I2C0 (i2c0.overlay). */
+
+&i2c0 {
+	lps22hb@5c {
+		compatible = "st,lps22hb-press";
+		reg = <0x5c>;
+		status = "okay";
+	};
+};
