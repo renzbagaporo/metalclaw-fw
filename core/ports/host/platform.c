@@ -43,7 +43,8 @@ static atomic_int lock_waiters;
 static bool bridged;
 static uint64_t start_ns;
 // Bridged: the DUT's virtual time, and what delay_us added to it for the
-// events of the request being handled.
+// events the code running now makes; each round, the posted work and each
+// request start it from zero.
 static _Atomic uint64_t virtual_ns;
 static uint64_t delay_ns;
 
@@ -231,8 +232,12 @@ void mclw_host_advance(uint64_t ns) {
         now += step;
         atomic_store(&virtual_ns, now);
         round_run();
+        delay_ns = 0;
     }
     mclw_host_drain_work();
+    // What the round and the work delayed went with their own events; the
+    // request's events start from its time.
+    delay_ns = 0;
 }
 
 struct call_context {

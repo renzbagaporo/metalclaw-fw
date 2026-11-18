@@ -429,3 +429,40 @@ def test_the_hello_pulls_every_dut_line_up(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_a_models_delay_does_not_shift_the_duts_edges(tmp_path):
+    # accel_trig's MPU-6050 pulses INT for 50 us at each 1 kHz sample, a
+    # delay made in the tick's round; an edge of the DUT's that a request
+    # carries across that tick keeps its own time, so a bit-level UART
+    # beside it at 115200, where 50 us is six bits, frames every byte.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(i2c=[{"bus": 0, "sda": 4, "scl": 5}])
+        harness.run("import metalclaw\nimu = metalclaw.attach('mpu6050', 'imu', i2c=(4, 5, 0x68), int=(15,))\n"
+                    "gps = metalclaw.attach('neo_m8n', 'gps', uart=(9, 8))\ngps.baud = 115200")
+        # Awake, 1 kHz samples (DLPF on, divider 0), data-ready interrupt on.
+        for reg, value in ((0x6B, 0x00), (0x1A, 0x01), (0x19, 0x00), (0x38, 0x01)):
+            assert bridge.i2c(0, 0x68, bytes([reg, value])) is not None
+        bridge.advance(5_000_000)
+        bridge.actions.clear()
+        bit_ns = 1_000_000_000 // 115200
+        sent = bytes([0xB5, 0x62, 0x0A, 0x04, 0x00, 0x00, 0x0E, 0x34]) * 4
+        t = bridge.t_ns + 300_000
+        for byte in sent:
+            level = 1
+            for bit, value in enumerate([0, *((byte >> b) & 1 for b in range(8)), 1]):
+                if value != level:
+                    bridge.request(op="gpio", pin=8, level=value, t_ns=t + bit * bit_ns)
+                    level = value
+            t += 10 * bit_ns
+        bridge.t_ns = t
+        assert any(a["op"] == "gpio" and a["pin"] == 15 for a in bridge.actions), "the MPU-6050 never pulsed"
+        bridge.advance(1_000_000)
+        stats = eval(harness.run("print(gps.stats('uart'))"))
+        assert (stats["bytes_rx"], stats["frame_errors"]) == (len(sent), 0), stats
+    finally:
+        bridge.close()
+        harness.close()
