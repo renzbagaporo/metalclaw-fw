@@ -48,6 +48,12 @@ SPI, as the model `w25q16jv`;
 model `at24c02`;
 [`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
 I2C;
+[`max6675`](../devices/max6675/README.md), Maxim's MAX6675 thermocouple
+converter on SPI;
+[`ds3231`](../devices/ds3231/README.md), Maxim's DS3231 real-time clock on
+I2C with its INT/SQW pin;
+[`zfm20`](../devices/zfm20/README.md), ZhianTec's ZFM-20 fingerprint module
+on a UART;
 [`mcp4728`](../devices/mcp4728/README.md), Microchip's MCP4728 quad 12-bit
 DAC on I2C;
 [`lsm6dso`](../devices/lsm6dso/README.md), ST's LSM6DSO and LSM6DSL 6-axis
