@@ -10,8 +10,8 @@ CHANNELS = "accel_xyz gyro_xyz die_temp"
 # What the DUT overlay configures, and the driver's own conversions from
 # raw counts at those full scales: 2048 LSB/g, 16.4 LSB/dps, raw/132.48 + 25 C.
 POWER_MODE_LN_BOTH = 0x0F
-ACCEL_CONFIG_FS16_ODR50 = 0x09
-GYRO_CONFIG_FS2000_ODR50 = 0x09
+ACCEL_CONFIG_FS16_ODR500 = 0x0F
+GYRO_CONFIG_FS2000_ODR500 = 0x0F
 ACCEL_SENSITIVITY = 2048
 GYRO_SENSITIVITY_X10 = 164
 SENSOR_G = 9806650
@@ -102,8 +102,8 @@ def test_the_dut_driver_reads_what_was_injected(dut, imu, accel, gyro, temperatu
 def test_the_dut_configured_the_part(dut, imu):
     fetch(dut)
     assert imu.get("power_mode") == POWER_MODE_LN_BOTH
-    assert imu.get("accel_config") == ACCEL_CONFIG_FS16_ODR50
-    assert imu.get("gyro_config") == GYRO_CONFIG_FS2000_ODR50
+    assert imu.get("accel_config") == ACCEL_CONFIG_FS16_ODR500
+    assert imu.get("gyro_config") == GYRO_CONFIG_FS2000_ODR500
     assert imu.get("bank") == 0
     assert imu.get("resets") >= 1
 
