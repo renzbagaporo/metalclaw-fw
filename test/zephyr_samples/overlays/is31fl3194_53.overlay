@@ -1,0 +1,22 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An IS31FL3194 at 0x53 on I2C0 (i2c0.overlay), its fixed address (data
+ * sheet "101 0011"), with one RGB LED as the Arduino Nicla Sense ME
+ * carries it.
+ */
+#include <zephyr/dt-bindings/led/led.h>
+
+&i2c0 {
+	is31fl3194@53 {
+		compatible = "issi,is31fl3194";
+		reg = <0x53>;
+
+		led_rgb {
+			label = "RGB LED";
+			color-mapping = <LED_COLOR_ID_BLUE>,
+					<LED_COLOR_ID_GREEN>,
+					<LED_COLOR_ID_RED>;
+			current-limit = <10>;
+		};
+	};
+};
