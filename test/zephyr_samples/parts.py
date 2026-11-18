@@ -140,6 +140,11 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     **{f"zephyr/sensor/{sample}": (Attach("mpu9250", "imu", {"i2c": (4, 5, 0x68), "int": (15,)}, {"i2c": 2},
                                           {"magnetic_field": (30000, -15000, 45000)}),)
        for sample in ("magn_polling", "magn_trig")},
+    # The LSM6DSO at 0x6A on I2C0, INT1 on GP15, at rest: 1 g on z.
+    "zephyr/sensor/lsm6dso": (
+        Attach("lsm6dso", "imu", {"i2c": (4, 5, 0x6a), "int1": (15,)}, {"i2c": 2},
+               {"acceleration": (0, 0, 1000), "angular_rate": (0, 0, 0)}),
+    ),
     # The LPS22HB at 0x5C on I2C0, at 100 kPa and 23.5 C.
     "zephyr/sensor/lps22hb": (
         Attach("lps22hb", "baro", {"i2c": (4, 5, 0x5c)}, {"i2c": 2}, {"pressure": 100000, "temperature": 23500}),

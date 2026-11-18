@@ -285,6 +285,10 @@ BUILDS: dict[str, Build] = {
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/magn0_mpu9250_68.overlay"))
        for sample, test in (("magn_polling", "sample.sensor.magn_polling"),
                             ("magn_trig", "sample.sensor.magn_trigger"))},
+    # samples/sensor/lsm6dso: ST's LSM6DSO at 0x6A on I2C0, INT1 on GP15
+    # for the data-ready trigger its prj.conf turns on.
+    "zephyr/sensor/lsm6dso": Build("sensor/lsm6dso", test="sample.sensor.lsm6dso", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/lsm6dso_6a.overlay")),
     # samples/sensor/lps22hb: ST's LPS22HB at 0x5C on I2C0.
     "zephyr/sensor/lps22hb": Build("sensor/lps22hb", test="sample.sensor.lps22hb", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/lps22hb_5c.overlay")),

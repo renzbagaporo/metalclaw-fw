@@ -41,3 +41,6 @@ manifest:
           # modules/tflite-micro and modules/chre (optional group).
           - tflite-micro
           - chre
+          # ST's sensor register library (stmemsc), which its drivers such
+          # as the LSM6DSO's and LPS22HH's build on.
+          - hal_st
