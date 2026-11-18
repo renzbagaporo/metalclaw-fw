@@ -254,7 +254,7 @@ static void start_join(struct gpio_link *l) {
     uint a = l->pins[0]->pin;
     uint b = l->pins[1]->pin;
     uint64_t both = MCLW_PIO_PIN(a) | MCLW_PIO_PIN(b);
-    uint offset = programs[LINK_JOIN][l->pio_index].offset;
+    uint offset = programs[l->kind][l->pio_index].offset;
     pio_sm_config c = pio_get_default_sm_config();
 
     if (l->kind == LINK_JOIN) {
