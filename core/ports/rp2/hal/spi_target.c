@@ -1776,10 +1776,16 @@ static void __not_in_flash_func(command_busy_settle)(struct mclw_spi_target *t) 
     }
 }
 
+// Every window queued when the lock is taken goes to the model under that
+// one lock: core 0's script holds the lock often while the host talks to
+// it (more often per emulated millisecond the slower an emulation runs),
+// and one window per lock left the queue filling and windows missed.
+// Windows that arrive meanwhile wait for the next round, after the polls.
 static void command_deliver(struct mclw_work *work) {
     struct mclw_spi_target *t = work->ctx;
     struct mclw_command_image *image;
     uint32_t state;
+    uint32_t pending;
     bool forced;
 
     if (t->queue_count == 0u) {
@@ -1789,32 +1795,42 @@ static void command_deliver(struct mclw_work *work) {
         mclw_hal_work_post(work);
         return;
     }
+    pending = t->queue_count;
+    while (pending-- != 0u) {
+        state = mclw_hal_critical_enter();
+        if (t->queue_count == 0u) {
+            mclw_hal_critical_exit(state);
+            break;
+        }
+        image = t->image == SPI_IMAGE_COMMAND ? t->command : NULL;
+        copy_queued(&t->delivered, &t->queue[t->queue_first]);
+        t->queue_first = (uint8_t)((t->queue_first + 1u) % SPI_QUEUE);
+        t->queue_count--;
+        mclw_hal_critical_exit(state);
+        forced = t->delivered.forced;
+        // A publish made while a window read what it changes is copied
+        // here, under the runtime lock: core 0 may be editing the image
+        // otherwise.
+        if (image != NULL && t->shadow_pending) {
+            command_notify(image, t);
+        }
+        if (image != NULL && image->on_window != NULL) {
+            image->on_window(image, t->delivered.bytes, t->delivered.len, t->delivered.busy, image->on_window_ctx);
+        }
+        if (image != NULL && forced) {
+            state = mclw_hal_critical_enter();
+            if (t->busy_windows != 0u) {
+                t->busy_windows--;
+            }
+            command_busy_settle(t);
+            mclw_hal_critical_exit(state);
+        }
+    }
     state = mclw_hal_critical_enter();
-    image = t->image == SPI_IMAGE_COMMAND ? t->command : NULL;
-    copy_queued(&t->delivered, &t->queue[t->queue_first]);
-    t->queue_first = (uint8_t)((t->queue_first + 1u) % SPI_QUEUE);
-    t->queue_count--;
     if (t->queue_count != 0u) {
         mclw_hal_work_post(work);
     }
     mclw_hal_critical_exit(state);
-    forced = t->delivered.forced;
-    // A publish made while a window read what it changes is copied here,
-    // under the runtime lock: core 0 may be editing the image otherwise.
-    if (image != NULL && t->shadow_pending) {
-        command_notify(image, t);
-    }
-    if (image != NULL && image->on_window != NULL) {
-        image->on_window(image, t->delivered.bytes, t->delivered.len, t->delivered.busy, image->on_window_ctx);
-    }
-    if (image != NULL && forced) {
-        state = mclw_hal_critical_enter();
-        if (t->busy_windows != 0u) {
-            t->busy_windows--;
-        }
-        command_busy_settle(t);
-        mclw_hal_critical_exit(state);
-    }
     mclw_hal_unlock();
 }
 
