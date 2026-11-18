@@ -1,0 +1,116 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+/*
+ * An SCT2024 on SPI0 (SCK GP18, MOSI GP19; it has no SDO back), LA/ on
+ * GP20 and OE/ on GP21, both active low, with its 16 outputs as LEDs 0-15
+ * as the nRF52840 DK overlay lists them. The part has no chip select; the
+ * bus gets one on GP17, which frames the harness's capture of the bits.
+ */
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&pinctrl {
+	spi0_sct2024: spi0_sct2024 {
+		group1 {
+			pinmux = <SPI0_SCK_P18>, <SPI0_TX_P19>;
+		};
+
+		group2 {
+			pinmux = <SPI0_RX_P16>;
+			input-enable;
+		};
+	};
+};
+
+&spi0 {
+	pinctrl-0 = <&spi0_sct2024>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio0 17 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	sct2024@0 {
+		compatible = "sct,sct2024";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+		la-gpios = <&gpio0 20 GPIO_ACTIVE_LOW>;
+		oe-gpios = <&gpio0 21 GPIO_ACTIVE_LOW>;
+
+		led_0 {
+			label = "LED 0";
+			index = <0>;
+		};
+
+		led_1 {
+			label = "LED 1";
+			index = <1>;
+		};
+
+		led_2 {
+			label = "LED 2";
+			index = <2>;
+		};
+
+		led_3 {
+			label = "LED 3";
+			index = <3>;
+		};
+
+		led_4 {
+			label = "LED 4";
+			index = <4>;
+		};
+
+		led_5 {
+			label = "LED 5";
+			index = <5>;
+		};
+
+		led_6 {
+			label = "LED 6";
+			index = <6>;
+		};
+
+		led_7 {
+			label = "LED 7";
+			index = <7>;
+		};
+
+		led_8 {
+			label = "LED 8";
+			index = <8>;
+		};
+
+		led_9 {
+			label = "LED 9";
+			index = <9>;
+		};
+
+		led_10 {
+			label = "LED 10";
+			index = <10>;
+		};
+
+		led_11 {
+			label = "LED 11";
+			index = <11>;
+		};
+
+		led_12 {
+			label = "LED 12";
+			index = <12>;
+		};
+
+		led_13 {
+			label = "LED 13";
+			index = <13>;
+		};
+
+		led_14 {
+			label = "LED 14";
+			index = <14>;
+		};
+
+		led_15 {
+			label = "LED 15";
+			index = <15>;
+		};
+	};
+};

@@ -218,6 +218,23 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('led_driver')", lambda v: v & 0xe0 == 0xe0, "LED drivers on I/O 5-7", 3.0),
         )),
     ),
+    # The SCT2024 on SPI0: the sample turns LED 0 on first, then one more
+    # each 500 ms, each write latched with an LA/ pulse.
+    "zephyr/drivers/led/sct2024": (
+        Attach("sct2024", "leds", {"spi": (18, 19, 17), "la": (20,), "oe": (21,)}, {}, checks=(
+            Check("(part.outputs & 1, part.enabled, part.latches > 1)", lambda v: v == (1, True, True),
+                  "LED 0 on, the outputs enabled, and the writes latched (OUT0, enabled, latched)", 3.0),
+        )),
+    ),
+    # The IS31FL3194 at 0x53 on I2C0: out of shutdown, and the sample's fades
+    # latched by color updates.
+    "zephyr/drivers/led/is31fl319x": (
+        Attach("is31fl3194", "rgb", {"i2c": (4, 5, 0x53)}, {"i2c": 2}, checks=(
+            Check("(part.configuration & 1, part.updates > 0, any(part.levels))",
+                  lambda v: v == (1, True, True),
+                  "out of shutdown, with color updates that lit a channel (SSD, updated, lit)", 3.0),
+        )),
+    ),
     # The IS31FL3733 at 0x50 on I2C0: out of shutdown at full current, every
     # dot switched on, and the sample's PWM writes in page 1.
     "zephyr/drivers/led/is31fl3733": (
