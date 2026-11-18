@@ -65,6 +65,10 @@ bool mclw_hal_try_lock(void) {
         return true;
     }
     if (!spin_try_lock_unsafe(runtime_lock)) {
+        extern volatile uint32_t mclw_worker_lock_misses;
+        if (core == 1) {
+            mclw_worker_lock_misses = mclw_worker_lock_misses + 1u;
+        }
         return false;
     }
     runtime_owner = core;
