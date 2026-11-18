@@ -217,8 +217,12 @@ class NativeBench:
         self.monitor.command("machine Reset")
         self.monitor.command("start")
 
-    def pause(self) -> None:
-        self.monitor.command("pause")
+    # The DUT's cores stop; its time, and so the models', goes on, so a
+    # part busy with what the DUT asked of it finishes. The next reset
+    # releases them.
+    def halt(self) -> None:
+        for core in ("cpu0", "cpu1"):
+            self.monitor.command(f"{core} IsHalted true")
 
     def stop(self) -> None:
         for close in (lambda: self.console and self.console.close(),
@@ -304,7 +308,7 @@ class NativeExample:
 
     # The DUT stops where it is; the next restart runs it again.
     def halt_awake(self, wake_harness_pin, timeout) -> None:
-        self.bench.pause()
+        self.bench.halt()
 
     def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
         pytest.skip("native mode has no RUN pin to press yet")
