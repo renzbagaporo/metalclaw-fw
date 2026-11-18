@@ -554,6 +554,12 @@ OWN: dict[str, Spec] = {
         r"uptime \d+:\d\d:\d\d\.\d{3}, clk err -?\d{1,3} ppm$",
         forbidden=(*FORBIDDEN, r"not ready", r"failed"), seconds=80.0,
         source="samples/drivers/counter/maxim_ds3231/src/main.c"),
+    # samples/sensor/hts221/src/main.c:33-40: an observation every 2 s. Its
+    # yaml takes any number; the part holds 23.5 C and 47.5 %RH.
+    "zephyr/sensor/hts221": own(
+        *(r"^Observation:\d+$", r"^Temperature:23\.5 C$", r"^Relative Humidity:47\.5%$") * 2,
+        forbidden=(*FORBIDDEN, r"error", r"Cannot", r"not ready"), seconds=8.0,
+        source="samples/sensor/hts221/src/main.c"),
     # samples/sensor/max6675/src/main.c:45: a reading a second. Its yaml
     # takes any number; the part holds 123.25 C, a whole count of 0.25 C.
     "zephyr/sensor/max6675": own(*(r"^Temperature: 123\.25 C$",) * 2,
