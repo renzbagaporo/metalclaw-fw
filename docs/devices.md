@@ -5,7 +5,7 @@
 A device is whatever the board under test finds on the other side of a pin,
 and anything a user can name in `attach()`. Each one is a directory under
 `devices/` that defines one `struct mclw_model` and nothing else the
-runtime needs to know about. Thirty-five exist:
+runtime needs to know about. Fifty-eight exist:
 [`swd_probe`](../devices/swd_probe/README.md), a CMSIS-DAP v2 debug probe;
 [`console_bridge`](../devices/console_bridge/README.md), a USB serial port on
 the board's console UART;
@@ -50,10 +50,12 @@ the model `at45db041e`;
 model `at24c02`;
 [`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
 I2C;
+[`lp3943`](../devices/lp3943/README.md), TI's LP3943 16-LED driver on I2C;
 [`lp5562`](../devices/lp5562/README.md), TI's LP5562 RGBW LED driver on I2C;
 [`is31fl3216a`](../devices/is31fl3216a/README.md), ISSI's IS31FL3216A
 16-channel LED driver on I2C;
 [`sx1509b`](../devices/sx1509b/README.md), Semtech's SX1509B I/O expander with
+LED driver on I2C;
 [`ft5336`](../devices/ft5336/README.md), FocalTech's FT5336 touch controller
 on I2C;
 [`lp50xx`](../devices/lp50xx/README.md), TI's LP5012 RGB LED driver on I2C, as

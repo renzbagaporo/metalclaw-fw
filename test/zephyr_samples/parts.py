@@ -218,6 +218,12 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('led_driver')", lambda v: v & 0xe0 == 0xe0, "LED drivers on I/O 5-7", 3.0),
         )),
     ),
+    # The LP3943 at 0x60 on I2C0: the sample turns its LEDs on one by one.
+    "zephyr/drivers/led/lp3943": (
+        Attach("lp3943", "leds", {"i2c": (4, 5, 0x60)}, {"i2c": 2}, checks=(
+            Check("part.get('selectors')", lambda v: v != 0, "LEDs switched on", 2.0),
+        )),
+    ),
     # The LP5562 at 0x30 on I2C0: enabled, and the sample's colours and
     # blinks written.
     "zephyr/drivers/led/lp5562": (
