@@ -44,6 +44,8 @@ NMEA and takes PMTK commands through its I2C buffer;
 gyroscope on SPI or I2C;
 [`w25q`](../devices/w25q/README.md), the Winbond W25Q16JV serial NOR flash on
 SPI, as the model `w25q16jv`;
+[`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
+I2C;
 [`veml60xx`](../devices/veml60xx/README.md), Vishay's VEML6031X00 and
 VEML6046X00 light sensors on I2C, two models;
 [`pca9633`](../devices/pca9633/README.md), NXP's 4-bit I2C LED driver;
