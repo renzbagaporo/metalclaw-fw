@@ -516,6 +516,23 @@ OWN: dict[str, Spec] = {
                                      source="samples/drivers/fuel_gauge/src/main.c"),
     # samples/drivers/auxdisplay/src/main.c: writes its greeting and logs
     # only a failure; the part's DDRAM judges it.
+    # samples/drivers/biometrics/fingerprint/src/main.c: enrolls IDs 1 and
+    # 2, lists them, verifies ID 1, identifies (the first page holding the
+    # finger: ID 1), deletes ID 1 and lists again. The zfm20 part holds
+    # finger 1 and reports score 157. Its yaml wants "Test complete". The
+    # driver's "initialized" line is not judged: it never showed after the
+    # banner on either fixture (its init runs at POST_KERNEL, before it).
+    "zephyr/drivers/biometrics/fingerprint": own(
+        *(r"<inf> main: Enrollment complete",) * 2,
+        r"<inf> main: Found 2 stored template\(s\):",
+        r"<inf> main:   - Template ID: 1", r"<inf> main:   - Template ID: 2",
+        r"<inf> main: Match! Confidence: 157, Quality: 0",
+        r"<inf> main: Matched ID 1, confidence 157, quality 0",
+        r"<inf> main: Found 1 stored template\(s\):",
+        r"<inf> main:   - Template ID: 2",
+        r"<inf> main: Test complete",
+        forbidden=(*FORBIDDEN, r"<err>", r"<wrn>"),
+        source="samples/drivers/biometrics/fingerprint/src/main.c"),
     # samples/drivers/counter/maxim_ds3231/src/main.c: build_only upstream.
     # main() reads the part's power-on oscillator fault, sets the clock to
     # the next hour on the square wave, synchronizes, then sets alarm 1 five

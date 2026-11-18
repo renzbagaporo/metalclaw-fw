@@ -146,6 +146,14 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('alarms')[0]", lambda v: v >= 2, "both alarm-1 matches", 3.0),
         )),
     ),
+    # The ZFM-20 on uart1 (its RX on the DUT's TX GP8), finger 1 on the
+    # sensor throughout: the sample enrolls IDs 1 and 2 without waiting for
+    # a lift, so both hold that finger.
+    "zephyr/drivers/biometrics/fingerprint": (
+        Attach("zfm20", "fingerprint", {"uart": (9, 8)}, {}, {"finger": 1, "score": 157}, checks=(
+            Check("part.get('templates')", lambda v: v == 1, "template 2 left after the delete", 3.0),
+        )),
+    ),
     # The AT24C02C at 0x50 on I2C0, erased at attach: the sample writes its
     # boot counter at offset 0.
     "zephyr/drivers/eeprom": (

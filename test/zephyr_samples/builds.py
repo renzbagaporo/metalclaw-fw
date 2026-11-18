@@ -290,6 +290,13 @@ BUILDS: dict[str, Build] = {
     "zephyr/drivers/counter/maxim_ds3231": Build(
         "drivers/counter/maxim_ds3231", test="sample.basic.maxim_ds3231", overlays=(
             "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ds3231_68_isw_gp15.overlay")),
+    # samples/drivers/biometrics/fingerprint: a ZFM-20 on uart1 (GP8 TX,
+    # GP9 RX), where its app.overlay puts the zfm-x0; its yaml allows only
+    # native_sim.
+    "zephyr/drivers/biometrics/fingerprint": Build(
+        "drivers/biometrics/fingerprint", test="sample.drivers.biometrics.fingerprint", overlays=(
+            "test/zephyr_samples/overlays/uart1_gp8_gp9.overlay",
+            "test/zephyr_samples/overlays/fingerprint_zfm20_uart1.overlay")),
     # samples/drivers/eeprom: an AT24C02C at 0x50 on I2C0 as eeprom-0.
     "zephyr/drivers/eeprom": Build("drivers/eeprom", test="sample.drivers.eeprom", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/eeprom0_at24c02_50.overlay")),
