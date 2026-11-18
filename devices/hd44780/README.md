@@ -94,3 +94,23 @@ All read-only.
 - What the panel shows: the regions are the RAMs; the shift and the cursor
   are properties for the host to apply. The character generator ROM.
 - The PCF8574's interrupt output and its inputs.
+
+## aip31068
+
+A Wuxi I-CORE AIP31068L LCD controller on I2C, as the model `aip31068`, a
+sink: the HD44780U's instruction set, decoded by the same core, behind a
+two-wire serial port, as in a JHD1313 module (the LCD half of Seeed's
+Grove LCD RGB Backlight; datasheet AIP31068L-AX-BJ-153EN). It answers at
+3Eh.
+
+| index | name | kind | required | resolved into |
+| --- | --- | --- | --- | --- |
+| 0 | `i2c` | `i2c_target` | yes | an I2C sink, from `(sda, scl, 0x3e)` |
+
+Each transfer starts with a control byte, Co in bit 7 and RS in bit 6:
+with Co set one byte follows and then another control byte; with Co clear
+every byte to the STOP is at that RS, an instruction (RS low) or a DDRAM
+or CGRAM write (RS high). The interface is 8 bits wide, so the core
+starts in 8-bit mode. Its properties and regions are `hd44780_pcf8574`'s
+but `port` and `backlight`; the busy flag and reads are not modelled.
+
