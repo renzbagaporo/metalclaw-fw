@@ -10,8 +10,12 @@
 //   memory read     opcode, addr[23:16], addr[15:8], addr[7:0], registers
 //                   from addr[15:0]... (a serial NOR flash's Read Data)
 //   immediate read  opcode, response... (a serial NOR flash's Read JEDEC
-//                   ID): an image with an immediate response has the one
-//                   response, no NOP, and no BUSY line
+//                   ID, a CAN controller's status and RX buffer reads):
+//                   the responses of an image with immediate responses
+//                   have no NOP, and such an image has no BUSY line
+//   short register  opcode, addr[7:0], registers of page 0 from addr...
+//   read            (a CAN controller's READ), for an image with
+//                   immediate responses
 //
 // Every byte that carries no data is the status byte, the first one
 // included. The engine serves all of it from hardware. The model is called
@@ -82,6 +86,7 @@ struct mclw_command_image {
     bool has_memory_read;
     uint8_t read_memory_opcode;
     bool immediate_response;
+    bool short_register_read;
     uint8_t filler;
     uint8_t busy_status;
     uint8_t busy_opcodes[256 / 8];
@@ -111,12 +116,15 @@ void mclw_command_set_on_window(struct mclw_command_image *image, mclw_command_o
 // A memory read opcode, which takes the place of the register or buffer
 // read on that opcode; a part with neither names the memory opcode for both.
 void mclw_command_set_memory_read(struct mclw_command_image *image, uint8_t opcode);
-// The image's one response follows its opcode at once, with no NOP. Every
+// The image's responses follow their opcodes at once, with no NOP. Every
 // window's byte after the opcode is then served once the opcode is decoded
 // rather than ahead of it, which lowers the clock the engine serves the
-// image at; the engine takes such an image only with at most one response
-// and no BUSY line.
+// image at, more for several responses than for one; the engine takes such
+// an image only with no BUSY line.
 void mclw_command_set_immediate_response(struct mclw_command_image *image);
+// The register read takes one address byte, addr[7:0], and reads page 0
+// from it, with no NOP: only with immediate responses.
+void mclw_command_set_short_register_read(struct mclw_command_image *image);
 // What a read of a page the image does not hold returns.
 void mclw_command_set_filler(struct mclw_command_image *image, uint8_t filler);
 // The status bits the engine sets at the release of a window that began
