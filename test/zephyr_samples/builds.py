@@ -527,12 +527,16 @@ BUILDS: dict[str, Build] = {
     # bit clear): memory overwritten, the console's too, as no fault report
     # comes out even with immediate logging. The widgets or stress demo on
     # the first panel instead HardFaults soon after the banner. Upstream
-    # runs the sample only on native_sim's colour displays.
+    # runs the sample only on native_sim's colour displays. The demos run
+    # in main, whose 4 KB stack (its prj.conf) they overflow: with 16 KB
+    # both panels draw; with a stack sentinel at 4 KB the run fails as
+    # before, the overflow wiping memory before the sentinel is checked.
     "zephyr/modules/lvgl/multi_display": Build("modules/lvgl/multi_display",
                                                test="sample.modules.lvgl.multi_display", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay",
         "test/zephyr_samples/overlays/ssd1306_second_i2c1.overlay"),
-        confs=("test/zephyr_samples/overlays/lvgl_ssd1306.conf",)),
+        confs=("test/zephyr_samples/overlays/lvgl_ssd1306.conf",),
+        args=("CONFIG_MAIN_STACK_SIZE=16384",)),
     # samples/modules/lvgl/demos: the widgets demo on the same panel.
     "zephyr/modules/lvgl/demos": Build("modules/lvgl/demos", test="sample.modules.lvgl.demo_widgets", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay"),
