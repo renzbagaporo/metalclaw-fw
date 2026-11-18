@@ -7,48 +7,8 @@
 #include <stddef.h>
 
 #include "metalclaw/hal/spi_peer.h"
-#include "metalclaw/hal/spi_sink.h"
 #include "metalclaw/hal/swd.h"
 #include "metalclaw/hal/usb.h"
-
-// ---- SPI sink ----------------------------------------------------------------
-
-struct mclw_spi_sink *mclw_hal_spi_sink_open(uint8_t sck, uint8_t mosi, uint8_t cs, uint8_t line,
-    uint8_t mode, bool msb_first, const void *owner, int *err) {
-    (void)sck;
-    (void)mosi;
-    (void)cs;
-    (void)line;
-    (void)mode;
-    (void)msb_first;
-    (void)owner;
-    *err = -ENOTSUP;
-    return NULL;
-}
-
-void mclw_hal_spi_sink_close(struct mclw_spi_sink *s) {
-    (void)s;
-}
-
-int mclw_hal_spi_sink_arm(struct mclw_spi_sink *s, struct mclw_sink *sink) {
-    (void)s;
-    (void)sink;
-    return -ENOTSUP;
-}
-
-void mclw_hal_spi_sink_disarm(struct mclw_spi_sink *s) {
-    (void)s;
-}
-
-void mclw_hal_spi_sink_stats(const struct mclw_spi_sink *s, struct mclw_spi_sink_stats *out) {
-    (void)s;
-    *out = (struct mclw_spi_sink_stats){ 0 };
-}
-
-uint32_t mclw_hal_spi_sink_max_clock_hz(const struct mclw_spi_sink *s) {
-    (void)s;
-    return 0;
-}
 
 // ---- SPI peer ----------------------------------------------------------------
 

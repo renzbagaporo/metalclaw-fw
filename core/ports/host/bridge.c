@@ -300,8 +300,13 @@ static size_t handle(const char *text, size_t len) {
 
         if (bus >= 0 && bus < (int64_t)SPI_BUSES_MAX && (spi_buses[bus].used ||
                 json_get(&doc, root, "pins") != NULL)) {
-            (void)mclw_host_spi_frame(pin_or(root, "sck", spi_buses[bus].sck), pin_or(root, "mosi", spi_buses[bus].mosi),
-                pin_or(root, "miso", spi_buses[bus].miso), (uint8_t)json_int(&doc, root, "mosi", 0), &miso);
+            uint8_t sck = pin_or(root, "sck", spi_buses[bus].sck);
+            uint8_t mosi_pin = pin_or(root, "mosi", spi_buses[bus].mosi);
+            uint8_t mosi = (uint8_t)json_int(&doc, root, "mosi", 0);
+
+            if (mclw_host_spi_frame(sck, mosi_pin, pin_or(root, "miso", spi_buses[bus].miso), mosi, &miso) != 0) {
+                (void)mclw_host_spi_sink_frame(sck, mosi_pin, mosi);
+            }
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u", miso);
         } else {
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":255,\"error\":\"unknown spi bus\"");
@@ -313,8 +318,10 @@ static size_t handle(const char *text, size_t len) {
 
         mclw_host_gpio_dut(pin, value);
         mclw_host_wire_edge(pin, value, mclw_host_event_ns());
+        mclw_host_spi_sink_line(pin, value);
         if (value >= 0) {
             mclw_host_spi_cs(pin, value != 0);
+            (void)mclw_host_spi_sink_cs(pin, value != 0);
         }
         at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else {

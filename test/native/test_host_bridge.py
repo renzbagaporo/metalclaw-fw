@@ -216,3 +216,23 @@ def test_a_route_report_moves_a_bus_to_where_the_dut_routed_it(bridged):
     assert bridge.i2c(0, 0x18, write=b"\x06", read=2) is None
     bridge.request(op="route", i2c=[{"bus": 0, "sda": 8, "scl": 9}])
     assert bridge.i2c(0, 0x18, write=b"\x06", read=2) == b"\x00\x54"
+
+
+def test_a_max7219_takes_the_dut_s_spi_writes(tmp_path):
+    # MAX7219 datasheet Table 2: a 16-bit word, address then data, latched
+    # at CS's rise; 0Ah is intensity.
+    from test.native.host import spi_window
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[SPI0])
+        harness.run("import metalclaw\nm = metalclaw.attach('max7219', 'm', spi=(18, 19, 17))")
+        bridge.advance(1_000_000)
+        assert {"op": "watch", "pin": 17} in [{k: v for k, v in a.items() if k != "t_ns"} for a in bridge.actions]
+        spi_window(bridge, 0, 17, b"\x0a\x05")
+        bridge.advance(1_000_000)
+        assert harness.run("print(m.intensity[0])") == "5"
+    finally:
+        bridge.close()
+        harness.close()

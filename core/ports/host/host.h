@@ -66,6 +66,12 @@ int mclw_host_spi_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t
 // `t_ns`.
 void mclw_host_wire_edge(uint8_t pin, int level, uint64_t t_ns);
 
+// spi_sink.c: the same for receive-only targets; frame and cs say whether
+// a sink took them. `line` is a sink's side line, as the DUT drives it.
+bool mclw_host_spi_sink_cs(uint8_t pin, bool level);
+bool mclw_host_spi_sink_frame(uint8_t sck, uint8_t mosi_pin, uint8_t mosi);
+void mclw_host_spi_sink_line(uint8_t pin, int level);
+
 // i2c_target.c, called by the bridge on the worker thread, one bus event
 // at a time as the DUT's controller makes them. start and write return
 // whether the target acknowledges; a START to an address no target
