@@ -4,74 +4,35 @@
 # (core/ports/host/BRIDGE.md) to it as the emulator holding the DUT does.
 
 import json
-import os
-import pty
-import select
 import socket
-import subprocess
 import time
 from pathlib import Path
 
-PROMPT = b">>> "
+from test.rig.platforms.hardware.repl import Repl
+from test.rig.platforms.native.host import HostProcess, host_harness_program
 
 
 def default_build() -> Path:
-    root = Path(__file__).resolve().parents[2]
-    build = Path(os.environ.get("METALCLAW_BUILD_DIR", root / "build"))
-    return Path(os.environ.get("METALCLAW_HOST_HARNESS", build / "host" / "mpy" / "metalclaw-host"))
+    return host_harness_program()
 
 
 class HostHarness:
-    """The host harness process, its REPL on a pty, bridged to `socket_path`
-    (None for standalone)."""
+    """The host harness process and its raw REPL, as the rig drives a
+    harness: `run` returns what the code printed and raises on an error."""
 
     def __init__(self, program: Path, socket_path: Path | None = None, timeout: float = 10.0):
-        env = dict(os.environ)
-        if socket_path is None:
-            env.pop("METALCLAW_BRIDGE", None)
-        else:
-            env["METALCLAW_BRIDGE"] = str(socket_path)
+        self.process = HostProcess(program, socket_path)
         self.timeout = timeout
-        self.master, slave = pty.openpty()
-        self.proc = subprocess.Popen([str(program)], stdin=slave, stdout=slave, stderr=slave, env=env,
-                                     close_fds=True)
-        os.close(slave)
-        self._read_until(PROMPT)
-
-    def _read_until(self, marker: bytes) -> bytes:
-        got = b""
-        deadline = time.monotonic() + self.timeout
-        while not got.endswith(marker):
-            left = deadline - time.monotonic()
-            if left <= 0:
-                raise TimeoutError(f"host harness: no {marker!r} after {got[-400:]!r}")
-            ready, _, _ = select.select([self.master], [], [], left)
-            if ready:
-                chunk = os.read(self.master, 4096)
-                if not chunk:
-                    raise EOFError(f"host harness exited: {got[-400:]!r}")
-                got += chunk
-        return got
+        self.repl = Repl(path=self.process.path).__enter__()
 
     def run(self, code: str) -> str:
-        """Runs `code` (one statement per line) at the REPL; returns what it
-        printed. A traceback raises."""
-        printed = []
-        for line in code.strip().splitlines():
-            os.write(self.master, line.encode() + b"\r")
-            got = self._read_until(PROMPT).decode(errors="replace").replace("\r\n", "\n")
-            # The terminal echoes the line first; the prompt ends the reply.
-            body = got[: -len(PROMPT)]
-            body = body.split("\n", 1)[1] if "\n" in body else ""
-            if "Traceback (most recent call last)" in body:
-                raise RuntimeError(f"host harness: {line}\n{body}")
-            printed.append(body)
-        return "".join(printed).strip()
+        return self.repl.run(code, self.timeout).strip()
 
     def close(self) -> None:
-        self.proc.kill()
-        self.proc.wait()
-        os.close(self.master)
+        try:
+            self.repl.__exit__(None, None, None)
+        finally:
+            self.process.close()
 
 
 class Bridge:
