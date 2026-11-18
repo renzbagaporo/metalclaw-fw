@@ -7,7 +7,6 @@
 #include <stddef.h>
 
 #include "metalclaw/hal/swd.h"
-#include "metalclaw/hal/usb.h"
 
 // ---- SWD ---------------------------------------------------------------------
 
@@ -87,48 +86,4 @@ int mclw_hal_swd_get_pins(struct mclw_swd *swd, uint8_t *values) {
     (void)swd;
     (void)values;
     return -ENOTSUP;
-}
-
-// ---- USB ---------------------------------------------------------------------
-
-struct mclw_usb_interface *mclw_hal_usb_open(const struct mclw_usb_interface_desc *desc,
-    mclw_usb_rx_t rx, mclw_usb_control_t control, void *ctx, const void *owner, int *err) {
-    (void)desc;
-    (void)rx;
-    (void)control;
-    (void)ctx;
-    (void)owner;
-    *err = -ENOTSUP;
-    return NULL;
-}
-
-void mclw_hal_usb_close(struct mclw_usb_interface *itf) {
-    (void)itf;
-}
-
-size_t mclw_hal_usb_write(struct mclw_usb_interface *itf, const uint8_t *data, size_t len) {
-    (void)itf;
-    (void)data;
-    (void)len;
-    return 0;
-}
-
-bool mclw_hal_usb_connected(const struct mclw_usb_interface *itf) {
-    (void)itf;
-    return false;
-}
-
-int mclw_hal_usb_line_coding(const struct mclw_usb_interface *itf, struct mclw_usb_line_coding *out) {
-    (void)itf;
-    (void)out;
-    return -ENOTSUP;
-}
-
-uint8_t mclw_hal_usb_control_lines(const struct mclw_usb_interface *itf) {
-    (void)itf;
-    return 0;
-}
-
-const char *mclw_hal_usb_serial(void) {
-    return "host";
 }

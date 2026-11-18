@@ -18,6 +18,7 @@ set(METALCLAW_PORT_HOST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/gpio.c
     ${CMAKE_CURRENT_LIST_DIR}/i2c_target.c
     ${CMAKE_CURRENT_LIST_DIR}/uart.c
+    ${CMAKE_CURRENT_LIST_DIR}/usb.c
     ${CMAKE_CURRENT_LIST_DIR}/spi_target.c
     ${CMAKE_CURRENT_LIST_DIR}/spi_sink.c
     ${CMAKE_CURRENT_LIST_DIR}/spi_peer.c

@@ -126,6 +126,78 @@ def test_the_dut_s_bytes_reach_a_uart_model(tmp_path):
         harness.close()
 
 
+BIT_9600 = 1_000_000_000 // 9600
+
+
+def _decode_8n1(edges, bit_ns):
+    # Bytes from (t_ns, level) changes of a line idling high, read mid-bit.
+    def level_at(t):
+        level = 1
+        for at, value in edges:
+            if at > t:
+                break
+            level = value
+        return level
+    out, i = bytearray(), 0
+    while i < len(edges):
+        start, value = edges[i]
+        if value != 0:
+            i += 1
+            continue
+        out.append(sum(level_at(start + (1 + b) * bit_ns + bit_ns // 2) << b for b in range(8)))
+        end = start + 10 * bit_ns
+        while i < len(edges) and edges[i][0] < end - bit_ns // 2:
+            i += 1
+    return bytes(out)
+
+
+def test_a_uart_model_on_pins_no_uart_block_has_goes_bit_by_bit(tmp_path):
+    # A PIO program's UART (uart_pio, pico-examples pio uart_rx): the part's
+    # bytes reach the DUT as levels on its RX pin, a bit every 1/9600 s.
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\ngps = metalclaw.attach('neo_m8n', 'gps', uart=(9, 8))")
+        for _ in range(1500):
+            bridge.advance(1_000_000)
+        assert {"t_ns": 0, "op": "watch", "pin": 8} in bridge.actions or any(
+            a["op"] == "watch" and a["pin"] == 8 for a in bridge.actions)
+        edges = [(a["t_ns"], a["level"]) for a in bridge.actions if a["op"] == "gpio" and a["pin"] == 9]
+        assert not [a for a in bridge.actions if a["op"] == "uart"]
+        text = _decode_8n1(edges[1:], BIT_9600).decode(errors="replace")
+        assert "$G" in text and "\r\n" in text, text[:200]
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_the_dut_s_bits_reach_a_uart_model_on_pins_no_uart_block_has(tmp_path):
+    # The DUT's PIO sends a UBX poll (UBX-MON-VER) bit by bit on GP8, as
+    # the edges the bridge reports; the part answers it.
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\ngps = metalclaw.attach('neo_m8n', 'gps', uart=(9, 8))")
+        bridge.advance(1_000_000)
+        bridge.actions.clear()
+        poll = bytes([0xB5, 0x62, 0x0A, 0x04, 0x00, 0x00, 0x0E, 0x34])
+        t = bridge.t_ns
+        bridge.request(op="gpio", pin=8, level=1, t_ns=t)
+        for byte in poll:
+            level = 1
+            for bit, value in enumerate([0, *((byte >> b) & 1 for b in range(8)), 1]):
+                if value != level:
+                    bridge.request(op="gpio", pin=8, level=value, t_ns=t + bit * BIT_9600)
+                    level = value
+            t += 10 * BIT_9600
+        bridge.t_ns = t
+        for _ in range(300):
+            bridge.advance(1_000_000)
+        edges = [(a["t_ns"], a["level"]) for a in bridge.actions if a["op"] == "gpio" and a["pin"] == 9]
+        assert b"\xb5\x62\x0a\x04" in _decode_8n1(edges, BIT_9600)
+    finally:
+        bridge.close()
+        harness.close()
+
+
 SPI0 = {"bus": 0, "sck": 18, "mosi": 19, "miso": 16}
 
 
@@ -255,18 +327,22 @@ def test_a_quadrature_encoder_steps_its_pins_at_its_rate(tmp_path):
         harness.close()
 
 
-def test_a_jumper_repeats_the_dut_s_levels_on_its_other_pin(tmp_path):
-    # pico-examples' uart and spi loopbacks: the DUT drives GP4, and GP5
-    # reads what it drove.
+def test_a_jumper_joins_its_pins_inside_the_emulator(tmp_path):
+    # pico-examples' uart, spi and i2c loopbacks: the emulator wires GP4 to
+    # GP5 itself, so the DUT's levels need no round trip, and blocks routed
+    # to them talk directly; detaching the jumper parts them.
     harness, bridge = _bridged(tmp_path)
     try:
+        bridge.actions.clear()
         harness.run("import metalclaw\nj = metalclaw.attach('jumper', 'j', source=(4,), sink=(5,))")
         bridge.advance(1_000_000)
+        assert [sorted(a["pins"]) for a in bridge.actions if a["op"] == "join"] == [[4, 5]]
         bridge.actions.clear()
         bridge.request(op="gpio", pin=4, level=0)
-        bridge.request(op="gpio", pin=4, level=1)
-        driven = [(a["pin"], a["level"]) for a in bridge.actions if a["op"] == "gpio"]
-        assert driven[-2:] == [(5, 0), (5, 1)]
+        assert [a for a in bridge.actions if a["op"] == "gpio"] == []
+        harness.run("metalclaw.detach('j')")
+        bridge.advance(1_000_000)
+        assert [sorted(a["pins"]) for a in bridge.actions if a["op"] == "unjoin"] == [[4, 5]]
     finally:
         bridge.close()
         harness.close()
