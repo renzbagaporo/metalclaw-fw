@@ -114,6 +114,9 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("mpu6050", "imu", {"i2c": (4, 5, 0x68)}, {"i2c": 2},
                {"acceleration": (250, -500, 1125), "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
     ),
+    # TI's temperature sensors at 0x48 on I2C0 (GP4/GP5), at 23.5 C.
+    **{f"zephyr/sensor/{sample}": (Attach(model, "thermo", {"i2c": (4, 5, 0x48)}, {"i2c": 2}, {"temperature": 23500}),)
+       for sample, model in (("tmp108", "tmp108"), ("tmp112", "tmp112"), ("tmp11x", "tmp116"))},
     # The CAN samples: the MCP2515 on SPI0 (SCK GP18, MOSI GP19, MISO GP16,
     # CS GP17), INT on GP15.
     **{f"zephyr/{sample}": (Attach("mcp2515", "can", {"spi": (18, 19, 16, 17), "int": (15,)}),)
