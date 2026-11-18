@@ -18,6 +18,8 @@
 #include "host.h"
 #include "json.h"
 
+// The DUT's GPIO lines (the RP2040's and the RP2350A's GP0-GP29).
+#define DUT_LINES 30u
 #define BRIDGE_VERSION 1
 #define LINE_MAX 65536u
 #define REPLY_MAX 262144u
@@ -33,6 +35,7 @@ enum action_kind {
     ACTION_SPI_CLOCK,
     ACTION_JOIN,
     ACTION_UNJOIN,
+    ACTION_PULL,
 };
 
 struct action {
@@ -74,6 +77,7 @@ static struct {
 } spi_buses[SPI_BUSES_MAX];
 
 static char line[LINE_MAX];
+static bool pulls_due;
 
 static int spi_bus_for(uint8_t sck, uint8_t mosi, uint8_t miso) {
     for (size_t i = 0; i < SPI_BUSES_MAX; i++) {
@@ -192,6 +196,10 @@ static size_t put_actions(size_t at) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"%s\",\"pins\":[%u,%u]}", i ? "," : "", a->t_ns,
                     a->kind == ACTION_JOIN ? "join" : "unjoin", a->pin, a->value);
+            } else if (a->kind == ACTION_PULL) {
+                at += (size_t)snprintf(reply + at, REPLY_MAX - at,
+                    "%s{\"t_ns\":%" PRIu64 ",\"op\":\"pull\",\"pin\":%u,\"level\":%u}", i ? "," : "", a->t_ns,
+                    a->pin, a->value);
             } else if (a->kind == ACTION_WATCH) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"watch\",\"pin\":%u}", i ? "," : "", a->t_ns, a->pin);
@@ -287,6 +295,7 @@ static size_t handle_hello(const struct json_node *root) {
     memset(uart_ports, 0, sizeof(uart_ports));
     memset(spi_buses, 0, sizeof(spi_buses));
     bind_blocks(root, true);
+    pulls_due = true;
     return (size_t)snprintf(reply, REPLY_MAX, "{\"version\":%d", BRIDGE_VERSION);
 }
 
@@ -336,6 +345,16 @@ static size_t handle(const char *text, size_t len) {
             mclw_host_advance((uint64_t)t_ns);
         }
         mclw_host_uart_poll(mclw_host_event_ns());
+    }
+    // The host harness is a board that pulls every DUT line up, as the
+    // pico-rp2 fixture's does (METALCLAW_LINE_PULLUPS, variant/
+    // mpconfigvariant.h): a line nothing drives reads high. The pulls go
+    // with the first reply after the hello's.
+    if (pulls_due && !json_is(op, "hello")) {
+        pulls_due = false;
+        for (uint8_t pin = 0; pin < DUT_LINES; pin++) {
+            add_action(mclw_host_event_ns(), ACTION_PULL, pin, 1u);
+        }
     }
     if (json_is(op, "hello")) {
         at = handle_hello(root);
