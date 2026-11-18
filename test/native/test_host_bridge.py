@@ -3,6 +3,8 @@
 # models answer the DUT's I2C as they do on a bench, and their clock is the
 # DUT's virtual time. Needs `just build-host`; skipped without it.
 
+import time
+
 import pytest
 
 from test.native.host import Bridge, HostHarness, default_build
@@ -394,4 +396,22 @@ def test_an_spi_page_controller_clocks_the_dut_and_keeps_its_answers(tmp_path):
         assert harness.run("print(bytes(c.read_region('miso', 0, 4)).hex())") == "fffefdfc"
     finally:
         bridge.close()
+        harness.close()
+
+
+def test_a_command_typed_ahead_of_the_raw_repl_is_kept(tmp_path):
+    # The raw REPL switches its terminal's mode after each command; a
+    # command already waiting then (two sent in one write) still runs.
+    harness = HostHarness(PROGRAM, None)
+    try:
+        port = harness.repl.port
+        port.reset_input_buffer()
+        port.write(b"print(1)\x04print(2)\x04")
+        out = b""
+        deadline = time.monotonic() + 10
+        while out.count(b"\x04") < 4 and time.monotonic() < deadline:
+            out += port.read(port.in_waiting or 1)
+        assert out.count(b"OK") == 2, out
+        assert b"1" in out and b"2" in out, out
+    finally:
         harness.close()

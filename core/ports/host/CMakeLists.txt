@@ -22,6 +22,7 @@ set(METALCLAW_PORT_HOST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/spi_target.c
     ${CMAKE_CURRENT_LIST_DIR}/spi_sink.c
     ${CMAKE_CURRENT_LIST_DIR}/spi_peer.c
+    ${CMAKE_CURRENT_LIST_DIR}/terminal.c
     ${CMAKE_CURRENT_LIST_DIR}/wire.c
     ${CMAKE_CURRENT_LIST_DIR}/bridge.c
     ${CMAKE_CURRENT_LIST_DIR}/json.c

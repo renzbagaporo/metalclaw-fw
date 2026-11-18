@@ -12,3 +12,5 @@ SRC_USERMOD_C += $(METALCLAW_MOD_DIR)/instance.c
 CFLAGS_USERMOD += -I$(METALCLAW_MOD_DIR) -I$(METALCLAW_MOD_DIR)/../include
 
 LDFLAGS_USERMOD += -Wl,--start-group $(METALCLAW_HOST_LIBS) -Wl,--end-group -lpthread
+# The host port's terminal.c: stdin keeps what was typed ahead.
+LDFLAGS_USERMOD += -Wl,--wrap=tcsetattr
