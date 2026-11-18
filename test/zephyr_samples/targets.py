@@ -612,6 +612,13 @@ OWN: dict[str, Spec] = {
         r"^Putting the flash device into suspended state\.\.\. OK$",
         forbidden=(*FORBIDDEN, r"FAILED", r"ERROR at"), seconds=10.0,
         source="samples/drivers/spi_flash_at45/src/main.c"),
+    # samples/drivers/led/is31fl319x/src/main.c: lists the LEDs, then fades
+    # each color of each in turn; its yaml has no harness.
+    "zephyr/drivers/led/is31fl319x": own(
+        r"^LED List$", r"^0: label:RGB LED index:0 num colors:3$",
+        r"^\t3: BLUE$", r"^\t2: GREEN$", r"^\t1: RED$",
+        forbidden=(*FORBIDDEN, r"not ready", r"No device"), seconds=10.0,
+        source="samples/drivers/led/is31fl319x/src/main.c"),
     # samples/drivers/led/is31fl3733/src/main.c: all dots full, a quadrant
     # off a second later, then each dot to half brightness 100 ms apart;
     # its yaml has no harness.

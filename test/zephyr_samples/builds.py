@@ -331,6 +331,9 @@ BUILDS: dict[str, Build] = {
     "zephyr/drivers/led/sx1509b_intensity": Build(
         "drivers/led/sx1509b_intensity", test="sample.drivers.led.sx1509b_intensity", overlays=(
             "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/sx1509b_3e_leds.overlay")),
+    # samples/drivers/led/is31fl319x: an IS31FL3194 at 0x53 on I2C0.
+    "zephyr/drivers/led/is31fl319x": Build("drivers/led/is31fl319x", test="sample.drivers.led.is31fl319x", overlays=(
+        "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/is31fl3194_53.overlay")),
     # samples/drivers/led/is31fl3733: an IS31FL3733 at 0x50 on I2C0.
     "zephyr/drivers/led/is31fl3733": Build("drivers/led/is31fl3733", test="sample.drivers.led.is31fl3733", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/is31fl3733_50.overlay")),
