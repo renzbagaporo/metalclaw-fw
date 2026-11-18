@@ -118,7 +118,24 @@ CORE_ORDER_LIMITS: dict[str, str] = {
                           "do not interleave that tightly",
 }
 
-EMULATOR_LIMITS: dict[str, str] = {**UNPROVISIONED, **SPEED_LIMITS, **CORE_ORDER_LIMITS}
+# uart/lcd_uart/lcd_uart.c:29-31, 101: lcd_init writes 0xFE a few
+# instructions after gpio_set_function hands GP8 to UART1. Until then the
+# pin is undriven and reads low on the fixture (the harness's pull-up
+# against the RP2350 pad's pull-down; measured, 2026-11-18), so the part's
+# receiver takes a frame error and waits for an idle-high line before the
+# next start bit, as a real UART's 16x idle detection does. On silicon the
+# code after gpio_set_function runs cold from XIP flash, and its cache
+# misses hold the line high long enough. The emulator models no XIP fetch
+# latency, so there the line is high for about 1 us, under one 13 us sample
+# at 9600 baud, and the part takes 0x42 alone. Re-judge it if the emulator
+# gains XIP miss timing.
+RACE_LIMITS: dict[str, str] = {
+    "lcd_uart": "the emulator models no XIP flash fetch latency, so lcd_init's first byte follows UART1 taking the "
+                "undriven-low GP8 by about 1 us, under a receiver's idle detection; silicon's cache misses give it "
+                "margin",
+}
+
+EMULATOR_LIMITS: dict[str, str] = {**UNPROVISIONED, **SPEED_LIMITS, **CORE_ORDER_LIMITS, **RACE_LIMITS}
 
 
 # For a DUT image's example.json, or None for a rig image.
