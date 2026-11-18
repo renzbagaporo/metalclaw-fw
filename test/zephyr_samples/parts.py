@@ -146,6 +146,30 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
             Check("part.get('alarms')[0]", lambda v: v >= 2, "both alarm-1 matches", 3.0),
         )),
     ),
+    # The ZFM-20 on uart1 (its RX on the DUT's TX GP8), finger 1 on the
+    # sensor throughout: the sample enrolls IDs 1 and 2 without waiting for
+    # a lift, so both hold that finger.
+    "zephyr/drivers/biometrics/fingerprint": (
+        Attach("zfm20", "fingerprint", {"uart": (9, 8)}, {}, {"finger": 1, "score": 157}, checks=(
+            Check("part.get('templates')", lambda v: v == 1, "template 2 left after the delete", 3.0),
+        )),
+    ),
+    # The MCP4728 at 0x60 on I2C0: the sawtooth's 1 ms steps on channel A.
+    "zephyr/drivers/dac@mcp4728": (
+        Attach("mcp4728", "dac", {"i2c": (4, 5, 0x60)}, {"i2c": 2}, checks=(
+            Check("part.get('writes')", lambda v: v > 300, "the sawtooth's steps written", 3.0),
+            Check("part.get('codes')", lambda v: 0 < v[0] <= 4095 and list(v[1:]) == [0, 0, 0],
+                  "channel A climbing, the rest at their EEPROM's 0", 3.0),
+        )),
+    ),
+    # The AD5693R at 0x4C on I2C0: the driver's reset (read back as 0) and
+    # configuration, then the 16-bit sawtooth's 1 ms steps.
+    "zephyr/drivers/dac@ad5693r": (
+        Attach("ad5693r", "dac", {"i2c": (4, 5, 0x4c)}, {"i2c": 2}, checks=(
+            Check("part.get('writes')", lambda v: v > 300, "the sawtooth's steps written", 3.0),
+            Check("part.get('code')", lambda v: 0 < v < 65536, "the output climbing", 3.0),
+        )),
+    ),
     # The AT24C02C at 0x50 on I2C0, erased at attach: the sample writes its
     # boot counter at offset 0.
     "zephyr/drivers/eeprom": (
