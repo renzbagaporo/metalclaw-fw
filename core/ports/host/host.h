@@ -49,6 +49,10 @@ void mclw_host_event_uart(uint8_t rx_pin, uint8_t byte, uint64_t t_ns);
 // gpio.c: the level the DUT drives on `pin`, 0 or 1, or -1 for released.
 void mclw_host_gpio_dut(uint8_t pin, int level);
 
+// uart.c: bytes the DUT transmitted on `dut_tx_pin`, for the UART that
+// receives on it.
+void mclw_host_uart_receive(uint8_t dut_tx_pin, const uint8_t *bytes, size_t len);
+
 // i2c_target.c, called by the bridge on the worker thread, one bus event
 // at a time as the DUT's controller makes them. start and write return
 // whether the target acknowledges; a START to an address no target

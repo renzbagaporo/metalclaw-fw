@@ -10,7 +10,6 @@
 #include "metalclaw/hal/spi_sink.h"
 #include "metalclaw/hal/spi_target.h"
 #include "metalclaw/hal/swd.h"
-#include "metalclaw/hal/uart.h"
 #include "metalclaw/hal/usb.h"
 #include "metalclaw/hal/wire.h"
 
@@ -187,58 +186,6 @@ bool mclw_hal_spi_peer_busy(const struct mclw_spi_peer *peer) {
 uint32_t mclw_hal_spi_peer_count(const struct mclw_spi_peer *peer) {
     (void)peer;
     return 0;
-}
-
-// ---- UART --------------------------------------------------------------------
-
-struct mclw_uart *mclw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t baud,
-    const struct mclw_uart_format *format, const void *owner, int *err) {
-    (void)tx;
-    (void)rx;
-    (void)baud;
-    (void)format;
-    (void)owner;
-    *err = -ENOTSUP;
-    return NULL;
-}
-
-void mclw_hal_uart_close(struct mclw_uart *uart) {
-    (void)uart;
-}
-
-int mclw_hal_uart_set_baud(struct mclw_uart *uart, uint32_t baud) {
-    (void)uart;
-    (void)baud;
-    return -ENOTSUP;
-}
-
-uint32_t mclw_hal_uart_baud(const struct mclw_uart *uart) {
-    (void)uart;
-    return 0;
-}
-
-int mclw_hal_uart_set_format(struct mclw_uart *uart, const struct mclw_uart_format *format) {
-    (void)uart;
-    (void)format;
-    return -ENOTSUP;
-}
-
-void mclw_hal_uart_set_rx(struct mclw_uart *uart, mclw_uart_rx_t fn, void *ctx) {
-    (void)uart;
-    (void)fn;
-    (void)ctx;
-}
-
-size_t mclw_hal_uart_send(struct mclw_uart *uart, const uint8_t *bytes, size_t len) {
-    (void)uart;
-    (void)bytes;
-    (void)len;
-    return 0;
-}
-
-void mclw_hal_uart_stats(const struct mclw_uart *uart, struct mclw_uart_stats *out) {
-    (void)uart;
-    *out = (struct mclw_uart_stats){ 0 };
 }
 
 // ---- Wire --------------------------------------------------------------------

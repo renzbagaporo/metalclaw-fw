@@ -212,6 +212,25 @@ static size_t handle(const char *text, size_t len) {
         at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else if (json_is(op, "i2c")) {
         at = handle_i2c(root);
+    } else if (json_is(op, "uart")) {
+        int64_t port = json_int(&doc, root, "port", -1);
+        const struct json_node *data = json_get(&doc, root, "data");
+        uint8_t bytes[1024];
+        size_t n = 0;
+
+        if (data != NULL && data->kind == JSON_NUMBER) {
+            bytes[n++] = (uint8_t)data->number;
+        }
+        for (const struct json_node *b = data != NULL && data->kind == JSON_ARRAY ? json_child(&doc, data) : NULL;
+             b != NULL && n < sizeof(bytes); b = json_next(&doc, b)) {
+            bytes[n++] = (uint8_t)b->number;
+        }
+        if (port >= 0 && port < (int64_t)UART_PORTS_MAX && uart_ports[port].used) {
+            mclw_host_uart_receive(uart_ports[port].tx, bytes, n);
+            at = (size_t)snprintf(reply, REPLY_MAX, "{");
+        } else {
+            at = (size_t)snprintf(reply, REPLY_MAX, "{\"error\":\"unknown uart port\"");
+        }
     } else if (json_is(op, "gpio")) {
         const struct json_node *level = json_get(&doc, root, "level");
         int value = level != NULL && level->kind == JSON_NUMBER ? (level->number != 0) : -1;

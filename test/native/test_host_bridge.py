@@ -80,3 +80,47 @@ def test_the_lp3943_takes_the_samples_led_writes(bridged):
     assert int(harness.run("print(leds.selectors)")) == 0x01
     # Input 1 (00h) reads the LED switched on as low.
     assert bridge.i2c(0, 0x60, write=b"\x00", read=1) == b"\xfe"
+
+
+def test_a_gnss_streams_nmea_to_the_dut_at_its_baud_rate(tmp_path):
+    # The DUT's UART1 on GP8 (TX) and GP9 (RX); the part sends on the DUT's
+    # RX and listens on its TX. A NEO-M8N's NMEA starts at 9600 8N1: a byte
+    # every 10 bit times.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(uart=[{"port": 1, "tx": 8, "rx": 9}])
+        harness.run("import metalclaw\ngps = metalclaw.attach('neo_m8n', 'gps', uart=(9, 8))")
+        for _ in range(1500):
+            bridge.advance(1_000_000)
+        sent = [a for a in bridge.actions if a["op"] == "uart"]
+        text = bytes(a["data"] for a in sent).decode(errors="replace")
+        assert all(a["port"] == 1 for a in sent)
+        assert "$G" in text and "\r\n" in text, text[:200]
+        gaps = {b["t_ns"] - a["t_ns"] for a, b in zip(sent, sent[1:])}
+        assert min(gaps) >= 10 * 1_000_000_000 // 9600 - 1
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_the_dut_s_bytes_reach_a_uart_model(tmp_path):
+    # A UBX poll from the DUT (UBX-MON-VER, 0A 04, no payload) is answered.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(uart=[{"port": 1, "tx": 8, "rx": 9}])
+        harness.run("import metalclaw\ngps = metalclaw.attach('neo_m8n', 'gps', uart=(9, 8))")
+        poll = bytes([0xB5, 0x62, 0x0A, 0x04, 0x00, 0x00, 0x0E, 0x34])
+        bridge.advance(1_000_000)
+        bridge.actions.clear()
+        bridge.request(op="uart", port=1, data=list(poll))
+        for _ in range(300):
+            bridge.advance(1_000_000)
+        sent = bytes(a["data"] for a in bridge.actions if a["op"] == "uart")
+        assert b"\xb5\x62\x0a\x04" in sent
+    finally:
+        bridge.close()
+        harness.close()
