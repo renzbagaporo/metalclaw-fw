@@ -43,6 +43,8 @@ USB_MAIN_CTRL, USB_SIE_CTRL = 0x50110000 + 0x40, 0x50110000 + 0x4C
 # core halted by debug pauses the timer (TIMER DBGPAUSE), and a program
 # that ends in a breakpoint does that.
 STALL_S = 5.0
+# Samples between two reads of the watched pins' pads.
+PADS_EVERY = 8
 
 
 def bootsel(link, chip, pressed: bool) -> None:
@@ -78,24 +80,39 @@ def watch(memory, chip, seconds, pins=(), link=None, actions=()):
     samples = []
     pending = sorted(actions, key=lambda a: a[0])
     with (link or memory.link()) as l:
-        # A watched pin whose pad input is off is read from what drives its
-        # output (OUTTOPAD), while something does.
-        no_input = {pin for pin in pins if not l.read_words(PADS[chip] + 4 * pin, 1)[0] & PAD_IE}
         last = l.read_words(timer, 1)[0]
+        sampled, pads = 0, [PAD_IE] * len(pins)
         unwrapped = 0
         moved = time.monotonic()
         while unwrapped < seconds * 1e6:
             while pending and pending[0][0] * 1e6 <= unwrapped:
                 pending.pop(0)[1](l)
-            levels = l.read_words(gpio_in, 1)[0]
+            # The pads every PADS_EVERY samples: a program sets them up
+            # once, perhaps after the watch began. A link that reads
+            # scattered words in one go (the native platform's monitor)
+            # takes a sample's reads at once.
+            fresh_pads = sampled % PADS_EVERY == 0
+            addresses = [gpio_in, *(io_bank0 + 8 * pin for pin in pins), timer]
+            if fresh_pads:
+                addresses += [PADS[chip] + 4 * pin for pin in pins]
+            if hasattr(l, "read_scattered"):
+                words = l.read_scattered(addresses)
+            else:
+                words = [l.read_words(a, 1)[0] for a in addresses]
+            levels, statuses, now = words[0], words[1:1 + len(pins)], words[1 + len(pins)]
+            if fresh_pads:
+                pads = words[2 + len(pins):]
+            sampled += 1
             driven = 0
-            for pin in pins:
-                status = l.read_words(io_bank0 + 8 * pin, 1)[0]
+            for pin, status, pad in zip(pins, statuses, pads):
                 if status & STATUS_OETOPAD:
                     driven |= 1 << pin
-                    if pin in no_input:
+                    # A driven pin whose pad input is off is read from
+                    # what drives it (OUTTOPAD). Read at each sample: the
+                    # program turns the input off as it sets the pin up,
+                    # which may come after the watch began.
+                    if not pad & PAD_IE:
                         levels = (levels & ~(1 << pin)) | (bool(status & STATUS_OUTTOPAD) << pin)
-            now = l.read_words(timer, 1)[0]
             if now != last:
                 moved = time.monotonic()
             elif time.monotonic() - moved > STALL_S:

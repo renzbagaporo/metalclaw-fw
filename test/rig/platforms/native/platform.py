@@ -116,6 +116,17 @@ class Monitor:
         at = self.buf.rfind(echo)
         return self.buf[at + len(echo):].decode(errors="replace")
 
+    # Word reads in one round trip. Sent together, the commands' echoes
+    # come before their answers, so each answer is taken as what it alone
+    # is: a line holding one 32-bit hex value, in order.
+    WORD = re.compile(rb"(?m)^\s*0x([0-9A-Fa-f]{8})\s*$")
+
+    def read_words_at(self, addresses, timeout: float = 30.0) -> list[int]:
+        self.buf = b""
+        self.sock.sendall("".join(f"sysbus ReadDoubleWord {a:#x}\n" for a in addresses).encode())
+        self._fill_until(lambda: len(self.WORD.findall(self.buf)) >= len(addresses), timeout)
+        return [int(w, 16) for w in self.WORD.findall(self.buf)[:len(addresses)]]
+
     def close(self) -> None:
         self.sock.close()
 
@@ -355,6 +366,10 @@ class MonitorMemory:
             part = data[at:at + self.CHUNK]
             self.bench.monitor.command(f"sysbus WriteBytes [{', '.join(f'{b:#04x}' for b in part)}] "
                                        f"{address + at:#x}")
+
+    # One word at each address, in one round trip: a pin watch's sample.
+    def read_scattered(self, addresses) -> list[int]:
+        return self.bench.monitor.read_words_at(list(addresses))
 
     def write_when_reachable(self, address: int, words, seconds: float) -> None:
         self.write_words(address, words)
