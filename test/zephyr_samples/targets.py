@@ -516,6 +516,11 @@ OWN: dict[str, Spec] = {
                                      source="samples/drivers/fuel_gauge/src/main.c"),
     # samples/drivers/auxdisplay/src/main.c: writes its greeting and logs
     # only a failure; the part's DDRAM judges it.
+    # samples/sensor/max6675/src/main.c:45: a reading a second. Its yaml
+    # takes any number; the part holds 123.25 C, a whole count of 0.25 C.
+    "zephyr/sensor/max6675": own(*(r"^Temperature: 123\.25 C$",) * 2,
+                                 forbidden=(*FORBIDDEN, r"Could not", r"not ready"), seconds=5.0,
+                                 source="samples/sensor/max6675/src/main.c"),
     # samples/sensor/magn_polling/src/main.c:36 and magn_trig/src/main.c:54:
     # the field in gauss, Zephyr's AK8963 driver scaling counts by 1499 uG
     # at a sensitivity adjustment of 128 (drivers/sensor/tdk/mpu9250/
