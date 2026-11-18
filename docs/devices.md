@@ -51,6 +51,7 @@ I2C;
 [`lp5562`](../devices/lp5562/README.md), TI's LP5562 RGBW LED driver on I2C;
 [`is31fl3216a`](../devices/is31fl3216a/README.md), ISSI's IS31FL3216A
 16-channel LED driver on I2C;
+[`sx1509b`](../devices/sx1509b/README.md), Semtech's SX1509B I/O expander with
 [`ft5336`](../devices/ft5336/README.md), FocalTech's FT5336 touch controller
 on I2C;
 [`lp50xx`](../devices/lp50xx/README.md), TI's LP5012 RGB LED driver on I2C, as
