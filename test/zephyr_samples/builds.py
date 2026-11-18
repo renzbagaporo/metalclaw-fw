@@ -423,5 +423,9 @@ BUILDS: dict[str, Build] = {
                                 other_boards="the RP2350 has no RTC; its build takes a pcf8523 part (wave 1e)"),
     # samples/drivers/adc/adc_dt: its rpi_pico overlay's ADC channels;
     # upstream's platform_allow leaves the RP2 boards out.
-    "zephyr/drivers/adc/adc_dt": Build("drivers/adc/adc_dt", test="sample.drivers.adc.adc_dt"),
+    # The sample reads into an uninitialised uint32_t (src/main.c:37) that
+    # the RP2 driver fills 16 bits of (adc_rpi_pico.c:231), so its upper half
+    # is whatever the stack held (0x1000 on the Pico 2): locals start at zero.
+    "zephyr/drivers/adc/adc_dt": Build("drivers/adc/adc_dt", test="sample.drivers.adc.adc_dt",
+                                       args=("EXTRA_CFLAGS=-ftrivial-auto-var-init=zero",)),
 }

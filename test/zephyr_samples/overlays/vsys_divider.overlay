@@ -31,3 +31,16 @@
 		zephyr,vref-mv = <3300>;
 	};
 };
+
+/*
+ * The ADC pins without their digital input, as pico-sdk's adc_gpio_init
+ * leaves them: the boards' adc_default group enables it
+ * (boards/raspberrypi/common/rpi_pico-pinctrl-common.dtsi), and on the
+ * RP2350 an enabled input leaks enough (erratum RP2350-E9) to lift the
+ * VSYS divider's 67 kOhm tap to about 2.2 V, which reads as 6.6 V.
+ */
+&adc_default {
+	group1 {
+		/delete-property/ input-enable;
+	};
+};
