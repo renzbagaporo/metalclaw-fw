@@ -46,6 +46,8 @@ gyroscope on SPI or I2C;
 SPI, as the model `w25q16jv`;
 [`lps22hb`](../devices/lps22hb/README.md), ST's LPS22HB pressure sensor on
 I2C;
+[`zfm20`](../devices/zfm20/README.md), ZhianTec's ZFM-20 fingerprint module
+on a UART;
 [`lsm6dso`](../devices/lsm6dso/README.md), ST's LSM6DSO and LSM6DSL 6-axis
 IMUs on I2C with their INT1 pin, two models;
 [`veml60xx`](../devices/veml60xx/README.md), Vishay's VEML6031X00 and
