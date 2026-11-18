@@ -15,6 +15,9 @@
 #define UDP_HEADER 8u
 #define UDP_PORT_DNS 53u
 
-void udp_input(struct ip *ip, const uint8_t src[4], const uint8_t dst[4], const uint8_t *dgram, size_t len);
+void udp_input(struct ip *ip, const uint8_t src[4], const uint8_t dst[4], const uint8_t *dgram, size_t len,
+    uint64_t now_us);
+// The receive service's report, once its sender has gone quiet.
+void udp_tick(struct ip *ip, uint64_t now_us);
 
 #endif

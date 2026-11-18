@@ -21,7 +21,8 @@
 #include "ip.h"
 
 #define PPP_MRU_MIN 128u
-#define PPP_MRU_MAX 576u
+// A full Ethernet-sized datagram, as a real module's LCP offers.
+#define PPP_MRU_MAX 1500u
 // Small enough that a full segment crosses 115200 baud in about 29 ms,
 // so the model's ACKs stay far inside Zephyr's fixed 200 ms RTO.
 #define PPP_MRU_DEFAULT 296u

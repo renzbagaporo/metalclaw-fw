@@ -94,6 +94,7 @@ void ip_open(struct ip *ip, uint16_t mtu) {
 void ip_close(struct ip *ip) {
     tcp_close_all(ip);
     ip->slot.busy = false;
+    ip->receive.active = false;
     ip->rst.busy = false;
 }
 
@@ -146,7 +147,7 @@ void ip_input(struct ip *ip, const uint8_t *pkt, size_t len, uint64_t now_us) {
             tcp_input(ip, src, dst, &pkt[ihl], total - ihl, now_us);
             break;
         case IP_PROTO_UDP:
-            udp_input(ip, src, dst, &pkt[ihl], total - ihl);
+            udp_input(ip, src, dst, &pkt[ihl], total - ihl, now_us);
             break;
         case IP_PROTO_ICMP:
             icmp_input(ip, src, dst, &pkt[ihl], total - ihl);
@@ -198,4 +199,5 @@ size_t ip_output(struct ip *ip, uint8_t *out, size_t max, uint64_t now_us) {
 
 void ip_tick(struct ip *ip, uint64_t now_us) {
     tcp_tick(ip, now_us);
+    udp_tick(ip, now_us);
 }
