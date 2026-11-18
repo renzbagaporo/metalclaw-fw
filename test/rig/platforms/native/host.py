@@ -30,11 +30,18 @@ def _raw_pty() -> tuple[int, int]:
 
 class HostProcess:
     """The host harness, bridged at `socket_path` (None for standalone), its
-    REPL at the terminal `self.path`."""
+    REPL at the terminal `self.path`; with `usb_dir`, its USB serial
+    functions are terminals linked there by interface string."""
 
     def __init__(self, program: Path, socket_path: Path | None = None, log: Path | None = None,
-                 timeout: float = 10.0):
+                 timeout: float = 10.0, usb_dir: Path | None = None):
         env = dict(os.environ)
+        if usb_dir is not None:
+            usb_dir.mkdir(parents=True, exist_ok=True)
+            for stale in usb_dir.iterdir():
+                stale.unlink()
+            env["METALCLAW_USB_DIR"] = str(usb_dir)
+        self.usb_dir = usb_dir
         if socket_path is None:
             env.pop("METALCLAW_BRIDGE", None)
         else:

@@ -60,6 +60,8 @@ REPL_MIN_S = 20.0
 # pin it is on.
 NATIVE_FIXTURE = {
     **FIXTURE,
+    # The harness's side of the DUT's console: its TX is the DUT's RX (GP1).
+    "uart": {"tx": 1, "rx": 0},
     "dut_pins": {p: (p,) for p in range(30)},
     "analog_pins": (),
     "idle": {},
@@ -229,7 +231,8 @@ class NativeBench:
         rom.unlink(missing_ok=True)
         subprocess.run(["python3", str(self.renode_dir / MASK_ROM_EXTRACTOR), str(self.roms / ROMS[self.chip]),
                         str(rom)], check=True, capture_output=True, text=True)
-        self.host = HostProcess(host_harness_program(), self.socket_path, log=self.work / "host.log")
+        self.host = HostProcess(host_harness_program(), self.socket_path, log=self.work / "host.log",
+                                usb_dir=self.work / "usb")
         commands = [
             f"$dut_rom=@{rom}",
             f"$console_port={self.console_port}",
@@ -312,8 +315,24 @@ class NativeHarness:
             elif time.monotonic() - moved > CLOCK_STALL_S:
                 raise TimeoutError(f"the DUT's clock stood at {now:.3f} s for {CLOCK_STALL_S:.0f} s of wall time")
 
-    def dut_console(self) -> str:
-        return self.bench.console.path
+    # A serial function the harness serves for an attached device, by its
+    # interface string: the host's terminal for it.
+    def serial_port(self, interface: str, timeout: float = 15.0) -> str:
+        link = self.bench.host.usb_dir / interface
+        deadline = time.monotonic() + timeout * REPL_STRETCH
+        while not link.exists():
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"the host harness serves no serial port {interface!r}")
+            time.sleep(0.05)
+        return os.path.realpath(link)
+
+    def wait_interface(self, name: str, present: bool = True, timeout: float = 15.0) -> None:
+        link = self.bench.host.usb_dir / name
+        deadline = time.monotonic() + timeout * REPL_STRETCH
+        while link.exists() != present:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"the host harness did not {'add' if present else 'drop'} {name!r}")
+            time.sleep(0.05)
 
     def close(self) -> None:
         if self._held is not None:
@@ -408,8 +427,6 @@ class NativeExample:
 NATIVE_SKIPS = {
     "devices/swd_probe/": "the SWD probe is the harness's USB debug probe; native mode reaches the DUT's memory "
                           "through Renode's monitor instead",
-    "devices/console_bridge/": "the console bridge is a USB serial function of the harness; native mode reads the "
-                               "DUT's console from Renode",
 }
 
 

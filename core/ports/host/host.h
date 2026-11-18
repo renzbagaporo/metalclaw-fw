@@ -56,6 +56,16 @@ void mclw_host_gpio_dut(uint8_t pin, int level);
 // uart.c: bytes the DUT transmitted on `dut_tx_pin`, for the UART that
 // receives on it.
 void mclw_host_uart_receive(uint8_t dut_tx_pin, const uint8_t *bytes, size_t len);
+// A level the DUT drove on a pin, for a bit-level UART that receives on it.
+void mclw_host_uart_edge(uint8_t pin, int level, uint64_t t_ns);
+// The DUT's UARTs moved: a line that now carries bits is watched.
+void mclw_host_uart_route_changed(void);
+// Ends the bit-level frames that are over by `now_ns`.
+void mclw_host_uart_poll(uint64_t now_ns);
+// bridge.c: whether a bridged UART block of the DUT's has `pin` as its TX,
+// or RX, now: its bytes go whole.
+bool mclw_host_pin_is_uart_tx(uint8_t pin);
+bool mclw_host_pin_is_uart_rx(uint8_t pin);
 
 // spi_target.c: the DUT's chip select on `pin`, and one frame on the bus
 // at `sck` (-ENODEV when no target there is selected).

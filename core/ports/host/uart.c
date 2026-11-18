@@ -4,7 +4,10 @@
 // the model's on_rx on the worker under the runtime lock, as on the rp2
 // port; a model's send() becomes uart actions toward the DUT, one per
 // byte, each at the time it would finish at the UART's baud rate and
-// frame, after the bytes queued before it.
+// frame, after the bytes queued before it. On pins no UART block of the
+// DUT's has (a PIO program's UART), the line goes bit by bit instead: the
+// DUT's TX is decoded from the edges the bridge reports, sampled mid-bit,
+// and bytes toward the DUT go as timed level actions on its RX pin.
 
 #include <errno.h>
 #include <stddef.h>
@@ -18,6 +21,8 @@
 
 #define UARTS_MAX 4u
 #define RX_RING 4096u
+// Edges kept for one frame: start, data, parity and stop bits.
+#define FRAME_EDGES 16u
 
 struct mclw_uart {
     const void *owner;
@@ -33,16 +38,121 @@ struct mclw_uart {
     uint32_t tail;
     // When the last byte sent toward the DUT finishes, in virtual ns.
     uint64_t tx_busy_until_ns;
+    // A frame being decoded from the DUT's edges: when its start bit
+    // fell, and each edge since.
+    bool in_frame;
+    uint64_t frame_start_ns;
+    uint8_t edge_count;
+    uint64_t edge_ns[FRAME_EDGES];
+    uint8_t edge_level[FRAME_EDGES];
+    // Whether the DUT's TX is watched, and the DUT's RX driven idle, for
+    // a line that carries bits.
+    bool watched;
+    bool idled;
     struct mclw_uart_stats stats;
     struct mclw_work work;
 };
 
 static struct mclw_uart uarts[UARTS_MAX];
 
-static uint64_t frame_ns(const struct mclw_uart *u) {
-    uint32_t bits = 1u + u->format.data_bits + u->format.stop_bits + (u->format.parity != MCLW_UART_PARITY_NONE);
+static uint32_t frame_bits(const struct mclw_uart *u) {
+    return 1u + u->format.data_bits + u->format.stop_bits + (u->format.parity != MCLW_UART_PARITY_NONE);
+}
 
-    return u->baud != 0u ? (uint64_t)bits * 1000000000u / u->baud : 0u;
+static uint64_t frame_ns(const struct mclw_uart *u) {
+    return u->baud != 0u ? (uint64_t)frame_bits(u) * 1000000000u / u->baud : 0u;
+}
+
+// Bit `bit` of a frame, 0 the start bit, in virtual ns from its start.
+static uint64_t bit_at_ns(const struct mclw_uart *u, uint32_t bit) {
+    return (uint64_t)bit * 1000000000u / u->baud;
+}
+
+static void ring_put(struct mclw_uart *u, uint8_t byte) {
+    if (u->head - u->tail >= RX_RING) {
+        u->stats.ring_overruns++;
+        u->stats.overruns++;
+    } else {
+        u->ring[u->head++ % RX_RING] = byte;
+        u->stats.bytes_rx++;
+    }
+}
+
+// The line's level at `t_ns` within the frame being decoded.
+static int frame_level(const struct mclw_uart *u, uint64_t t_ns) {
+    int level = 0;
+
+    for (uint8_t i = 0; i < u->edge_count && u->edge_ns[i] <= t_ns; i++) {
+        level = u->edge_level[i];
+    }
+    return level;
+}
+
+// Ends the frame being decoded once the middle of its last stop bit has
+// gone by: its data bits, LSB first, each read at its middle. Called with
+// the critical section held; true when a byte went into the ring.
+static bool frame_finish(struct mclw_uart *u, uint64_t now_ns) {
+    uint32_t bits = frame_bits(u);
+    uint64_t start = u->frame_start_ns;
+    uint8_t byte = 0;
+
+    if (!u->in_frame || now_ns < start + bit_at_ns(u, bits - 1u) + bit_at_ns(u, 1u) / 2u) {
+        return false;
+    }
+    for (uint32_t i = 0; i < u->format.data_bits && i < 8u; i++) {
+        uint64_t mid = start + bit_at_ns(u, 1u + i) + bit_at_ns(u, 1u) / 2u;
+
+        byte |= (uint8_t)(frame_level(u, mid) << i);
+    }
+    u->in_frame = false;
+    if (frame_level(u, start + bit_at_ns(u, bits - 1u) + bit_at_ns(u, 1u) / 2u) == 0) {
+        u->stats.frame_errors++;
+    }
+    ring_put(u, byte);
+    return true;
+}
+
+void mclw_host_uart_edge(uint8_t pin, int level, uint64_t t_ns) {
+    bool got = false;
+    struct mclw_uart *found = NULL;
+    uint32_t state = mclw_hal_critical_enter();
+
+    for (size_t i = 0; i < UARTS_MAX; i++) {
+        struct mclw_uart *u = &uarts[i];
+
+        if (u->owner == NULL || u->rx != pin || u->baud == 0u || mclw_host_pin_is_uart_tx(pin)) {
+            continue;
+        }
+        found = u;
+        got |= frame_finish(u, t_ns);
+        if (!u->in_frame) {
+            if (level == 0) {
+                u->in_frame = true;
+                u->frame_start_ns = t_ns;
+                u->edge_count = 0;
+            }
+        } else if (u->edge_count < FRAME_EDGES) {
+            u->edge_ns[u->edge_count] = t_ns;
+            u->edge_level[u->edge_count] = level != 0;
+            u->edge_count++;
+        }
+    }
+    mclw_hal_critical_exit(state);
+    if (got) {
+        mclw_hal_work_post(&found->work);
+    }
+}
+
+void mclw_host_uart_poll(uint64_t now_ns) {
+    for (size_t i = 0; i < UARTS_MAX; i++) {
+        uint32_t state = mclw_hal_critical_enter();
+        bool got = uarts[i].owner != NULL && frame_finish(&uarts[i], now_ns);
+
+        mclw_hal_critical_exit(state);
+        if (got) {
+            mclw_hal_work_post(&uarts[i].work);
+        }
+    }
 }
 
 static void rx_deliver(struct mclw_work *work) {
@@ -81,13 +191,7 @@ void mclw_host_uart_receive(uint8_t dut_tx_pin, const uint8_t *bytes, size_t len
     }
     if (found != NULL) {
         for (size_t i = 0; i < len; i++) {
-            if (found->head - found->tail >= RX_RING) {
-                found->stats.ring_overruns++;
-                found->stats.overruns++;
-            } else {
-                found->ring[found->head++ % RX_RING] = bytes[i];
-                found->stats.bytes_rx++;
-            }
+            ring_put(found, bytes[i]);
         }
     }
     mclw_hal_critical_exit(state);
@@ -135,7 +239,28 @@ struct mclw_uart *mclw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t baud,
     u->work.ctx = u;
     u->owner = owner;
     mclw_hal_critical_exit(state);
+    mclw_host_uart_route_changed();
     return u;
+}
+
+// A line that carries bits has the DUT's TX watched, and the DUT's RX
+// driven high, idle; a bridged UART's bytes need neither. A watch stays.
+void mclw_host_uart_route_changed(void) {
+    for (size_t i = 0; i < UARTS_MAX; i++) {
+        struct mclw_uart *u = &uarts[i];
+
+        if (u->owner == NULL) {
+            continue;
+        }
+        if (!u->watched && !mclw_host_pin_is_uart_tx(u->rx)) {
+            u->watched = true;
+            mclw_host_event_watch(u->rx);
+        }
+        if (!u->idled && !mclw_host_pin_is_uart_rx(u->tx)) {
+            u->idled = true;
+            mclw_host_event_gpio(u->tx, MCLW_HOST_GPIO_HIGH);
+        }
+    }
 }
 
 void mclw_hal_uart_close(struct mclw_uart *u) {
@@ -177,6 +302,33 @@ void mclw_hal_uart_set_rx(struct mclw_uart *u, mclw_uart_rx_t fn, void *ctx) {
     mclw_hal_critical_exit(state);
 }
 
+// One frame as level actions on the DUT's RX pin from `at`: a start bit,
+// the data LSB first, the parity, and the stop bits; only changes go out.
+static void send_bits(const struct mclw_uart *u, uint8_t byte, uint64_t at) {
+    uint32_t bits = frame_bits(u);
+    uint32_t ones = 0;
+    int last = 1;
+
+    for (uint32_t bit = 0; bit < bits; bit++) {
+        int level;
+
+        if (bit == 0u) {
+            level = 0;
+        } else if (bit <= u->format.data_bits) {
+            level = (byte >> (bit - 1u)) & 1;
+            ones += (uint32_t)level;
+        } else if (bit == u->format.data_bits + 1u && u->format.parity != MCLW_UART_PARITY_NONE) {
+            level = (int)((ones & 1u) ^ (u->format.parity == MCLW_UART_PARITY_ODD));
+        } else {
+            level = 1;
+        }
+        if (level != last) {
+            mclw_host_event_gpio_at(u->tx, level ? MCLW_HOST_GPIO_HIGH : MCLW_HOST_GPIO_LOW, at + bit_at_ns(u, bit));
+            last = level;
+        }
+    }
+}
+
 size_t mclw_hal_uart_send(struct mclw_uart *u, const uint8_t *bytes, size_t len) {
     uint64_t frame = frame_ns(u);
     uint32_t state = mclw_hal_critical_enter();
@@ -185,9 +337,15 @@ size_t mclw_hal_uart_send(struct mclw_uart *u, const uint8_t *bytes, size_t len)
     if (u->tx_busy_until_ns > at) {
         at = u->tx_busy_until_ns;
     }
+    bool bytes_whole = mclw_host_pin_is_uart_rx(u->tx);
+
     for (size_t i = 0; i < len; i++) {
+        if (bytes_whole) {
+            mclw_host_event_uart(u->tx, bytes[i], at + frame);
+        } else {
+            send_bits(u, bytes[i], at);
+        }
         at += frame;
-        mclw_host_event_uart(u->tx, bytes[i], at);
     }
     u->tx_busy_until_ns = at;
     u->stats.bytes_tx += (uint32_t)len;

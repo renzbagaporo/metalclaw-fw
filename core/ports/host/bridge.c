@@ -54,8 +54,13 @@ static struct {
     uint8_t scl;
 } i2c_buses[I2C_BUSES_MAX];
 
+// A UART the hello names is bridged: its bytes come as uart requests and
+// go as uart actions while the latest route has it on its pins. Any other
+// UART's pins (the console's UART0, a PIO program's) carry bits.
 static struct {
     bool used;
+    bool bridged;
+    bool routed;
     // The DUT's pins: its TX is this side's receive line.
     uint8_t tx;
     uint8_t rx;
@@ -129,6 +134,24 @@ void mclw_host_event_watch(uint8_t pin) {
 
 void mclw_host_event_uart(uint8_t rx_pin, uint8_t byte, uint64_t t_ns) {
     add_action(t_ns, ACTION_UART, rx_pin, byte);
+}
+
+bool mclw_host_pin_is_uart_tx(uint8_t pin) {
+    for (size_t i = 0; i < UART_PORTS_MAX; i++) {
+        if (uart_ports[i].bridged && uart_ports[i].routed && uart_ports[i].tx == pin) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool mclw_host_pin_is_uart_rx(uint8_t pin) {
+    for (size_t i = 0; i < UART_PORTS_MAX; i++) {
+        if (uart_ports[i].bridged && uart_ports[i].routed && uart_ports[i].rx == pin) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static int uart_port_for_rx(uint8_t rx_pin) {
@@ -215,7 +238,7 @@ static bool i2c_pins(const struct json_node *root, int64_t bus, uint8_t *sda, ui
 // The buses' and ports' DUT pins, from a hello or a route report: each
 // block named replaces its pins; a block not named keeps them (a bus the
 // emulator decodes from pins, which no routing moves).
-static void bind_blocks(const struct json_node *root) {
+static void bind_blocks(const struct json_node *root, bool hello) {
     const struct json_node *list = json_get(&doc, root, "i2c");
 
     for (const struct json_node *b = json_child(&doc, list); b != NULL; b = json_next(&doc, b)) {
@@ -227,16 +250,25 @@ static void bind_blocks(const struct json_node *root) {
             i2c_buses[bus].scl = (uint8_t)json_int(&doc, b, "scl", 0);
         }
     }
+    // A route names every UART that has pins: one it leaves out has none.
     list = json_get(&doc, root, "uart");
+    if (!hello) {
+        for (size_t i = 0; i < UART_PORTS_MAX; i++) {
+            uart_ports[i].routed = false;
+        }
+    }
     for (const struct json_node *u = json_child(&doc, list); u != NULL; u = json_next(&doc, u)) {
         int64_t port = json_int(&doc, u, "port", -1);
 
         if (port >= 0 && port < (int64_t)UART_PORTS_MAX) {
             uart_ports[port].used = true;
+            uart_ports[port].bridged |= hello;
+            uart_ports[port].routed = true;
             uart_ports[port].tx = (uint8_t)json_int(&doc, u, "tx", 0);
             uart_ports[port].rx = (uint8_t)json_int(&doc, u, "rx", 0);
         }
     }
+    mclw_host_uart_route_changed();
     list = json_get(&doc, root, "spi");
     for (const struct json_node *b = json_child(&doc, list); b != NULL; b = json_next(&doc, b)) {
         int64_t bus = json_int(&doc, b, "bus", -1);
@@ -254,7 +286,7 @@ static size_t handle_hello(const struct json_node *root) {
     memset(i2c_buses, 0, sizeof(i2c_buses));
     memset(uart_ports, 0, sizeof(uart_ports));
     memset(spi_buses, 0, sizeof(spi_buses));
-    bind_blocks(root);
+    bind_blocks(root, true);
     return (size_t)snprintf(reply, REPLY_MAX, "{\"version\":%d", BRIDGE_VERSION);
 }
 
@@ -303,11 +335,12 @@ static size_t handle(const char *text, size_t len) {
         if (t_ns >= 0) {
             mclw_host_advance((uint64_t)t_ns);
         }
+        mclw_host_uart_poll(mclw_host_event_ns());
     }
     if (json_is(op, "hello")) {
         at = handle_hello(root);
     } else if (json_is(op, "route")) {
-        bind_blocks(root);
+        bind_blocks(root, false);
         at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else if (json_is(op, "tick")) {
         at = (size_t)snprintf(reply, REPLY_MAX, "{");
@@ -329,6 +362,8 @@ static size_t handle(const char *text, size_t len) {
         if (port >= 0 && port < (int64_t)UART_PORTS_MAX && (uart_ports[port].used ||
                 json_get(&doc, root, "pins") != NULL)) {
             uart_ports[port].used = true;
+            uart_ports[port].bridged = true;
+            uart_ports[port].routed = true;
             uart_ports[port].tx = pin_or(root, "tx", uart_ports[port].tx);
             uart_ports[port].rx = pin_or(root, "rx", uart_ports[port].rx);
             mclw_host_uart_receive(uart_ports[port].tx, bytes, n);
@@ -372,6 +407,9 @@ static size_t handle(const char *text, size_t len) {
 
         mclw_host_gpio_dut(pin, value);
         mclw_host_wire_edge(pin, value, mclw_host_event_ns());
+        if (value >= 0) {
+            mclw_host_uart_edge(pin, value, mclw_host_event_ns());
+        }
         mclw_host_spi_sink_line(pin, value);
         if (value >= 0) {
             mclw_host_spi_cs(pin, value != 0);
