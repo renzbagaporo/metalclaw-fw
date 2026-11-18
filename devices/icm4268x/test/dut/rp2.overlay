@@ -40,12 +40,14 @@
 		spi-cpha;
 		spi-cs-setup-delay-ns = <1000000>;
 		/* Low-noise on both, so PWR_MGMT0 gets a real write and the part
-		 * raises DATA_RDY; 50 Hz away from the default so the config
-		 * registers carry a value the model has to store and hand back. */
+		 * raises DATA_RDY; 500 Hz away from the default so the config
+		 * registers carry a value the model has to store and hand back,
+		 * and fast enough that a fetch, whose two windows the 1 ms setup
+		 * delay below spaces 2 ms apart, rarely finds no new sample. */
 		accel-pwr-mode = <ICM42688_DT_ACCEL_LN>;
 		gyro-pwr-mode = <ICM42688_DT_GYRO_LN>;
-		accel-odr = <ICM42688_DT_ACCEL_ODR_50>;
-		gyro-odr = <ICM42688_DT_GYRO_ODR_50>;
+		accel-odr = <ICM42688_DT_ACCEL_ODR_500>;
+		gyro-odr = <ICM42688_DT_GYRO_ODR_500>;
 		accel-fs = <ICM42688_DT_ACCEL_FS_16>;
 		gyro-fs = <ICM42688_DT_GYRO_FS_2000>;
 		status = "okay";

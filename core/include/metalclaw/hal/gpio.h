@@ -22,7 +22,11 @@ struct mclw_gpio *mclw_hal_gpio_open(uint8_t pin, bool output, enum mclw_gpio_pu
     bool initial, const void *owner, int *err);
 void mclw_hal_gpio_close(struct mclw_gpio *gpio);
 
+// Drives an output pin, again after a release.
 void mclw_hal_gpio_write(struct mclw_gpio *gpio, bool level);
+// Stops driving an output pin, as an open-drain output does when it lets go:
+// the line sits where the pin's pull and the other side leave it.
+void mclw_hal_gpio_release(struct mclw_gpio *gpio);
 bool mclw_hal_gpio_read(const struct mclw_gpio *gpio);
 // Whether an input went low since the last call or since it was opened,
 // however briefly: a pulse between two reads is not lost.

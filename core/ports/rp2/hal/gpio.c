@@ -103,6 +103,13 @@ void mclw_hal_gpio_close(struct mclw_gpio *g) {
 void mclw_hal_gpio_write(struct mclw_gpio *g, bool level) {
     if (g->output) {
         gpio_put(g->pin, level);
+        gpio_set_dir(g->pin, GPIO_OUT);
+    }
+}
+
+void mclw_hal_gpio_release(struct mclw_gpio *g) {
+    if (g->output) {
+        gpio_set_dir(g->pin, GPIO_IN);
     }
 }
 

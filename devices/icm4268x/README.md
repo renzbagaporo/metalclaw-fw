@@ -27,6 +27,7 @@ bytes of the old sample and of the new one.
 | index | name | kind | required | resolved into |
 | --- | --- | --- | --- | --- |
 | 0 | `spi` | `spi_target` | yes | an SPI target, from the tuple `(sck, mosi, miso, cs)` |
+| 1 | `int1` | `gpio_out` | no | the INT1 pin |
 
 The binding advertises the datasheet's modes 0 and 3, mode 3 by default (which
 is what Zephyr's driver forces), MSB first. On fixture 1 that is SCK on GP18,
@@ -101,7 +102,7 @@ three windows of reset (write `DEVICE_CONFIG`, check `RESET_DONE`, check
 GP17 (the PL022's own chip select drops whenever its transmit FIFO drains, and
 the driver splits every read into a command chunk and a data chunk), an
 `icm42688@0` node aliased `imu` in mode 3 at 10.7 MHz, low-noise power modes,
-50 Hz data rates and the ±16 g / ±2000 dps full scales. It asks for a 1 ms
+500 Hz data rates and the ±16 g / ±2000 dps full scales. It asks for a 1 ms
 `spi-cs-setup-delay-ns`: the driver's reset sequence reads back-to-back, and
 the engine needs a gap of about 12 µs after a release before it can serve the next
 window; the setup delay lets it join a window that has already been asserted.
@@ -133,3 +134,19 @@ harness clears the configuration and the next DUT reset restores it.
 The FIFO, interrupts, timestamps, data rates and full scales affecting the
 sample, and the APEX features. Nothing the driver does in this configuration
 depends on them.
+
+## Data ready and INT1
+
+With either sensor on in PWR_MGMT0, a sample is taken at the accelerometer's
+ODR (ACCEL_CONFIG0, DS-000347 Revision 1.2, 14.37), or the gyroscope's when
+only it runs, and sets DATA_RDY_INT in INT_STATUS, which clears when read
+(14.21). The simulation clock ticks every millisecond, so an ODR above 1 kHz
+delivers at 1 kHz. With `int1` bound and INT_SOURCE0's UI_DRDY_INT1_EN set
+(14.51), each sample emits a 100 us pulse on INT1, 8 us with INT_CONFIG1's
+INT_TPULSE_DURATION (14.50), or in latched mode (INT_CONFIG INT1_MODE, 14.3)
+holds INT1 until INT_STATUS is read. INT1_POLARITY sets the active level, and
+INT1_DRIVE_CIRCUIT push-pull or open drain, the reset value, which only pulls
+INT1 low and otherwise releases it (`mclw_hal_gpio_release`): the line then
+sits where its pull leaves it. INT_CONFIG0's clear options other than the
+status read are not modelled.
+

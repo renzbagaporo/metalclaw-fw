@@ -426,12 +426,21 @@ static bool token_is_count(const struct token *token, unsigned long *count)
 	return true;
 }
 
+#define SENSOR_FETCH_WAIT_MS 100
+
 static int fetch_channels(const struct device *dev,
 	const struct sensor_channel_name *const *channels, size_t count, int64_t *out)
 {
 	struct sensor_value values[3];
 	size_t at = 0;
+	int64_t deadline = k_uptime_get() + SENSOR_FETCH_WAIT_MS;
 	int rc = sensor_sample_fetch(dev);
+
+	/* A driver that checks its part's data-ready flag refuses a fetch
+	 * before the next sample with -EBUSY; ask again, as a poller would. */
+	while (rc == -EBUSY && k_uptime_get() < deadline) {
+		rc = sensor_sample_fetch(dev);
+	}
 
 	for (size_t i = 0; rc == 0 && i < count; i++) {
 		rc = sensor_channel_get(dev, channels[i]->channel, values);

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "metalclaw/bus.h"
+#include "metalclaw/hal/gpio.h"
 #include "metalclaw/hal/platform.h"
 #include "metalclaw/hal/spi_target.h"
 #include "metalclaw/model.h"
@@ -30,6 +31,7 @@ enum {
 
 enum {
     BINDING_SPI,
+    BINDING_INT1,
 };
 
 struct icm4268x_config {
@@ -44,6 +46,9 @@ struct icm4268x_state {
     int16_t gyro[3];
     int16_t temperature;
     uint32_t resets;
+    // The INT1 pin, when bound, and when the next sample is due.
+    struct mclw_gpio *int1;
+    uint64_t next_sample_us;
 };
 
 static const struct mclw_property_desc icm4268x_properties[] = {
@@ -135,6 +140,14 @@ static const struct mclw_binding_desc icm4268x_bindings[] = {
         },
         .uart = { 0 },
     },
+    {
+        .name = "int1",
+        .kind = MCLW_BINDING_GPIO_OUT,
+        .required = false,
+        .usb = NULL,
+        .spi = { 0 },
+        .uart = { 0 },
+    },
 };
 
 static const struct mclw_regmap_framing icm4268x_framing = {
@@ -163,7 +176,9 @@ static void MCLW_RAM_FUNC(build_map)(struct icm4268x_state *state) {
     }
     map->active_bank = 0;
     mclw_regmap_set(map, 0, ICM4268X_REG_WHO_AM_I, state->who_am_i, 0);
-    mclw_regmap_set(map, 0, ICM4268X_REG_INT_STATUS, ICM4268X_INT_STATUS_RESET_DONE, 0);
+    // INT_STATUS clears when read (14.21).
+    mclw_regmap_set(map, 0, ICM4268X_REG_INT_STATUS, ICM4268X_INT_STATUS_RESET_DONE, MCLW_REG_CLEAR_ON_READ);
+    mclw_regmap_set(map, 0, ICM4268X_REG_INT_SOURCE0, ICM4268X_INT_SOURCE0_RESET, MCLW_REG_WRITABLE);
     mclw_regmap_set(map, 0, ICM4268X_REG_TMST_CONFIG, ICM4268X_TMST_CONFIG_RESET, MCLW_REG_WRITABLE);
     mclw_regmap_set(map, 0, ICM4268X_REG_INTF_CONFIG1, ICM4268X_INTF_CONFIG1_RESET, MCLW_REG_WRITABLE);
     mclw_regmap_set(map, 0, ICM4268X_REG_INT_CONFIG1, ICM4268X_INT_CONFIG1_RESET, MCLW_REG_WRITABLE);
@@ -179,7 +194,8 @@ static void MCLW_RAM_FUNC(raise_data_ready)(struct icm4268x_state *state) {
     struct mclw_regmap *map = &state->map;
     if (mclw_regmap_get(map, 0, ICM4268X_REG_PWR_MGMT0) & ICM4268X_PWR_MGMT0_SENSOR_MASK) {
         mclw_regmap_set(map, 0, ICM4268X_REG_INT_STATUS,
-            mclw_regmap_get(map, 0, ICM4268X_REG_INT_STATUS) | ICM4268X_INT_STATUS_DATA_RDY, 0);
+            mclw_regmap_get(map, 0, ICM4268X_REG_INT_STATUS) | ICM4268X_INT_STATUS_DATA_RDY,
+            MCLW_REG_CLEAR_ON_READ);
     }
 }
 
@@ -205,6 +221,8 @@ static int icm4268x_init(struct mclw_instance *inst, const struct mclw_binding *
     struct icm4268x_state *state = inst->state;
 
     state->spi = bindings[BINDING_SPI].spi;
+    state->int1 = bindings[BINDING_INT1].present ? bindings[BINDING_INT1].gpio : NULL;
+    state->next_sample_us = 0;
     state->who_am_i = ((const struct icm4268x_config *)inst->model->config)->who_am_i;
     mclw_regmap_init(&state->map, ICM4268X_BANKS, ICM4268X_REG_BANK_SEL, 0x00);
     mclw_regmap_set_on_write(&state->map, on_write, state);
@@ -217,6 +235,7 @@ static void icm4268x_deinit(struct mclw_instance *inst) {
 
     mclw_hal_spi_target_disarm(state->spi);
     state->spi = NULL;
+    state->int1 = NULL;
 }
 
 static int icm4268x_reset(struct mclw_instance *inst, bool factory) {
@@ -303,6 +322,76 @@ static int icm4268x_set(struct mclw_instance *inst, size_t property, const struc
     return 0;
 }
 
+// The sample period of an ACCEL_CONFIG0 or GYRO_CONFIG0 ODR code (14.37,
+// 14.38), in microseconds; 0 for the reserved code.
+static uint32_t odr_period_us(uint8_t code) {
+    static const uint32_t period_us[16] = {
+        0, 31, 63, 125, 250, 500, 1000, 5000, 10000, 20000, 40000, 80000, 160000, 320000, 640000, 2000,
+    };
+
+    return period_us[code & ICM4268X_CONFIG0_ODR_MASK];
+}
+
+// INT1 at `level`: push-pull drives it either way; open drain (14.3,
+// INT1_DRIVE_CIRCUIT 0, the reset value) only pulls it low and otherwise
+// lets go.
+static void write_int1(struct icm4268x_state *state, bool level) {
+    if (level && (mclw_regmap_get(&state->map, 0, ICM4268X_REG_INT_CONFIG) & ICM4268X_INT_CONFIG_INT1_PUSH_PULL) == 0) {
+        mclw_hal_gpio_release(state->int1);
+    } else {
+        mclw_hal_gpio_write(state->int1, level);
+    }
+}
+
+// Drives INT1 (14.3, 14.50, 14.51): with UI_DRDY_INT1_EN, each sample's
+// data ready emits a 100 us pulse (8 us with INT_TPULSE_DURATION), or in
+// latched mode holds INT1 until INT_STATUS is read; INT1_POLARITY sets the
+// active level.
+static void drive_int1(struct icm4268x_state *state, bool sampled) {
+    struct mclw_regmap *map = &state->map;
+    uint8_t config = mclw_regmap_get(map, 0, ICM4268X_REG_INT_CONFIG);
+    bool high = (config & ICM4268X_INT_CONFIG_INT1_POLARITY_HIGH) != 0;
+    bool latched = (config & ICM4268X_INT_CONFIG_INT1_MODE_LATCHED) != 0;
+    bool routed = (mclw_regmap_get(map, 0, ICM4268X_REG_INT_SOURCE0) & ICM4268X_INT_SOURCE0_UI_DRDY_INT1_EN) != 0;
+    bool ready = (mclw_regmap_get(map, 0, ICM4268X_REG_INT_STATUS) & ICM4268X_INT_STATUS_DATA_RDY) != 0;
+
+    if (state->int1 == NULL) {
+        return;
+    }
+    if (sampled && routed && !latched) {
+        bool short_pulse = (mclw_regmap_get(map, 0, ICM4268X_REG_INT_CONFIG1) & ICM4268X_INT_CONFIG1_TPULSE_8US) != 0;
+
+        write_int1(state, high);
+        mclw_hal_delay_us(short_pulse ? 8u : 100u);
+    }
+    write_int1(state, (routed && latched && ready) == high);
+}
+
+// A new sample at the ODR of the accelerometer, or the gyroscope when only
+// it runs, once per tick at most: the simulation clock ticks every
+// millisecond, so ODRs above 1 kHz deliver at 1 kHz.
+static void icm4268x_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
+    struct icm4268x_state *state = inst->state;
+    struct mclw_regmap *map = &state->map;
+    uint8_t power = mclw_regmap_get(map, 0, ICM4268X_REG_PWR_MGMT0);
+    uint8_t code = (power & ICM4268X_PWR_MGMT0_ACCEL_MODE_MASK) != 0
+        ? mclw_regmap_get(map, 0, ICM4268X_REG_ACCEL_CONFIG0)
+        : mclw_regmap_get(map, 0, ICM4268X_REG_GYRO_CONFIG0);
+    uint32_t period_us = odr_period_us(code);
+    bool sampled = false;
+
+    if ((power & ICM4268X_PWR_MGMT0_SENSOR_MASK) != 0 && period_us != 0 && now_us >= state->next_sample_us) {
+        uint32_t critical = mclw_hal_critical_enter();
+
+        load_sample(state);
+        raise_data_ready(state);
+        mclw_hal_critical_exit(critical);
+        state->next_sample_us = now_us + period_us;
+        sampled = true;
+    }
+    drive_int1(state, sampled);
+}
+
 static const struct mclw_model_ops icm4268x_ops = {
     .init = icm4268x_init,
     .deinit = icm4268x_deinit,
@@ -313,7 +402,7 @@ static const struct mclw_model_ops icm4268x_ops = {
     .clear_faults = NULL,
     .read_region = NULL,
     .write_region = NULL,
-    .time_advanced = NULL,
+    .time_advanced = icm4268x_time_advanced,
     .usb_rx = NULL,
 };
 
