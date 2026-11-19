@@ -511,6 +511,11 @@ NATIVE_EXAMPLE_LIMITS = {
     ("dht", "rp2350"): "the emulator runs an instruction a cycle with no bus wait states, so a pass of the "
                        "program's sleep_us(1) count loop takes exactly 1 us where silicon's takes 1.7 us or "
                        "more, and every bit counts as a 1",
+    ("pio_uart_rx_intr", "rp2350"): "the SDK's best_effort_wfe_or_timeout takes an alarm due at the current "
+                                    "microsecond as one still to come; the emulator's core is back at that "
+                                    "check within the microsecond the alarm fired (silicon takes hundreds of "
+                                    "cycles), so about 1 run in 3 waits on a fired alarm and stops before "
+                                    "\"Test complete\"",
 }
 
 
