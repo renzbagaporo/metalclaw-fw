@@ -517,3 +517,53 @@ def test_a_glitch_shorter_than_half_a_bit_is_no_frame(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_a_console_bridge_drops_what_came_before_its_port_opened(tmp_path):
+    # As on a bench: the DUT's console bytes while no host has the port
+    # open are dropped, then what follows reaches whoever opened it
+    # (hello_otp's boot run stays out of the judged console).
+    import os
+    path, usb = tmp_path / "native.sock", tmp_path / "usb"
+    harness = HostHarness(PROGRAM, path, usb_dir=usb)
+    bridge = Bridge(path)
+    bit = 1_000_000_000 // 115200
+
+    def send(text):
+        t = bridge.t_ns + 50_000
+        for byte in text:
+            level = 1
+            for i, v in enumerate([0, *((byte >> k) & 1 for k in range(8)), 1]):
+                if v != level:
+                    bridge.request(op="gpio", pin=0, level=v, t_ns=t + i * bit)
+                    level = v
+            t += 10 * bit
+        bridge.t_ns = t + 1_000_000
+        for _ in range(5):
+            bridge.advance(1_000_000)
+    try:
+        bridge.hello()
+        harness.run("import metalclaw\nc = metalclaw.attach('console_bridge', 'c', uart=(1, 0))")
+        bridge.advance(2_000_000)
+        send(b"boot run")
+        fd = os.open(os.path.realpath(usb / "Metalclaw DUT console"), os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        try:
+            for _ in range(5):
+                bridge.advance(1_000_000)
+            send(b"judged")
+            got = b""
+            for _ in range(50):
+                try:
+                    got += os.read(fd, 100)
+                except BlockingIOError:
+                    pass
+                if got.endswith(b"judged"):
+                    break
+                bridge.advance(1_000_000)
+            assert got == b"judged"
+            assert harness.run("print(c.dtr, c.discarded)") == "True 8"
+        finally:
+            os.close(fd)
+    finally:
+        bridge.close()
+        harness.close()

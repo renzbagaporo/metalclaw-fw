@@ -492,11 +492,18 @@ def probe():
     return None
 
 
+# DUT seconds the boot run gets before any case: as on a bench, which boots
+# the DUT long before a case listens, what the program does once (hello_otp
+# writing its OTP rows) is done before the judged runs.
+BOOT_RUN_S = 1.0
+
+
 @pytest.fixture(scope="session")
 def example(bench: NativeBench, harness: NativeHarness) -> NativeExample:
     require_example_image(bench.image)
     e = NativeExample(bench)
     e.restart()
+    harness.sleep(BOOT_RUN_S)
     return e
 
 
