@@ -80,15 +80,7 @@ def run(check, model, script, *args):
 
 def judge(target, name, part):
     (attached,) = [a for a in PARTS[target] if a.name == name]
-    # A setup that defines the helper the expression calls (APA102_WHOLE)
-    # runs here too; one that acts on the harness (MicroPython's time) does
-    # not.
-    def value(c):
-        names = {"part": part}
-        if c.setup.startswith("def "):
-            exec(c.setup, names)
-        return eval(c.expression, names)
-    return [c.description for c in attached.checks if not c.test(value(c))]
+    return [c.description for c in attached.checks if not c.test(eval(c.expression, {"part": part}))]
 
 
 def args_of(target, name):
@@ -171,7 +163,18 @@ def test_apa102_aligns_on_a_start_frame_and_holds_the_programs_waves(check):
     part = run(check, "apa102", [queue("spi", pack(bits)), "p"], *args_of("pio_apa102", "strip"))
     assert judge("pio_apa102", "strip", part) == []
     assert part.read_region("leds", 0, 600) == lights.apa102_frame(11)
+    assert part.read_region("frame", 0, 600) == lights.apa102_frame(11)
     assert (part.frames, part.end_frames) == (12, 12)
+
+
+def test_apa102_frame_holds_the_last_whole_update(check):
+    # Steps 0-11 whole, then step 12 cut off after its 18th LED (start
+    # frame and 18 LED frames): `leds` mixes 11 and 12, `frame` is 11.
+    bits = apa102_bits(range(12)) + apa102_bits([12])[:32 * 19]
+    part = run(check, "apa102", [queue("spi", pack(bits)), "p"], *args_of("pio_apa102", "strip"))
+    assert part.read_region("frame", 0, 600) == lights.apa102_frame(11)
+    assert not lights.apa102_shows_a_frame(part.read_region("leds", 0, 600))
+    assert judge("pio_apa102", "strip", part) == []
 
 
 def test_apa102_check_sees_a_wrong_led(check):
