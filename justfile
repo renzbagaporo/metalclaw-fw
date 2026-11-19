@@ -47,9 +47,9 @@ arm_toolchain_sha256 := "62a63b981fe391a9cbad7ef51b17e49aeaa3e7b0d029b36ca1e9c3b
 # The emulator platform: Renode's portable package, released from the fork
 # that carries the RP2040 and RP2350 models and the bench script, the two
 # boot ROMs, and probe-rs with host timeouts that stretch for emulated SWD.
-renode_commit := "7a324397901770c78eb4904757a609c40678dacb"
+renode_commit := "d7808fff9e84fe608e584fea85b1b22ff71dc435"
 renode_package_url := "https://github.com/renzbagaporo/renode/releases/download/rp2-portable-" + replace_regex(renode_commit, "^(.{12}).*", "$1") + "/renode-1.17.0.linux-portable-headless.tar.gz"
-renode_package_sha256 := "a5601d74463371ff8b9eb37c64c0e21e9a6a4ab7d008e0fbd79a9eb28f09139f"
+renode_package_sha256 := "13ae2483d9dd91ce1d7690194dae0a9015f44fb3d25dbe45b12227fea308e7dd"
 renode_home := env_var_or_default("METALCLAW_RENODE_HOME", project_dir / "../.renode")
 renode_dir := env_var_or_default("METALCLAW_RENODE_DIR", renode_home / renode_commit)
 renode_roms := env_var_or_default("METALCLAW_RENODE_ROMS", renode_home / "roms")
