@@ -150,6 +150,31 @@ static void clocked_edge(struct mclw_wire *w, uint8_t index, bool level) {
     }
 }
 
+bool mclw_host_wire_spi_frame(uint8_t sck, uint8_t mosi_pin, uint8_t mosi) {
+    bool taken = false;
+    uint32_t state = mclw_hal_critical_enter();
+
+    for (size_t i = 0; i < WIRES_MAX; i++) {
+        struct mclw_wire *w = &wires[i];
+
+        if (w->owner == NULL || w->facts.engine != MCLW_WIRE_CLOCKED_IN || w->count < 2u ||
+            w->pins[0] != sck || w->pins[1] != mosi_pin) {
+            continue;
+        }
+        for (int b = 7; b >= 0; b--) {
+            w->shift = (w->shift << 1) | ((mosi >> b) & 1u);
+            if (++w->bits == 32u) {
+                put(w, w->shift);
+                w->bits = 0;
+                w->shift = 0;
+            }
+        }
+        taken = true;
+    }
+    mclw_hal_critical_exit(state);
+    return taken;
+}
+
 static void onewire_edge(struct mclw_wire *w, bool level, uint64_t t_ns) {
     uint8_t pin = w->pins[0];
     uint32_t state;
