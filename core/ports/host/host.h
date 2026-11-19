@@ -100,6 +100,17 @@ void mclw_host_wire_poll(uint64_t now_ns);
 // Wire two DUT pins together inside the emulator, or part them again.
 void mclw_host_event_join(uint8_t a, uint8_t b, bool joined);
 bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint64_t t_ns);
+// The harness as I2C controller (BRIDGE.md i2c_drive): one event at a
+// time toward the DUT's target on the bus with these pins, each answered
+// by an i2c_driven request; false when no bus has those pins.
+#define MCLW_HOST_I2C_START 0u
+#define MCLW_HOST_I2C_WRITE 1u
+#define MCLW_HOST_I2C_READ 2u
+#define MCLW_HOST_I2C_STOP 3u
+bool mclw_host_event_i2c_drive(uint8_t sda, uint8_t scl, uint8_t ev, uint8_t arg, bool flag, uint64_t t_ns);
+// i2c_controller.c: an i2c_driven answer, `ack` 1, 0 or -1 for none, `data`
+// a read's byte or -1, at the request's time.
+void mclw_host_i2c_driven(uint8_t sda, uint8_t scl, int ack, int data, uint64_t t_ns);
 
 // i2c_target.c, called by the bridge on the worker thread, one bus event
 // at a time as the DUT's controller makes them. start and write return

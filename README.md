@@ -62,7 +62,7 @@ port and serve every transfer with no CPU in the byte path.
 ```python
 >>> import metalclaw
 >>> metalclaw.models()
-('ads7883', 'apa102', 'bmp388', 'bmp280', 'bme280', 'sim7080g', 'sim7000', 'a7672x', 'sequans_monarch', 'console_bridge', 'dht22', 'ds18b20', 'hd44780_pcf8574', 'ht16k33', 'hub75', 'icm42688', 'icm42686', 'ina219', 'ina228', 'ina237', 'ina260', 'jumper', 'jumper_open_drain', 'lcd_backpack', 'lis3dh', 'max7219', 'mcp9808', 'mma8451q', 'mpl3115a2', 'mpu6050', 'mpu9250', 'neo_m8n', 'pa1010d', 'pcf8523', 'quadrature_encoder', 'spi_page_target', 'spi_page_controller', 'square_wave', 'ssd1306', 'ssd1309', 'st7789v', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68', 'tsop38238', 'w25q16jv', 'ws2812b')
+('ads7883', 'apa102', 'bmp388', 'bmp280', 'bme280', 'sim7080g', 'sim7000', 'a7672x', 'sequans_monarch', 'console_bridge', 'dht22', 'ds18b20', 'hd44780_pcf8574', 'ht16k33', 'hub75', 'icm42688', 'icm42686', 'ina219', 'ina228', 'ina237', 'ina260', 'i2c_page_controller', 'jumper', 'jumper_open_drain', 'lcd_backpack', 'lis3dh', 'max7219', 'mcp9808', 'mma8451q', 'mpl3115a2', 'mpu6050', 'mpu9250', 'neo_m8n', 'pa1010d', 'pcf8523', 'quadrature_encoder', 'spi_page_target', 'spi_page_controller', 'square_wave', 'ssd1306', 'ssd1309', 'st7789v', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68', 'tsop38238', 'w25q16jv', 'ws2812b')
 >>> probe = metalclaw.attach("swd_probe", "dut", swd=(2, 3, 28))
 >>> baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
 >>> baro.pressure = 101325
@@ -111,7 +111,7 @@ core/                         the harness firmware
   micropython/                the `metalclaw` module and Instance type
   ports/rp2/                  port config, USB device, REPL stream, HAL, board definitions
   third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
-devices/                      one directory per device model: swd_probe, console_bridge, bmp388, ads7883, icm4268x, neo_m8n, sx126x, cellular, bmx280, mcp9808, pcf8523, ina2xx, mpu6050, lis3dh, mma8451q, mpl3115a2, pa1010d, mpu9250, w25q, lcd_backpack, ssd130x, ht16k33, hd44780, max7219, st7789, ws2812b, apa102, hub75, ds18b20, dht22, quadrature_encoder, tsop382, square_wave, jumper, spi_page
+devices/                      one directory per device model: swd_probe, console_bridge, bmp388, ads7883, icm4268x, neo_m8n, sx126x, cellular, bmx280, mcp9808, pcf8523, ina2xx, mpu6050, lis3dh, mma8451q, mpl3115a2, pa1010d, mpu9250, w25q, lcd_backpack, ssd130x, ht16k33, hd44780, max7219, st7789, ws2812b, apa102, hub75, ds18b20, dht22, quadrature_encoder, tsop382, square_wave, jumper, spi_page, i2c_page
 test/
   rig/                        run.py, the hardware platform, the Zephyr DUT fixture
   cases/                      cases for the harness as a whole

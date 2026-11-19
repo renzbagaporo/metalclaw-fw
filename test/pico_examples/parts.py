@@ -29,6 +29,9 @@ def consecutive_pins(pins) -> bool:
 
 # Per binding name, what its pins must satisfy beyond one PIO window.
 RULES = {"i2c": i2c_pins, "ab": consecutive_pins}
+# Per pair of single-pin bindings, what their pins must satisfy together:
+# an I2C controller's sda and scl, one hardware block's pair.
+PAIR_RULES = {("sda", "scl"): i2c_pins}
 
 
 class PinError(ValueError):
@@ -124,6 +127,10 @@ class Attach:
         if linked:
             chosen = iter(harness_pins(fixture, tuple(p for b in linked for p in self.bindings[b][:counts[b]])))
             pins = {b: tuple(next(chosen) for _ in range(counts[b])) for b in linked}
+        for pair, rule in PAIR_RULES.items():
+            if all(b in self.bindings and b not in pins and counts[b] == 1 for b in pair):
+                chosen = harness_pins(fixture, tuple(self.bindings[b][0] for b in pair), rule)
+                pins.update({b: (p,) for b, p in zip(pair, chosen)})
         for b, v in self.bindings.items():
             if b not in pins:
                 pins[b] = harness_pins(fixture, v[:counts[b]], RULES.get(b))
@@ -535,6 +542,14 @@ JUMPERS: dict[str, tuple[Attach, ...]] = {
     # clock GP5, SPI0 TX GP3 to its data GP4.
     "pio_clocked_input": (_jumper("clock", 2, 5), _jumper("data", 3, 4)),
     "slave_mem_i2c": _i2c_jumpers(),
+    # The rig's own I2C target program at 0x42 on GP4/GP5: one page written
+    # in 16-byte transfers and read back the same way.
+    "i2c_target_page": (Attach("i2c_page_controller", "ctl", {"sda": (4,), "scl": (5,)},
+                               properties={"address": 0x42, "interval": 300, "pages": 1},
+                               checks=(Check("(bytes(part.read_region('in', 0, 256)) == bytes(range(256)), "
+                                             "part.clocked, part.nacks, part.last_error)",
+                                             lambda v: v == (True, 1, 0, 0),
+                                             "one page written and read back whole, with no NACK", 3.0),)),),
     "slave_mem_i2c_burst": _i2c_jumpers(),
 }
 

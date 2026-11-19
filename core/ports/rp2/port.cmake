@@ -20,6 +20,7 @@ set(METALCLAW_PORT_RP2_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/hal/spi_peer.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/swd_pio.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/i2c_target.c
+    ${CMAKE_CURRENT_LIST_DIR}/hal/i2c_controller.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/spi_target.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/spi_sink.c
     ${CMAKE_CURRENT_LIST_DIR}/hal/uart.c

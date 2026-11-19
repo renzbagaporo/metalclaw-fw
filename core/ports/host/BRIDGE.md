@@ -44,6 +44,7 @@ quiet.
 | `spi` | `bus`, `mosi`, `bits` (8) | `miso` |
 | `gpio` | `pin`, `level` (0, 1, or `"z"` for not driven) | |
 | `spi_clocked` | `bus`, `mosi`, `miso` (the frame the DUT's slave shifted out, or null) | |
+| `i2c_driven` | `bus`, and `ack` (after a `start` or `write`: whether the DUT's target acknowledged) or `data` (after a `read`: the byte it sent); nothing more after a `stop` | |
 
 `route` reports where the DUT has routed its blocks, at the first tick
 and whenever its routing changes; each block it names replaces the pins
@@ -72,6 +73,7 @@ applies each at its time.
 | `uart` | `port`, `data` (one byte; the harness paces bytes at the baud rate) |
 | `watch` | `pin`: from now on, report every level the DUT drives on it as a `gpio` request |
 | `spi_clock` | `bus`, `mosi`: clock one frame into the DUT's SPI block, a slave, at `t_ns`; answered by an `spi_clocked` request |
+| `i2c_drive` | `bus`, `ev`: `start` (`addr`, `read`: a START, or a repeated START while a transfer is open, and the address), `write` (`data`), `read` (`ack`: whether the harness acknowledges the byte), `stop`; one event toward the DUT's I2C block as a target, answered by an `i2c_driven` request when the target has taken it (a clock-stretching target's answer comes when its firmware serviced the stall) |
 | `join`, `unjoin` | `pins`: two DUT pins, wired together inside the emulator until unjoined: the DUT's drive on either is the other's input, and blocks routed to them (I2C, UART, SPI) talk directly, with no requests for it |
 | `pull` | `pin`, `level` (1 up, 0 down): a board pull on the DUT pin's line, weaker than any drive; sent after the hello for every line on the Pico's headers, the harness's board pulling each up |
 | `wake` | at `t_ns`, a request with `op` `wake` and nothing else, for a model's timed end (an IR receiver's burst) |
@@ -79,6 +81,14 @@ applies each at its time.
 A model makes an interrupt pulse as write, delay, write. The delay does not
 wait: it moves the later actions of the same request on by its length, so
 the pulse reaches the DUT with its width.
+
+The harness as an I2C controller (`i2c_drive`) sends a transfer's events
+one at a time: the next only after the last was answered, at the answer's
+`t_ns` plus a byte time at its rate (9 bit times), so the DUT's firmware
+has the time it would have on a wire. A `start` to a block that is not an
+enabled target, or at an address it does not answer, is answered with
+`ack` false. With no answer for 25 ms the harness sends `stop`, and the
+emulator drops an answer still pending.
 
 ## Wires
 

@@ -40,6 +40,7 @@ enum action_kind {
     ACTION_UNJOIN,
     ACTION_PULL,
     ACTION_WAKE,
+    ACTION_I2C_DRIVE,
 };
 
 struct action {
@@ -47,6 +48,8 @@ struct action {
     uint8_t kind;
     uint8_t pin;
     uint8_t value;
+    // I2C_DRIVE: the event's address or data byte.
+    uint8_t extra;
 };
 
 // Actions toward the DUT. Any thread may make one; the worker sends them
@@ -99,7 +102,7 @@ static void add_action(uint64_t t_ns, uint8_t kind, uint8_t pin, uint8_t value) 
     uint32_t state = mclw_hal_critical_enter();
 
     if (action_count < ACTIONS_MAX) {
-        actions[action_count++] = (struct action){ .t_ns = t_ns, .kind = kind, .pin = pin, .value = value };
+        actions[action_count++] = (struct action){ .t_ns = t_ns, .kind = kind, .pin = pin, .value = value, .extra = 0 };
     } else {
         actions_dropped++;
     }
@@ -129,6 +132,37 @@ bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, 
         return false;
     }
     add_action(t_ns, ACTION_SPI_CLOCK, (uint8_t)bus, mosi);
+    return true;
+}
+
+static int i2c_bus_for(uint8_t sda, uint8_t scl) {
+    for (size_t i = 0; i < I2C_BUSES_MAX; i++) {
+        if (i2c_buses[i].used && i2c_buses[i].sda == sda && i2c_buses[i].scl == scl) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+// One I2C event toward the DUT's target on the bus with these pins (the
+// harness as controller): the action's `value` is the event and, in bit
+// 4, a start's read or a read's ack; `extra` is a start's address or a
+// write's byte.
+bool mclw_host_event_i2c_drive(uint8_t sda, uint8_t scl, uint8_t ev, uint8_t arg, bool flag, uint64_t t_ns) {
+    int bus = i2c_bus_for(sda, scl);
+    uint32_t state;
+
+    if (bus < 0) {
+        return false;
+    }
+    state = mclw_hal_critical_enter();
+    if (action_count < ACTIONS_MAX) {
+        actions[action_count++] = (struct action){ .t_ns = t_ns, .kind = ACTION_I2C_DRIVE, .pin = (uint8_t)bus,
+            .value = (uint8_t)(ev | (flag ? 0x10u : 0u)), .extra = arg };
+    } else {
+        actions_dropped++;
+    }
+    mclw_hal_critical_exit(state);
     return true;
 }
 
@@ -204,6 +238,23 @@ static size_t put_actions(size_t at) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"%s\",\"pins\":[%u,%u]}", i ? "," : "", a->t_ns,
                     a->kind == ACTION_JOIN ? "join" : "unjoin", a->pin, a->value);
+            } else if (a->kind == ACTION_I2C_DRIVE) {
+                static const char *const names[] = { "start", "write", "read", "stop" };
+                uint8_t ev = a->value & 0x0fu;
+                bool flag = (a->value & 0x10u) != 0u;
+
+                at += (size_t)snprintf(reply + at, REPLY_MAX - at,
+                    "%s{\"t_ns\":%" PRIu64 ",\"op\":\"i2c_drive\",\"bus\":%u,\"ev\":\"%s\"", i ? "," : "",
+                    a->t_ns, a->pin, names[ev & 3u]);
+                if (ev == MCLW_HOST_I2C_START) {
+                    at += (size_t)snprintf(reply + at, REPLY_MAX - at, ",\"addr\":%u,\"read\":%s", a->extra,
+                        flag ? "true" : "false");
+                } else if (ev == MCLW_HOST_I2C_WRITE) {
+                    at += (size_t)snprintf(reply + at, REPLY_MAX - at, ",\"data\":%u", a->extra);
+                } else if (ev == MCLW_HOST_I2C_READ) {
+                    at += (size_t)snprintf(reply + at, REPLY_MAX - at, ",\"ack\":%s", flag ? "true" : "false");
+                }
+                at += (size_t)snprintf(reply + at, REPLY_MAX - at, "}");
             } else if (a->kind == ACTION_WAKE) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at, "%s{\"t_ns\":%" PRIu64 ",\"op\":\"wake\"}",
                     i ? "," : "", a->t_ns);
@@ -429,6 +480,17 @@ static size_t handle(const char *text, size_t len) {
         } else {
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":255,\"error\":\"unknown spi bus\"");
         }
+    } else if (json_is(op, "i2c_driven")) {
+        int64_t bus = json_int(&doc, root, "bus", -1);
+        const struct json_node *ack = json_get(&doc, root, "ack");
+        const struct json_node *data = json_get(&doc, root, "data");
+
+        if (bus >= 0 && bus < (int64_t)I2C_BUSES_MAX && i2c_buses[bus].used) {
+            mclw_host_i2c_driven(i2c_buses[bus].sda, i2c_buses[bus].scl,
+                ack == NULL || ack->kind != JSON_BOOL ? -1 : (ack->boolean ? 1 : 0),
+                data != NULL && data->kind == JSON_NUMBER ? (int)data->number : -1, mclw_host_event_ns());
+        }
+        at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else if (json_is(op, "spi_clocked")) {
         int64_t bus = json_int(&doc, root, "bus", -1);
         const struct json_node *miso = json_get(&doc, root, "miso");
