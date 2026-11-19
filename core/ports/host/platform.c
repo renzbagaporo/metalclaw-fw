@@ -286,6 +286,34 @@ int mclw_hal_poll_register(mclw_hal_poll_t fn, void *ctx) {
     return 0;
 }
 
+struct poll_removal {
+    mclw_hal_poll_t fn;
+    void *ctx;
+};
+
+static void poll_remove(void *arg) {
+    const struct poll_removal *r = arg;
+    size_t n = poll_count;
+
+    for (size_t i = 0; i < n; i++) {
+        if (polls[i].fn == r->fn && polls[i].ctx == r->ctx) {
+            for (size_t j = i; j + 1u < n; j++) {
+                polls[j] = polls[j + 1u];
+                stats.poll_max_us[j] = stats.poll_max_us[j + 1u];
+            }
+            stats.poll_max_us[n - 1u] = 0;
+            poll_count = n - 1u;
+            return;
+        }
+    }
+}
+
+void mclw_hal_poll_unregister(mclw_hal_poll_t fn, void *ctx) {
+    struct poll_removal r = { .fn = fn, .ctx = ctx };
+
+    mclw_hal_work_call(poll_remove, &r);
+}
+
 void mclw_hal_worker_stats(struct mclw_worker_stats *out, bool reset) {
     size_t n = poll_count;
 

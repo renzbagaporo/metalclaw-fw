@@ -458,6 +458,14 @@ static void uart_pio_close(struct mclw_uart *uart) {
     u->base.owner = NULL;
     u->base.on_rx = NULL;
     u->base.on_rx_ctx = NULL;
+    bool any = false;
+    for (size_t i = 0; i < UART_PIO_COUNT; i++) {
+        any = any || slots[i].base.owner != NULL;
+    }
+    if (!any && poll_registered) {
+        mclw_hal_poll_unregister(uart_pio_poll, NULL);
+        poll_registered = false;
+    }
 }
 
 static int uart_pio_set_baud(struct mclw_uart *uart, uint32_t baud) {

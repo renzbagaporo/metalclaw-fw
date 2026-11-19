@@ -468,6 +468,10 @@ void mclw_hal_spi_sink_close(struct mclw_spi_sink *s) {
     release_pio(s);
     release_pins(s);
     s->owner = NULL;
+    if (poll_registered) {
+        mclw_hal_poll_unregister(poll_sink, NULL);
+        poll_registered = false;
+    }
 }
 
 int mclw_hal_spi_sink_arm(struct mclw_spi_sink *s, struct mclw_sink *sink) {

@@ -55,6 +55,10 @@ void mclw_hal_work_call(void (*fn)(void *ctx), void *ctx);
 typedef void (*mclw_hal_poll_t)(void *ctx);
 
 int mclw_hal_poll_register(mclw_hal_poll_t fn, void *ctx);
+// Removes one registration of fn with ctx, on the worker between two of its
+// passes. An engine whose last user closed unregisters its poll: every
+// poll left registered lengthens every pass, idle or not.
+void mclw_hal_poll_unregister(mclw_hal_poll_t fn, void *ctx);
 bool mclw_hal_in_worker(void);
 
 // How the worker keeps up, for diagnosis: rounds run, the longest time
