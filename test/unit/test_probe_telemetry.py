@@ -391,7 +391,9 @@ def test_a_restored_download_is_a_recovered_retry():
     dut.image = Path("/images/smoke/zephyr.elf")
     dut.recorder = r
     dut.mailbox = SimpleNamespace(last_result=3)
-    dut.memory = SimpleNamespace(write_when_reachable=lambda address, words, seconds: None)
+    dut.memory = SimpleNamespace(write_when_reachable=lambda address, words, seconds: None,
+                                 write_words=lambda address, words: None)
+    dut.harness = SimpleNamespace(run=lambda code: "")
 
     def download(image, reset=True):
         if failures:

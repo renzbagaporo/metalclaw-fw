@@ -546,6 +546,7 @@ d.stats("spi"); g.stats("uart")          # the engine's counters, by binding nam
 d.schema(); d.reset(); d.detach()
 d.trace()                                # (t_us, kind, addr, len, result) tuples; kind is a name
 metalclaw.instances(); metalclaw.detach("baro")
+metalclaw.release_buses()                # parts let go of their buses, as at the DUT board's power-on
 metalclaw.now_us(); metalclaw.running()          # the clock runs from boot
 metalclaw.pause(); metalclaw.advance_us(1000); metalclaw.resume()
 

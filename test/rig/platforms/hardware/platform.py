@@ -419,13 +419,27 @@ class Target:
             raise
         self.reset()
 
+    # The board's parts are not reset with the DUT, and a reset that lands
+    # mid-transfer leaves a part's I2C target holding the bus, which the
+    # DUT's next transfer then waits on. Halted first, the DUT sends no
+    # more while its parts let go; a DUT that cannot be halted (asleep)
+    # has them let go once it is reset.
     def reset(self) -> None:
+        try:
+            self.memory.write_words(DHCSR, [DHCSR_HALT])
+        except dap.DapError:
+            pass
+        self.release_buses()
         self.probe.reset()
 
     # Through RUN, as a reset button does: what a program that counts
     # resets sees, where the probe's own reset is a debug one.
     def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
         dap.run_resets(self.harness.serial, count, round(low_s * 1e6), round(gap_s * 1e6))
+        self.release_buses()
+
+    def release_buses(self) -> None:
+        self.harness.run("import metalclaw\nmetalclaw.release_buses()\n")
 
     # A probe-rs session halts the core while it attaches and resumes it as
     # it ends. One cut off by its deadline leaves the core halted with debug
@@ -656,6 +670,8 @@ class Example(Target):
         self._past_reset_window()
         if self.ram_only:
             with self.memory.link() as link:
+                link.write_words(DHCSR, [DHCSR_HALT])
+                self.release_buses()
                 start_from_ram(link, self.elf, self.vectors)
             return
         # An image that erases its storage partition (flash_image) is

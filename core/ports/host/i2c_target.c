@@ -375,6 +375,19 @@ int mclw_hal_i2c_target_arm_sink(struct mclw_i2c_target *t, struct mclw_sink *si
     return 0;
 }
 
+// Bridged, the controller's transactions arrive whole and the target holds
+// no line: a transaction the reset cut short just ends.
+void mclw_hal_i2c_target_release(struct mclw_i2c_target *t) {
+    if (t == NULL || t->owner == NULL) {
+        return;
+    }
+    uint32_t state = mclw_hal_critical_enter();
+    if (t->open != OPEN_NONE) {
+        end_transaction(t);
+    }
+    mclw_hal_critical_exit(state);
+}
+
 void mclw_hal_i2c_target_disarm(struct mclw_i2c_target *t) {
     (void)mclw_hal_i2c_target_arm(t, NULL);
 }
