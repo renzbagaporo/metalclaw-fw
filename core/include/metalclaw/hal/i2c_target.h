@@ -54,6 +54,10 @@ int mclw_hal_i2c_target_arm(struct mclw_i2c_target *t, struct mclw_regmap *image
 // The sink must outlive the arm; arming either kind replaces the other.
 int mclw_hal_i2c_target_arm_sink(struct mclw_i2c_target *t, struct mclw_sink *sink);
 void mclw_hal_i2c_target_disarm(struct mclw_i2c_target *t);
+// Lets go of the bus as the part would at its power-on: a transfer the
+// controller left part way (its reset landing mid-byte) ends, and a target
+// that was holding SDA for it releases the line. What is armed stays.
+void mclw_hal_i2c_target_release(struct mclw_i2c_target *t);
 
 void mclw_hal_i2c_target_stats(const struct mclw_i2c_target *t, struct mclw_i2c_target_stats *out);
 

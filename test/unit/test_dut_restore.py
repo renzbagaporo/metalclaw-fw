@@ -43,6 +43,9 @@ class FakeMemory:
                 raise DapError("DAP transfer stopped after 0 of 1, ack 2")
         self.writes.append((address, words))
 
+    def write_words(self, address, words):
+        self.writes.append((address, words))
+
 
 class FakeHarness:
     def __init__(self):
@@ -67,8 +70,9 @@ def test_a_dormant_dut_is_woken_on_gp15_and_halted_before_the_download():
     probe, memory, harness = FakeProbe(), FakeMemory(asleep=3), FakeHarness()
     dut = make_dut(probe, memory, harness)
     dut.flash(wake_harness_pin=15)
-    assert memory.writes == [(platform.DHCSR, [platform.DHCSR_HALT])]
-    assert "_wake.value(1)" in harness.code[0] and "Pin(15, Pin.IN, None)" in harness.code[-1]
+    # The halt before the download, then the one before the reset.
+    assert memory.writes == [(platform.DHCSR, [platform.DHCSR_HALT])] * 2
+    assert "_wake.value(1)" in harness.code[0] and "Pin(15, Pin.IN, None)" in harness.code[1]
     assert probe.calls[0] == ("download", IMAGE, False)
 
 
@@ -110,3 +114,12 @@ def test_a_failed_restore_stops_the_session_with_both_errors():
     assert "erase timed out" in message and "attach failed" in message
     assert raised.value.returncode == 2
     assert probe.calls == [("download", IMAGE, False), ("download", IMAGE, False)]
+
+
+def test_a_reset_halts_the_dut_and_has_its_parts_let_go_first():
+    probe, memory, harness = FakeProbe(), FakeMemory(), FakeHarness()
+    dut = make_dut(probe, memory, harness)
+    dut.reset()
+    assert memory.writes == [(platform.DHCSR, [platform.DHCSR_HALT])]
+    assert harness.code == ["import metalclaw\nmetalclaw.release_buses()\n"]
+    assert probe.calls == [("reset",)]

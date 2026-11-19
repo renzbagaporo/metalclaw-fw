@@ -224,6 +224,12 @@ static mp_obj_t mclw_detach_fn(mp_obj_t name_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mclw_detach_obj, mclw_detach_fn);
 
+static mp_obj_t mclw_release_buses_fn(void) {
+    mclw_release_buses();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(mclw_release_buses_obj, mclw_release_buses_fn);
+
 static mp_obj_t mclw_now_us_fn(void) {
     return mp_obj_new_int_from_ull(mclw_now_us());
 }
@@ -296,6 +302,7 @@ static const mp_rom_map_elem_t mclw_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_schema), MP_ROM_PTR(&mclw_schema_obj) },
     { MP_ROM_QSTR(MP_QSTR_attach), MP_ROM_PTR(&mclw_attach_obj) },
     { MP_ROM_QSTR(MP_QSTR_instances), MP_ROM_PTR(&mclw_instances_obj) },
+    { MP_ROM_QSTR(MP_QSTR_release_buses), MP_ROM_PTR(&mclw_release_buses_obj) },
     { MP_ROM_QSTR(MP_QSTR_detach), MP_ROM_PTR(&mclw_detach_obj) },
     { MP_ROM_QSTR(MP_QSTR_now_us), MP_ROM_PTR(&mclw_now_us_obj) },
     { MP_ROM_QSTR(MP_QSTR_advance_us), MP_ROM_PTR(&mclw_advance_us_obj) },

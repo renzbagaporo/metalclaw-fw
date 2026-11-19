@@ -328,6 +328,26 @@ void mclw_hal_i2c_target_disarm(struct mclw_i2c_target *t) {
     (void)mclw_hal_i2c_target_arm(t, NULL);
 }
 
+// A target mid-transfer waits for SCL edges that a reset controller never
+// sends, holding SDA if its bit or acknowledge was a 0; the block's reset
+// is what makes it let go. It is set up again as at the open.
+void mclw_hal_i2c_target_release(struct mclw_i2c_target *t) {
+    if (t == NULL || t->owner == NULL) {
+        return;
+    }
+    if ((i2c_get_hw(t->i2c)->status & I2C_IC_STATUS_SLV_ACTIVITY_BITS) != 0u) {
+        mclw_hal_work_call(slave_stop, t);
+        i2c_deinit(t->i2c);
+        i2c_init(t->i2c, I2C_TARGET_CLOCK_HZ);
+        mclw_hal_work_call(slave_start, t);
+    }
+    uint32_t state = mclw_hal_critical_enter();
+    if (t->open != OPEN_NONE) {
+        end_transaction(t);
+    }
+    mclw_hal_critical_exit(state);
+}
+
 void mclw_hal_i2c_target_stats(const struct mclw_i2c_target *t, struct mclw_i2c_target_stats *out) {
     uint32_t state = mclw_hal_critical_enter();
     *out = t->stats;

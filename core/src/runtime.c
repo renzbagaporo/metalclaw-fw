@@ -408,6 +408,22 @@ void mclw_detach_all(void) {
     }
 }
 
+void mclw_release_buses(void) {
+    mclw_hal_lock();
+    for (size_t i = 0; i < METALCLAW_INSTANCES_MAX; i++) {
+        if (!instances[i].attached) {
+            continue;
+        }
+        for (size_t j = 0; j < MCLW_INSTANCE_BINDINGS_MAX; j++) {
+            struct mclw_binding *b = &instances[i].bindings[j];
+            if (b->present && b->kind == MCLW_BINDING_I2C_TARGET) {
+                mclw_hal_i2c_target_release(b->i2c);
+            }
+        }
+    }
+    mclw_hal_unlock();
+}
+
 static int check_value(const struct mclw_property_desc *desc, const struct mclw_value *in) {
     if (in->count != desc->count) {
         return -EINVAL;

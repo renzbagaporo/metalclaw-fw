@@ -65,6 +65,10 @@ int mclw_attach(const struct mclw_model *model, const char *name,
     const struct mclw_binding_request *requests, struct mclw_instance **out);
 int mclw_detach(struct mclw_instance *inst);
 void mclw_detach_all(void);
+// Every attached part lets go of its buses, as at a power-on of the board
+// the DUT is on: for the rig to call when it resets the DUT on its own
+// (mclw_hal_i2c_target_release).
+void mclw_release_buses(void);
 struct mclw_instance *mclw_instance_find(const char *name);
 // The instance whose arena state `state` points into, for a callback that
 // only holds its state. NULL for a pointer outside the arena.

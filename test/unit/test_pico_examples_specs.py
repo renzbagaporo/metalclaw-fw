@@ -234,13 +234,14 @@ def test_every_reset_of_a_double_reset_program_waits_out_its_window(monkeypatch)
     from test.rig.platforms.hardware import platform as hardware
     events = []
     e = object.__new__(hardware.Example)
-    e.harness = types.SimpleNamespace(sleep=lambda s: events.append(("sleep", s)), serial="X")
+    e.harness = types.SimpleNamespace(sleep=lambda s: events.append(("sleep", s)), serial="X",
+                                      run=lambda code: events.append("release"))
     e.ram_only, e.reset_window_s = False, 0.3
     e.reset = lambda: events.append("reset")
     monkeypatch.setattr(hardware.dap, "run_resets", lambda *a: events.append("run"))
     e.restart()
     e.reset_by_run(2, 0.01, 0.1)
-    assert events == [("sleep", 0.3), "reset", ("sleep", 0.3), "run"]
+    assert events == [("sleep", 0.3), "reset", ("sleep", 0.3), "run", "release"]
     e.reset_window_s, events[:] = 0.0, []
     e.restart()
     assert events == ["reset"]

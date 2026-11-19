@@ -205,6 +205,10 @@ void mclw_hal_i2c_target_disarm(struct mclw_i2c_target *t) {
     t->image = NULL;
 }
 
+void mclw_hal_i2c_target_release(struct mclw_i2c_target *t) {
+    (void)t;
+}
+
 void mclw_hal_i2c_target_stats(const struct mclw_i2c_target *t, struct mclw_i2c_target_stats *out) {
     *out = t->stats;
 }
