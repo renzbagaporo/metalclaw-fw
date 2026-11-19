@@ -228,7 +228,8 @@ struct mclw_i2c_target *mclw_hal_i2c_target_open(uint8_t sda, uint8_t scl, uint8
         return NULL;
     }
     struct mclw_i2c_target *t = &targets[i2c_hw_index(i2c)];
-    if (t->owner != NULL) {
+    // A block enabled with no target here is an I2C controller's.
+    if (t->owner != NULL || (i2c_get_hw(i2c)->enable & I2C_IC_ENABLE_ENABLE_BITS) != 0u) {
         *err = -EBUSY;
         return NULL;
     }

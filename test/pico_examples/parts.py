@@ -29,6 +29,9 @@ def consecutive_pins(pins) -> bool:
 
 # Per binding name, what its pins must satisfy beyond one PIO window.
 RULES = {"i2c": i2c_pins, "ab": consecutive_pins}
+# Per pair of single-pin bindings, what their pins must satisfy together:
+# an I2C controller's sda and scl, one hardware block's pair.
+PAIR_RULES = {("sda", "scl"): i2c_pins}
 
 
 class PinError(ValueError):
@@ -124,6 +127,10 @@ class Attach:
         if linked:
             chosen = iter(harness_pins(fixture, tuple(p for b in linked for p in self.bindings[b][:counts[b]])))
             pins = {b: tuple(next(chosen) for _ in range(counts[b])) for b in linked}
+        for pair, rule in PAIR_RULES.items():
+            if all(b in self.bindings and b not in pins and counts[b] == 1 for b in pair):
+                chosen = harness_pins(fixture, tuple(self.bindings[b][0] for b in pair), rule)
+                pins.update({b: (p,) for b, p in zip(pair, chosen)})
         for b, v in self.bindings.items():
             if b not in pins:
                 pins[b] = harness_pins(fixture, v[:counts[b]], RULES.get(b))

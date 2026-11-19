@@ -340,3 +340,13 @@ def test_a_failed_uart_part_check_reports_the_harness_uarts_registers():
         cases.test_the_example_parts_saw_the_program(Harness(), example, [part], recorded.__setitem__)
     assert recorded["harness_uart_registers"].endswith("uart1 fr=0x80 ris=0x40 mis=0x40 imsc=0x50 dr=0x42")
     assert recorded["harness_pio_registers"] == "pio0 fstat=0xf00 fdebug=0x0 flevel=0x1 irq=0x0 addr=[3, 0, 0, 0]"
+
+
+def test_an_i2c_controller_s_sda_and_scl_take_one_block_s_pair():
+    # On the pico-rp2 fixture DUT GP4 reaches harness GP11 and GP12, GP5
+    # GP10 and GP13: first branches would give SDA on an odd pin.
+    from test.pico_examples.parts import Attach
+    from test.rig.platforms.hardware.platform import FIXTURES
+    fixture = next(f for f in FIXTURES.values() if f["dut_pins"].get(4) == (11, 12))
+    code = Attach("i2c_page_controller", "ctl", {"sda": (4,), "scl": (5,)}).code(fixture)
+    assert "sda=(12,), scl=(13,)" in code
