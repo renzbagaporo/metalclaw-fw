@@ -80,7 +80,15 @@ def run(check, model, script, *args):
 
 def judge(target, name, part):
     (attached,) = [a for a in PARTS[target] if a.name == name]
-    return [c.description for c in attached.checks if not c.test(eval(c.expression, {"part": part}))]
+    # A setup that defines the helper the expression calls (APA102_WHOLE)
+    # runs here too; one that acts on the harness (MicroPython's time) does
+    # not.
+    def value(c):
+        names = {"part": part}
+        if c.setup.startswith("def "):
+            exec(c.setup, names)
+        return eval(c.expression, names)
+    return [c.description for c in attached.checks if not c.test(value(c))]
 
 
 def args_of(target, name):

@@ -317,6 +317,9 @@ def test_a_failed_uart_part_check_reports_the_harness_uarts_registers():
     from test.pico_examples.parts import Check
 
     class Harness:
+        def board(self):
+            return "metalclaw_pico_rp2"
+
         def run(self, code):
             if code == cases.HARNESS_UARTS:
                 return ("uart0 fr=0x90 ris=0x0 mis=0x0 imsc=0x0 dr=empty\n"
