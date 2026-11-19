@@ -54,7 +54,10 @@ simulation clock, which ticks every millisecond:
   with SD set, OS starts one conversion, OS reading 0 until it ends.
 - `tmp116`: MOD continuous (00, 10), shutdown (01), or one-shot (11, then
   01), at the conversion cycle time of CONV and AVG; each result sets
-  Data_Ready.
+  Data_Ready, which a read of the configuration clears. A configuration
+  write starts over: Data_Ready clears, and the first result comes after
+  the active conversion time, 15.5 ms per conversion averaged (124 ms at
+  AVG's eight).
 
 Each result compares the temperature with the limits in comparator mode:
 the TMP108's FH and FL with its hysteresis on the way back, the TMP112's AL
@@ -63,8 +66,9 @@ follows, at POL.
 
 ## Not modelled
 
-Interrupt (thermostat) mode, the TMP112's fault queue, the read side
-effects (the TMP108 flags and the TMP116 Data_Ready and alert flags do not
-clear when the configuration register is read), the SMBus alert response,
-general-call reset, the TMP116's EEPROM programming time and EEPROM_Busy,
-and the TMP116's offset register (TMP117).
+Interrupt (thermostat) mode, the TMP112's fault queue, the other read side
+effects (the TMP108 flags and the TMP116 alert flags do not clear when the
+configuration register is read, nor Data_Ready when the temperature
+register is), the SMBus alert response, general-call reset, the TMP116's
+EEPROM programming time and EEPROM_Busy, and the TMP116's offset register
+(TMP117).

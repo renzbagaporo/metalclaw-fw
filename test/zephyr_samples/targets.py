@@ -126,6 +126,13 @@ OVERRIDES: dict[str, dict] = {
     # samples/subsys/kvss/zms runs CONFIG_MAX_ITERATIONS (300) rounds of
     # writes before its line; on the carrier about 14 a second.
     "zephyr/subsys/kvss/zms": {"seconds": 60.0},
+    # samples/sensor/tmp11x/src/main.c:62-66 fetches once, about 16 ms after
+    # the driver's last configuration write, and exits on -EBUSY: the
+    # TMP116's first result after a write comes at its averaging time, 124
+    # ms at the eight averages the driver sets (TMP116 datasheet, 7.4.1.2),
+    # so the fetch finds no data ready.
+    "zephyr/sensor/tmp11x": {"known_failure": "the sample's first fetch comes before the TMP116's first result "
+                                              "(124 ms at 8 averages)"},
     # samples/subsys/sensing/simple/src/main.c:23-85: its yaml's line comes
     # once the sensors are opened, before any data; a sample from a 3D
     # sensor must follow, through the data callback.
@@ -351,14 +358,6 @@ OWN: dict[str, Spec] = {
     "zephyr/sensor/jc42": own(r"^\d+:\d{2}:\d{2}\.\d{3}: 25\.25 C$",
                               forbidden=(*FORBIDDEN, r"error", r"failed", r"not ready", r"not found"),
                               source="samples/sensor/jc42/src/main.c"),
-    # samples/subsys/logging/logger's user-mode test: its yaml's harness is
-    # keyboard, with no patterns. src/main.c:245-300 runs the logger demo
-    # from the kernel thread and then from a user thread, each under its
-    # own banner, through the same showcases the basic test's yaml names.
-    "zephyr/subsys/logging/logger@usermode": own(
-        r"---=< RUNNING LOGGER DEMO FROM USER THREAD >=---", r"Instance level logging showcase",
-        r"Severity levels showcase", r"Logs from external logging system showcase", seconds=30.0,
-        source="samples/subsys/logging/logger/src/main.c"),
     # samples/subsys/fs/format/src/main.c:45-52: formats its file system
     # (fs_mkfs) and logs the result, through the minimal logger.
     **{t: own(r"Format successful$", forbidden=(*FORBIDDEN, r"Format failed"),

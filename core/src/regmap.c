@@ -86,6 +86,8 @@ static inline uint8_t MCLW_RAM_FUNC(read_one)(struct mclw_regmap *map, uint8_t r
     uint8_t value = map->value[bank][reg];
     if (flags & MCLW_REG_CLEAR_ON_READ) {
         map->value[bank][reg] = 0;
+    } else if (flags & MCLW_REG_CLEAR_BIT_ON_READ) {
+        map->value[bank][reg] = (uint8_t)(value & ~(1u << (flags >> 5)));
     }
     return value;
 }
@@ -125,6 +127,8 @@ void MCLW_RAM_FUNC(mclw_regmap_bus_read_burst)(struct mclw_regmap *map, uint8_t 
     for (; count > 0; count--) {
         if (flags[reg] & MCLW_REG_CLEAR_ON_READ) {
             value[reg] = 0;
+        } else if (flags[reg] & MCLW_REG_CLEAR_BIT_ON_READ) {
+            value[reg] = (uint8_t)(value[reg] & ~(1u << (flags[reg] >> 5)));
         }
         reg = (uint8_t)(reg + step);
     }

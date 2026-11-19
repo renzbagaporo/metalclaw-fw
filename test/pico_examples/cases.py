@@ -199,7 +199,7 @@ def _read_console(harness, port, spec, patterns, typist, arrivals, log) -> str:
     return got.decode(errors="replace")
 
 
-def test_the_example_completes(harness, example, fixture, console, record_property):
+def test_the_example_completes(harness, example, fixture, console, record_property, request):
     spec = console_spec(example)
     if spec is None:
         pytest.skip(f"no completion criteria for {example.target} yet")
@@ -207,6 +207,8 @@ def test_the_example_completes(harness, example, fixture, console, record_proper
     judged = spec.for_board(board)
     if judged is None:
         pytest.skip(spec.why_not(example.target, board))
+    if judged.known_failure:
+        request.node.add_marker(pytest.mark.xfail(reason=judged.known_failure, strict=True))
     spec = judged.for_bench(fixture["line_pullups"], fixture.get("analog_pins", ()))
     if not spec.console and spec.usb_console:
         pytest.skip(f"{example.target} prints only on its own USB console")

@@ -178,11 +178,31 @@ def test_the_pio_bus_scan_part_takes_i2c_pins_on_the_carrier_only():
     assert "i2c=(4, 5, 24)" in part.code(FIXTURE) and "i2c=(12, 13, 24)" in part.code(METALCLAW_PICO_RP2_FIXTURE)
 
 
-def console_case(target, board):
+class FakeRequest:
+    def __init__(self):
+        self.node = types.SimpleNamespace(markers=[])
+        self.node.add_marker = self.node.markers.append
+
+
+def console_case(target, board, request=None):
     from test.pico_examples import cases
     example = types.SimpleNamespace(target=target, metadata={"board": board},
                                     restart=lambda: pytest.fail("restarted"))
-    cases.test_the_example_completes(None, example, {"line_pullups": True}, None, lambda *a: None)
+    cases.test_the_example_completes(None, example, {"line_pullups": True}, None, lambda *a: None,
+                                     request or FakeRequest())
+
+
+def test_a_known_failure_is_expected_strictly(monkeypatch):
+    # tmp11x: the part, modelled to its datasheet, has no result yet when
+    # the sample fetches; the case expects that, and a pass would show.
+    from test.pico_examples import cases
+    from test.pico_examples.targets import Spec
+    monkeypatch.setattr(cases, "console_spec", lambda example: Spec(console=("x",), known_failure="why"))
+    request = FakeRequest()
+    with pytest.raises(Exception):
+        console_case("anything", "pico", request)
+    (mark,) = request.node.markers
+    assert mark.name == "xfail" and mark.kwargs == {"reason": "why", "strict": True}
 
 
 def test_a_console_with_nothing_to_match_skips_rather_than_passes():

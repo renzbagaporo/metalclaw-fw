@@ -23,7 +23,12 @@
 enum mclw_reg_flag {
     MCLW_REG_WRITABLE = 1u << 0,
     MCLW_REG_CLEAR_ON_READ = 1u << 1,
+    // One bit of the byte clears on a read, the rest stay: a status flag
+    // that shares its byte with settings (the TMP116's Data_Ready). The
+    // bit's number goes in the flag's top three bits; see below.
+    MCLW_REG_CLEAR_BIT_ON_READ = 1u << 2,
 };
+#define MCLW_REG_CLEAR_BIT(n) (MCLW_REG_CLEAR_BIT_ON_READ | ((unsigned)(n) << 5))
 
 struct mclw_regmap;
 

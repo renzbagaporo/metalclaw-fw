@@ -37,6 +37,10 @@ class Spec:
     source: str = ""
     notes: str = ""
     extra: dict = field(default_factory=dict)
+    # Why the program fails these criteria on a bench by design (a part
+    # modelled to its datasheet, where the program expects otherwise): the
+    # case expects the failure, strictly, so a pass is reported too.
+    known_failure: str = ""
     # The boards (example.json "board") whose build this Spec can judge;
     # empty for every board it builds for. `other_boards` says why the
     # builds it leaves out cannot be judged.
