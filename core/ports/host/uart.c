@@ -99,6 +99,12 @@ static bool frame_finish(struct mclw_uart *u, uint64_t now_ns) {
     if (!u->in_frame || now_ns < start + bit_at_ns(u, bits - 1u) + bit_at_ns(u, 1u) / 2u) {
         return false;
     }
+    // A start bit is still low in its middle, as a UART checks it: a
+    // shorter dip (a pin glitching as the DUT sets it up) is no frame.
+    if (frame_level(u, start + bit_at_ns(u, 1u) / 2u) != 0) {
+        u->in_frame = false;
+        return false;
+    }
     for (uint32_t i = 0; i < u->format.data_bits && i < 8u; i++) {
         uint64_t mid = start + bit_at_ns(u, 1u + i) + bit_at_ns(u, 1u) / 2u;
 

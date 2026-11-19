@@ -39,6 +39,7 @@ enum action_kind {
     ACTION_JOIN,
     ACTION_UNJOIN,
     ACTION_PULL,
+    ACTION_WAKE,
 };
 
 struct action {
@@ -135,6 +136,10 @@ void mclw_host_event_join(uint8_t a, uint8_t b, bool joined) {
     add_action(mclw_host_event_ns(), joined ? ACTION_JOIN : ACTION_UNJOIN, a, b);
 }
 
+void mclw_host_event_wake(uint64_t t_ns) {
+    add_action(t_ns, ACTION_WAKE, 0, 0);
+}
+
 void mclw_host_event_watch(uint8_t pin) {
     add_action(mclw_host_event_ns(), ACTION_WATCH, pin, 0);
 }
@@ -199,6 +204,9 @@ static size_t put_actions(size_t at) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"%s\",\"pins\":[%u,%u]}", i ? "," : "", a->t_ns,
                     a->kind == ACTION_JOIN ? "join" : "unjoin", a->pin, a->value);
+            } else if (a->kind == ACTION_WAKE) {
+                at += (size_t)snprintf(reply + at, REPLY_MAX - at, "%s{\"t_ns\":%" PRIu64 ",\"op\":\"wake\"}",
+                    i ? "," : "", a->t_ns);
             } else if (a->kind == ACTION_PULL) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"pull\",\"pin\":%u,\"level\":%u}", i ? "," : "", a->t_ns,
@@ -352,6 +360,7 @@ static size_t handle(const char *text, size_t len) {
         }
         request_ns = t_ns >= 0 ? (uint64_t)t_ns : mclw_host_event_ns();
         mclw_host_uart_poll(mclw_host_event_ns());
+        mclw_host_wire_poll(mclw_host_event_ns());
     }
     // The host harness is a board that pulls every DUT line on the Pico's
     // headers up, as the pico-rp2 fixture's does (METALCLAW_LINE_PULLUPS,
@@ -370,7 +379,7 @@ static size_t handle(const char *text, size_t len) {
     } else if (json_is(op, "route")) {
         bind_blocks(root, false);
         at = (size_t)snprintf(reply, REPLY_MAX, "{");
-    } else if (json_is(op, "tick")) {
+    } else if (json_is(op, "tick") || json_is(op, "wake")) {
         at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else if (json_is(op, "i2c")) {
         at = handle_i2c(root);

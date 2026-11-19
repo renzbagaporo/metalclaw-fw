@@ -20,8 +20,9 @@ class HostHarness:
     """The host harness process and its raw REPL, as the rig drives a
     harness: `run` returns what the code printed and raises on an error."""
 
-    def __init__(self, program: Path, socket_path: Path | None = None, timeout: float = 10.0):
-        self.process = HostProcess(program, socket_path)
+    def __init__(self, program: Path, socket_path: Path | None = None, timeout: float = 10.0,
+                 usb_dir: Path | None = None):
+        self.process = HostProcess(program, socket_path, usb_dir=usb_dir)
         self.timeout = timeout
         self.repl = Repl(path=self.process.path).__enter__()
 
