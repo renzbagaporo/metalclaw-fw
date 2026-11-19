@@ -17,9 +17,8 @@
 //                  up to STEPS_AHEAD words ahead of the DUT's time (the
 //                  rp2 port's FIFO)
 //   ENVELOPE       the output low from the carrier's first edge until no
-//                  edge for gap_ns; the burst's end is seen at the next
-//                  worker round, so its release can come up to a
-//                  millisecond of DUT time late
+//                  edge for gap_ns; each edge asks the emulator for a
+//                  request at its gap's end, where the release goes out
 // LATCHED_IN is not here yet.
 
 #include <errno.h>
@@ -218,6 +217,8 @@ static void envelope_edge(struct mclw_wire *w, uint64_t t_ns) {
         mclw_host_event_gpio_at(w->pins[1], MCLW_HOST_GPIO_LOW, t_ns);
     }
     w->last_edge_ns = t_ns;
+    // A request when the gap would end, so the burst's end is seen then.
+    mclw_host_event_wake(t_ns + w->facts.envelope.gap_ns);
 }
 
 void mclw_host_wire_edge(uint8_t pin, int level, uint64_t t_ns) {
@@ -268,11 +269,10 @@ void mclw_host_wire_edge(uint8_t pin, int level, uint64_t t_ns) {
 }
 
 // A line that stays low past the reset ends an LED frame without another
-// edge.
-static void poll_wires(void *ctx) {
-    uint64_t now = mclw_host_event_ns();
-
-    (void)ctx;
+// edge; a carrier that stops ends its burst gap_ns after its last edge.
+// Checked at every request, the wake a burst's edges ask for among them,
+// so the envelope's release goes out at its time.
+void mclw_host_wire_poll(uint64_t now) {
     uint32_t state = mclw_hal_critical_enter();
     for (size_t i = 0; i < WIRES_MAX; i++) {
         struct mclw_wire *w = &wires[i];
@@ -291,6 +291,11 @@ static void poll_wires(void *ctx) {
         }
     }
     mclw_hal_critical_exit(state);
+}
+
+static void poll_wires(void *ctx) {
+    (void)ctx;
+    mclw_host_wire_poll(mclw_host_event_ns());
 }
 
 struct mclw_wire *mclw_hal_wire_open(const uint8_t *pins, uint8_t count, const struct mclw_wire_facts *facts,

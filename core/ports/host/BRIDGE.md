@@ -34,6 +34,7 @@ quiet.
 | --- | --- | --- |
 | `hello` | `version`, `i2c` `[{bus, sda, scl}]`, `uart` `[{port, tx, rx}]`, `spi` `[{bus, sck, mosi, miso}]` | `version` |
 | `tick` | | |
+| `wake` | | |
 | `route` | `i2c`, `uart`, `spi` as in `hello` | |
 | `i2c` | `bus`, `ev`: `start` (`addr`, `read`, `repeated`) | `ack` |
 | | `ev`: `write` (`data`) | `ack` |
@@ -73,6 +74,7 @@ applies each at its time.
 | `spi_clock` | `bus`, `mosi`: clock one frame into the DUT's SPI block, a slave, at `t_ns`; answered by an `spi_clocked` request |
 | `join`, `unjoin` | `pins`: two DUT pins, wired together inside the emulator until unjoined: the DUT's drive on either is the other's input, and blocks routed to them (I2C, UART, SPI) talk directly, with no requests for it |
 | `pull` | `pin`, `level` (1 up, 0 down): a board pull on the DUT pin's line, weaker than any drive; sent after the hello for every line on the Pico's headers, the harness's board pulling each up |
+| `wake` | at `t_ns`, a request with `op` `wake` and nothing else, for a model's timed end (an IR receiver's burst) |
 
 A model makes an interrupt pulse as write, delay, write. The delay does not
 wait: it moves the later actions of the same request on by its length, so

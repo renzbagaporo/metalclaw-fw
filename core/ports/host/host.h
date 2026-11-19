@@ -89,6 +89,10 @@ bool mclw_host_spi_peer_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, u
 void mclw_host_spi_peer_clocked(uint8_t sck, int miso);
 // bridge.c: clock one frame into the DUT's SPI block on these pins at t_ns,
 // as an SPI controller; false when no bridged bus has them.
+// A request from the emulator at t_ns, with no event of the DUT's.
+void mclw_host_event_wake(uint64_t t_ns);
+// wire.c: the wire engines' timed ends (a burst's, a frame's) due by now.
+void mclw_host_wire_poll(uint64_t now_ns);
 // Wire two DUT pins together inside the emulator, or part them again.
 void mclw_host_event_join(uint8_t a, uint8_t b, bool joined);
 bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint64_t t_ns);
