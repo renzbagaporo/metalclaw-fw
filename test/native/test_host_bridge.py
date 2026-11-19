@@ -3,6 +3,7 @@
 # models answer the DUT's I2C as they do on a bench, and their clock is the
 # DUT's virtual time. Needs `just build-host`; skipped without it.
 
+import os
 import time
 
 import pytest
@@ -564,6 +565,48 @@ def test_a_console_bridge_drops_what_came_before_its_port_opened(tmp_path):
             assert harness.run("print(c.dtr, c.discarded)") == "True 8"
         finally:
             os.close(fd)
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_two_console_bridges_get_a_link_each(tmp_path):
+    # Two bridges, one interface string: the second link is "<string> 2",
+    # and detaching the first leaves the second's link in place.
+    path, usb = tmp_path / "native.sock", tmp_path / "usb"
+    harness = HostHarness(PROGRAM, path, usb_dir=usb)
+    bridge = Bridge(path)
+    try:
+        bridge.hello()
+        harness.run("import metalclaw\na = metalclaw.attach('console_bridge', 'a', uart=(1, 0))\n"
+                    "b = metalclaw.attach('console_bridge', 'b', uart=(5, 4))")
+        first, second = usb / "Metalclaw DUT console", usb / "Metalclaw DUT console 2"
+        assert first.is_symlink() and second.is_symlink()
+        assert os.readlink(first) != os.readlink(second)
+        harness.run("a.detach()")
+        assert not first.exists() and second.is_symlink()
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_a_uart_attached_before_its_route_lets_go_of_the_dut_s_rx(tmp_path):
+    # A part attached before the DUT routes its UART holds the DUT's RX
+    # high, idle, as a line that carries bits; the route that follows
+    # carries whole bytes, so the drive is released.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(uart=[{"port": 1, "tx": 8, "rx": 9}])
+        bridge.request(op="route", uart=[])
+        harness.run("import metalclaw\ngps = metalclaw.attach('neo_m8n', 'gps', uart=(9, 8))")
+        bridge.advance(1_000_000)
+        assert any(a["op"] == "gpio" and a["pin"] == 9 and a["level"] == 1 for a in bridge.actions)
+        bridge.actions.clear()
+        bridge.request(op="route", uart=[{"port": 1, "tx": 8, "rx": 9}])
+        bridge.advance(1_000_000)
+        assert any(a["op"] == "gpio" and a["pin"] == 9 and a["level"] == "z" for a in bridge.actions)
     finally:
         bridge.close()
         harness.close()
