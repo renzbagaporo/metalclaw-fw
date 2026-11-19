@@ -80,6 +80,10 @@ void mclw_host_wire_edge(uint8_t pin, int level, uint64_t t_ns);
 // a sink took them. `line` is a sink's side line, as the DUT drives it.
 bool mclw_host_spi_sink_cs(uint8_t pin, bool level);
 bool mclw_host_spi_sink_frame(uint8_t sck, uint8_t mosi_pin, uint8_t mosi);
+// A whole SPI frame's byte, MSB first, into every CLOCKED_IN wire on that
+// clock and data pin (an APA102 the DUT drives from a SPI controller);
+// false when none is there.
+bool mclw_host_wire_spi_frame(uint8_t sck, uint8_t mosi_pin, uint8_t mosi);
 void mclw_host_spi_sink_line(uint8_t pin, int level);
 
 // spi_peer.c: a frame for a target peer on that bus; false when none.

@@ -318,10 +318,12 @@ static void window_end(struct mclw_spi_target *t) {
             }
             break;
         }
+        // A window with no byte still reaches the part, as on the rp2
+        // engine: its chip select woke a sleeping part (SX126x 13.1.1),
+        // and its release raised BUSY, which only the part lowers.
         case IMAGE_COMMAND:
             if (t->count == 0u) {
                 t->stats.short_windows++;
-                break;
             }
             enqueue(t, t->list == LIST_BUSY);
             break;

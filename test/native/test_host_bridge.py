@@ -3,6 +3,7 @@
 # models answer the DUT's I2C as they do on a bench, and their clock is the
 # DUT's virtual time. Needs `just build-host`; skipped without it.
 
+import os
 import time
 
 import pytest
@@ -564,6 +565,94 @@ def test_a_console_bridge_drops_what_came_before_its_port_opened(tmp_path):
             assert harness.run("print(c.dtr, c.discarded)") == "True 8"
         finally:
             os.close(fd)
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_two_console_bridges_get_a_link_each(tmp_path):
+    # Two bridges, one interface string: the second link is "<string> 2",
+    # and detaching the first leaves the second's link in place.
+    path, usb = tmp_path / "native.sock", tmp_path / "usb"
+    harness = HostHarness(PROGRAM, path, usb_dir=usb)
+    bridge = Bridge(path)
+    try:
+        bridge.hello()
+        harness.run("import metalclaw\na = metalclaw.attach('console_bridge', 'a', uart=(1, 0))\n"
+                    "b = metalclaw.attach('console_bridge', 'b', uart=(5, 4))")
+        first, second = usb / "Metalclaw DUT console", usb / "Metalclaw DUT console 2"
+        assert first.is_symlink() and second.is_symlink()
+        assert os.readlink(first) != os.readlink(second)
+        harness.run("a.detach()")
+        assert not first.exists() and second.is_symlink()
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_a_uart_attached_before_its_route_lets_go_of_the_dut_s_rx(tmp_path):
+    # A part attached before the DUT routes its UART holds the DUT's RX
+    # high, idle, as a line that carries bits; the route that follows
+    # carries whole bytes, so the drive is released.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(uart=[{"port": 1, "tx": 8, "rx": 9}])
+        bridge.request(op="route", uart=[])
+        harness.run("import metalclaw\ngps = metalclaw.attach('neo_m8n', 'gps', uart=(9, 8))")
+        bridge.advance(1_000_000)
+        assert any(a["op"] == "gpio" and a["pin"] == 9 and a["level"] == 1 for a in bridge.actions)
+        bridge.actions.clear()
+        bridge.request(op="route", uart=[{"port": 1, "tx": 8, "rx": 9}])
+        bridge.advance(1_000_000)
+        assert any(a["op"] == "gpio" and a["pin"] == 9 and a["level"] == "z" for a in bridge.actions)
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_an_apa102_takes_the_dut_s_spi_frames(tmp_path):
+    # An APA102 the DUT drives from its SPI controller (an embedded-hal
+    # driver on an S32K358 LPSPI): the bridge sends whole frames, and the
+    # strip's clocked-in wire takes each byte MSB first, as on its pins.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[{"bus": 0, "sck": 21, "mosi": 29, "miso": 20}])
+        harness.run("import metalclaw\nstrip = metalclaw.attach('apa102', 'strip', spi=(21, 29))\nstrip.count = 3")
+        frame = bytes(4) + bytes([0xE1, 0x10, 0x20, 0x30, 0xE2, 0x40, 0x50, 0x60, 0xE3, 0x70, 0x80, 0x90]) + b"\xff" * 4
+        for byte in frame:
+            bridge.request(op="spi", bus=0, mosi=byte, bits=8, pins={"sck": 21, "mosi": 29, "miso": 20})
+        bridge.advance(3_000_000)
+        assert harness.run("print(strip.frames, strip.leds_set, strip.end_frames)") == "1 3 1"
+        assert harness.run("print(bytes(strip.read_region('leds', 0, 12)).hex())") == frame[4:16].hex()
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_an_empty_chip_select_window_leaves_an_sx1262_ready(tmp_path):
+    # sx126x 0.3.0's wait_on_busy() and reset() run a transaction with only
+    # a delay: chip select falls and rises with no clock. The release
+    # raises BUSY as after any window; the part lowers it, as it has no
+    # command to work on.
+    from test.native.host import spi_window
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[SPI0])
+        harness.run("import metalclaw\nradio = metalclaw.attach('sx1262', 'radio', spi=(18, 19, 16, 17), "
+                    "busy=10, dio1=20, nreset=6)")
+        bridge.request(op="gpio", pin=6, level=1)
+        bridge.advance(5_000_000)
+        bridge.actions.clear()
+        spi_window(bridge, 0, 17, b"")
+        bridge.advance(2_000_000)
+        busy = [a["level"] for a in bridge.actions if a["op"] == "gpio" and a["pin"] == 10]
+        assert busy and busy[-1] == 0, busy
     finally:
         bridge.close()
         harness.close()
