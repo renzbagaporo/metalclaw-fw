@@ -5,8 +5,8 @@
 # pin with its virtual time, and takes timed gpio actions that drive the pins'
 # pad inputs; this side drives the pins as a DUT would, bit by bit.
 #
-# A test holds the emulator at a virtual time (`until`): the first request at
-# or after it waits for its reply while the test reads what the harness drove
+# A test holds the emulator at a virtual time (`until`): the first tick or
+# wake at or after it waits for its reply while the test reads what the harness drove
 # (`harness_level`) and queues the next edges, all later than that request.
 # A `wake` action asks for a request at its time, so a hold lands there
 # exactly; without one, the emulator's tick (every ms) is the next.
@@ -68,7 +68,11 @@ class Stimulus:
             if msg.get("op") == "gpio":
                 level = msg.get("level")
                 self.harness.setdefault(msg["pin"], []).append((t, level if isinstance(level, int) else None))
-            if self._hold_at is not None and t >= self._hold_at:
+            # A hold lands on a request at the emulator's own time (a tick,
+            # a wake): a pin report or a route op carries the time of the
+            # change it reports, which may be behind the clock, and edges
+            # timed from it would land in the past and apply at once.
+            if self._hold_at is not None and t >= self._hold_at and msg.get("op") in ("tick", "wake", "hello"):
                 self._held = t
                 self._hold_at = None
                 self._cond.notify_all()
