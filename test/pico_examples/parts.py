@@ -163,17 +163,6 @@ def _ws2812_frames(name: str, length: int, description: str) -> Check:
                        f"_{name}_bad = part.bad_frames\n")
 
 
-# A whole frame of an APA102 strip, read between two updates.
-APA102_WHOLE = """def apa102_whole(part):
-    for _ in range(200):
-        f, e = part.frames, part.end_frames
-        leds = bytes(part.read_region('leds', 0, 600))
-        if f == e and (part.frames, part.end_frames) == (f, e):
-            return leds
-    return leds
-"""
-
-
 PARTS: dict[str, tuple[Attach, ...]] = {
     # i2c/bmp280_i2c/bmp280_i2c.c: ADDR 0x76.
     "bmp280_i2c": (
@@ -411,13 +400,11 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     # spi=(clock, data).
     "pio_apa102": (
         Attach("apa102", "strip", {"spi": (2, 3)}, properties={"count": 150}, checks=(
-            # The program updates the strip without pause, and a read taken
-            # while an update shifts in shows half of one step and half of
-            # the next: the read is retried until no update was in flight
-            # around it (as many end frames as start frames, unchanged).
-            Check("apa102_whole(part)", lights.apa102_shows_a_frame,
-                  "one step of the three sine waves, at global brightness 16", 2.0,
-                  setup=APA102_WHOLE),
+            # The program updates the strip without pause, and `leds` read
+            # while an update shifts in shows part of one step and part of
+            # the next: `frame` holds the last whole update.
+            Check("bytes(part.read_region('frame', 0, 600))", lights.apa102_shows_a_frame,
+                  "one step of the three sine waves, at global brightness 16", 2.0),
             Check("(part.frames > 10, part.end_frames > 10)", lambda v: v == (True, True),
                   "start and end frames around every update", 2.0),
         )),

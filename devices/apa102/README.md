@@ -24,6 +24,7 @@ import metalclaw
 strip = metalclaw.attach("apa102", "strip", spi=(6, 7))
 strip.count = 150
 strip.read_region("leds", 0, 600)   # per LED: 111 + brightness, blue, green, red
+strip.read_region("frame", 0, 600)  # the same, as the last end frame left them
 strip.frames, strip.leds_set, strip.end_frames
 ```
 
@@ -41,6 +42,7 @@ strip.frames, strip.leds_set, strip.end_frames
 | name | size | access | content |
 | --- | --- | --- | --- |
 | `leds` | 1024 | ro | each LED's last frame: `111` and the 5-bit global brightness, then blue, green, red |
+| `frame` | 1024 | ro | `leds` as the last end frame left it: a whole update, where `leds` is part way through the next while one shifts in |
 
 ## Behaviour
 

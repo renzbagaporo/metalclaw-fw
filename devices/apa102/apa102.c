@@ -27,6 +27,7 @@ enum {
 
 enum {
     REGION_LEDS,
+    REGION_FRAME,
 };
 
 #define READ_BATCH 32u
@@ -45,6 +46,9 @@ struct apa102_state {
     uint8_t bits;
     int32_t led;
     uint8_t leds[APA102_LEDS_MAX * 4u];
+    // The strip as its last end frame left it: a whole update, where
+    // `leds` is mid-way through the next one while it shifts in.
+    uint8_t frame[APA102_LEDS_MAX * 4u];
 };
 
 static const struct mclw_property_desc apa102_properties[] = {
@@ -88,6 +92,7 @@ static const struct mclw_property_desc apa102_properties[] = {
 
 static const struct mclw_region_desc apa102_regions[] = {
     { .name = "leds", .size = APA102_LEDS_MAX * 4u, .access = MCLW_ACCESS_RO },
+    { .name = "frame", .size = APA102_LEDS_MAX * 4u, .access = MCLW_ACCESS_RO },
 };
 
 // APA102C datasheet p. 4: SDI is taken at each rising edge of CKI, MSB
@@ -137,6 +142,7 @@ static void take_bit(struct apa102_state *state, bool bit) {
         state->leds_set++;
     } else if (state->word == 0xffffffffu) {
         state->end_frames++;
+        memcpy(state->frame, state->leds, sizeof(state->frame));
     }
     state->led++;
 }
@@ -164,6 +170,7 @@ static void power_up(struct apa102_state *state) {
     state->bits = 0;
     state->led = -1;
     memset(state->leds, 0, sizeof(state->leds));
+    memset(state->frame, 0, sizeof(state->frame));
 }
 
 static int apa102_init(struct mclw_instance *inst, const struct mclw_binding *bindings) {
@@ -221,10 +228,12 @@ static int apa102_set(struct mclw_instance *inst, size_t property, const struct 
 static int apa102_read_region(struct mclw_instance *inst, size_t region, uint32_t offset, void *buf, size_t len) {
     const struct apa102_state *state = inst->state;
 
-    if (region != REGION_LEDS || offset > sizeof(state->leds) || len > sizeof(state->leds) - offset) {
+    const uint8_t *data = region == REGION_LEDS ? state->leds : region == REGION_FRAME ? state->frame : NULL;
+
+    if (data == NULL || offset > sizeof(state->leds) || len > sizeof(state->leds) - offset) {
         return -EINVAL;
     }
-    memcpy(buf, &state->leds[offset], len);
+    memcpy(buf, &data[offset], len);
     return 0;
 }
 
