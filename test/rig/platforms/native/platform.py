@@ -508,6 +508,9 @@ NATIVE_EXAMPLE_LIMITS = {
     ("multicore_doorbell", "rp2350"): "core 1 reads its exit flag once and spins (core1_entry+0x18, b .): on "
                                       "silicon core 0's first doorbell lands before that read, while the "
                                       "emulator's core interleaving lets core 1 reach it first",
+    ("dht", "rp2350"): "the emulator runs an instruction a cycle with no bus wait states, so a pass of the "
+                       "program's sleep_us(1) count loop takes exactly 1 us where silicon's takes 1.7 us or "
+                       "more, and every bit counts as a 1",
 }
 
 
