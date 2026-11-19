@@ -610,3 +610,24 @@ def test_a_uart_attached_before_its_route_lets_go_of_the_dut_s_rx(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_an_apa102_takes_the_dut_s_spi_frames(tmp_path):
+    # An APA102 the DUT drives from its SPI controller (an embedded-hal
+    # driver on an S32K358 LPSPI): the bridge sends whole frames, and the
+    # strip's clocked-in wire takes each byte MSB first, as on its pins.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[{"bus": 0, "sck": 21, "mosi": 29, "miso": 20}])
+        harness.run("import metalclaw\nstrip = metalclaw.attach('apa102', 'strip', spi=(21, 29))\nstrip.count = 3")
+        frame = bytes(4) + bytes([0xE1, 0x10, 0x20, 0x30, 0xE2, 0x40, 0x50, 0x60, 0xE3, 0x70, 0x80, 0x90]) + b"\xff" * 4
+        for byte in frame:
+            bridge.request(op="spi", bus=0, mosi=byte, bits=8, pins={"sck": 21, "mosi": 29, "miso": 20})
+        bridge.advance(3_000_000)
+        assert harness.run("print(strip.frames, strip.leds_set, strip.end_frames)") == "1 3 1"
+        assert harness.run("print(bytes(strip.read_region('leds', 0, 12)).hex())") == frame[4:16].hex()
+    finally:
+        bridge.close()
+        harness.close()

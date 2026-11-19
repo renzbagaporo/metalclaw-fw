@@ -421,7 +421,8 @@ static size_t handle(const char *text, size_t len) {
             uint8_t miso_pin = pin_or(root, "miso", spi_buses[bus].miso);
 
             if (mclw_host_spi_frame(sck, mosi_pin, miso_pin, mosi, &miso) != 0 &&
-                !mclw_host_spi_sink_frame(sck, mosi_pin, mosi)) {
+                !mclw_host_spi_sink_frame(sck, mosi_pin, mosi) &&
+                !mclw_host_wire_spi_frame(sck, mosi_pin, mosi)) {
                 (void)mclw_host_spi_peer_frame(sck, mosi_pin, miso_pin, mosi, &miso);
             }
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u", miso);
