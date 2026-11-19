@@ -2,7 +2,8 @@
 // USB functions for the host port: a serial interface is a pseudo-terminal,
 // and with METALCLAW_USB_DIR set, a link there named after its interface
 // string points at it, as the rig finds a harness's CDC port by that
-// string. Bytes written to the terminal reach the interface's rx on the
+// string; a second interface with the same string gets "<string> 2", a
+// third "<string> 3", in the order they open. Bytes written to the terminal reach the interface's rx on the
 // worker, under the runtime lock. The interface is connected, DTR and RTS
 // up, while something has the terminal open (the master reads EIO while
 // nothing does); what it sends meanwhile is dropped, as a host that has
@@ -84,6 +85,17 @@ static void usb_poll(void *ctx) {
     }
 }
 
+static bool link_held(const struct mclw_usb_interface *self, const char *link) {
+    for (size_t i = 0; i < INTERFACES_MAX; i++) {
+        const struct mclw_usb_interface *other = &interfaces[i];
+
+        if (other != self && other->owner != NULL && strcmp(other->link, link) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static int open_terminal(struct mclw_usb_interface *itf) {
     struct termios raw;
     const char *name;
@@ -109,7 +121,17 @@ static int open_terminal(struct mclw_usb_interface *itf) {
     const char *dir = getenv("METALCLAW_USB_DIR");
 
     if (dir != NULL && dir[0] != '\0') {
-        (void)snprintf(itf->link, sizeof(itf->link), "%s/%s", dir, itf->desc->name);
+        // A link no open interface holds is left from an earlier run.
+        for (unsigned n = 1u; n <= INTERFACES_MAX; n++) {
+            if (n == 1u) {
+                (void)snprintf(itf->link, sizeof(itf->link), "%s/%s", dir, itf->desc->name);
+            } else {
+                (void)snprintf(itf->link, sizeof(itf->link), "%s/%s %u", dir, itf->desc->name, n);
+            }
+            if (!link_held(itf, itf->link)) {
+                break;
+            }
+        }
         (void)unlink(itf->link);
         if (symlink(name, itf->link) != 0) {
             itf->link[0] = '\0';

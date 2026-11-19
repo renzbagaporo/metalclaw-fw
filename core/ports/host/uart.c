@@ -250,7 +250,10 @@ struct mclw_uart *mclw_hal_uart_open(uint8_t tx, uint8_t rx, uint32_t baud,
 }
 
 // A line that carries bits has the DUT's TX watched, and the DUT's RX
-// driven high, idle; a bridged UART's bytes need neither. A watch stays.
+// driven high, idle; a bridged UART's bytes need neither. A watch stays
+// (edges on a routed pin are passed over); the idle drive is released once
+// the DUT routes its RX, which a UART attached before the DUT set its pins
+// up would otherwise hold as a plain wire.
 void mclw_host_uart_route_changed(void) {
     for (size_t i = 0; i < UARTS_MAX; i++) {
         struct mclw_uart *u = &uarts[i];
@@ -262,9 +265,14 @@ void mclw_host_uart_route_changed(void) {
             u->watched = true;
             mclw_host_event_watch(u->rx);
         }
-        if (!u->idled && !mclw_host_pin_is_uart_rx(u->tx)) {
+        bool routed = mclw_host_pin_is_uart_rx(u->tx);
+
+        if (!u->idled && !routed) {
             u->idled = true;
             mclw_host_event_gpio(u->tx, MCLW_HOST_GPIO_HIGH);
+        } else if (u->idled && routed) {
+            u->idled = false;
+            mclw_host_event_gpio(u->tx, MCLW_HOST_GPIO_RELEASED);
         }
     }
 }
