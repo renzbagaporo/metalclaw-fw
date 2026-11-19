@@ -492,11 +492,35 @@ def probe():
     return None
 
 
+# DUT seconds the boot run gets before any case: as on a bench, which boots
+# the DUT long before a case listens, what the program does once (hello_otp
+# writing its OTP rows) is done before the judged runs.
+BOOT_RUN_S = 1.0
+
+
+# Examples native mode cannot judge, by target and chip (None for both),
+# and why.
+NATIVE_EXAMPLE_LIMITS = {
+    ("pio_hub75", None): "the host port has no latched wire engine for the HUB75's data lines",
+    ("pio_spi_flash", None): "a bit-level flash over one bridge round trip per edge runs past the time cap",
+    ("pio_quadrature_encoder", None): "an encoder's edges, one bridge round trip each, run past the time cap",
+    ("pio_quadrature_encoder_substep", None): "an encoder's edges, one bridge round trip each, run past the time cap",
+    ("multicore_doorbell", "rp2350"): "core 1 reads its exit flag once and spins (core1_entry+0x18, b .): on "
+                                      "silicon core 0's first doorbell lands before that read, while the "
+                                      "emulator's core interleaving lets core 1 reach it first",
+}
+
+
 @pytest.fixture(scope="session")
 def example(bench: NativeBench, harness: NativeHarness) -> NativeExample:
     require_example_image(bench.image)
+    metadata = example_metadata(bench.image) or {}
+    for (target, chip), why in NATIVE_EXAMPLE_LIMITS.items():
+        if metadata.get("target") == target and chip in (None, metadata.get("chip")):
+            pytest.skip(f"{target} natively: {why}")
     e = NativeExample(bench)
     e.restart()
+    harness.sleep(BOOT_RUN_S)
     return e
 
 

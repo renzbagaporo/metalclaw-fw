@@ -3,8 +3,11 @@
 // and with METALCLAW_USB_DIR set, a link there named after its interface
 // string points at it, as the rig finds a harness's CDC port by that
 // string. Bytes written to the terminal reach the interface's rx on the
-// worker, under the runtime lock; the line is always up, at 115200 8N1.
-// A vendor interface (the SWD probe) has no place here.
+// worker, under the runtime lock. The interface is connected, DTR and RTS
+// up, while something has the terminal open (the master reads EIO while
+// nothing does); what it sends meanwhile is dropped, as a host that has
+// not opened a CDC port never takes it. The line coding is 115200 8N1. A
+// vendor interface (the SWD probe) has no place here.
 
 #define _XOPEN_SOURCE 600
 #define _DEFAULT_SOURCE
@@ -28,11 +31,11 @@ struct mclw_usb_interface {
     const void *owner;
     const struct mclw_usb_interface_desc *desc;
     mclw_usb_rx_t rx;
+    mclw_usb_control_t control;
     void *ctx;
     int master;
-    // The terminal's own side, held open so the master never reads a
-    // hang-up while no one has it open.
-    int slave;
+    // Whether something has the terminal open.
+    bool connected;
     char link[PATH_MAX];
     // Bytes read from the terminal that rx has yet to take.
     uint8_t pending[PENDING_MAX];
@@ -50,12 +53,22 @@ static void usb_poll(void *ctx) {
         if (itf->owner == NULL) {
             continue;
         }
+        bool was = itf->connected;
+
         if (itf->pending_len < PENDING_MAX) {
             ssize_t n = read(itf->master, itf->pending + itf->pending_len, PENDING_MAX - itf->pending_len);
 
             if (n > 0) {
                 itf->pending_len += (size_t)n;
+                itf->connected = true;
+            } else {
+                // EIO: no one has the terminal open; EAGAIN: someone does.
+                itf->connected = n < 0 && errno == EAGAIN;
             }
+        }
+        if (itf->connected != was && itf->control != NULL && mclw_hal_try_lock()) {
+            itf->control(itf, itf->ctx);
+            mclw_hal_unlock();
         }
         if (itf->pending_len == 0u || itf->rx == NULL || !mclw_hal_try_lock()) {
             continue;
@@ -80,12 +93,18 @@ static int open_terminal(struct mclw_usb_interface *itf) {
         (name = ptsname(itf->master)) == NULL) {
         return -EIO;
     }
-    itf->slave = open(name, O_RDWR | O_NOCTTY);
-    if (itf->slave < 0 || tcgetattr(itf->slave, &raw) != 0) {
+    // Raw from the start; the settings outlast this open.
+    int slave = open(name, O_RDWR | O_NOCTTY);
+
+    if (slave < 0 || tcgetattr(slave, &raw) != 0) {
+        if (slave >= 0) {
+            close(slave);
+        }
         return -EIO;
     }
     cfmakeraw(&raw);
-    (void)tcsetattr(itf->slave, TCSANOW, &raw);
+    (void)tcsetattr(slave, TCSANOW, &raw);
+    close(slave);
     (void)fcntl(itf->master, F_SETFL, fcntl(itf->master, F_GETFL) | O_NONBLOCK);
     const char *dir = getenv("METALCLAW_USB_DIR");
 
@@ -107,20 +126,17 @@ static void close_terminal(struct mclw_usb_interface *itf) {
         (void)unlink(itf->link);
         itf->link[0] = '\0';
     }
-    if (itf->slave >= 0) {
-        close(itf->slave);
-    }
     if (itf->master >= 0) {
         close(itf->master);
     }
-    itf->slave = itf->master = -1;
+    itf->master = -1;
+    itf->connected = false;
 }
 
 struct mclw_usb_interface *mclw_hal_usb_open(const struct mclw_usb_interface_desc *desc,
     mclw_usb_rx_t rx, mclw_usb_control_t control, void *ctx, const void *owner, int *err) {
     struct mclw_usb_interface *itf = NULL;
 
-    (void)control;
     if (desc == NULL || owner == NULL) {
         *err = -EINVAL;
         return NULL;
@@ -143,9 +159,11 @@ struct mclw_usb_interface *mclw_hal_usb_open(const struct mclw_usb_interface_des
         return NULL;
     }
     itf->rx = rx;
+    itf->control = control;
     itf->ctx = ctx;
     itf->pending_len = 0;
-    itf->master = itf->slave = -1;
+    itf->connected = false;
+    itf->master = -1;
     itf->link[0] = '\0';
     *err = open_terminal(itf);
     if (*err == 0 && !poll_registered) {
@@ -177,13 +195,13 @@ void mclw_hal_usb_close(struct mclw_usb_interface *itf) {
 }
 
 size_t mclw_hal_usb_write(struct mclw_usb_interface *itf, const uint8_t *data, size_t len) {
-    ssize_t n = itf->master >= 0 ? write(itf->master, data, len) : -1;
+    ssize_t n = itf->connected && itf->master >= 0 ? write(itf->master, data, len) : -1;
 
     return n > 0 ? (size_t)n : 0u;
 }
 
 bool mclw_hal_usb_connected(const struct mclw_usb_interface *itf) {
-    return itf->owner != NULL;
+    return itf->owner != NULL && itf->connected;
 }
 
 int mclw_hal_usb_line_coding(const struct mclw_usb_interface *itf, struct mclw_usb_line_coding *out) {
@@ -194,8 +212,7 @@ int mclw_hal_usb_line_coding(const struct mclw_usb_interface *itf, struct mclw_u
 }
 
 uint8_t mclw_hal_usb_control_lines(const struct mclw_usb_interface *itf) {
-    (void)itf;
-    return MCLW_USB_LINE_DTR | MCLW_USB_LINE_RTS;
+    return itf->connected ? (uint8_t)(MCLW_USB_LINE_DTR | MCLW_USB_LINE_RTS) : 0u;
 }
 
 const char *mclw_hal_usb_serial(void) {

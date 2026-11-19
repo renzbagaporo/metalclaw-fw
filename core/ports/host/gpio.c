@@ -196,8 +196,14 @@ uint8_t mclw_hal_gpio_pin(const struct mclw_gpio *gpio) {
 }
 
 int mclw_hal_gpio_square(struct mclw_gpio *gpio, uint32_t period_ns, uint32_t high_ns) {
+    // A high of none or of the whole period is a steady level, as the rp2
+    // port's PWM makes it (a model may set the period before its high).
     if (period_ns != 0u && (high_ns == 0u || high_ns >= period_ns)) {
-        return -ERANGE;
+        uint32_t state = mclw_hal_critical_enter();
+        gpio->period_ns = 0u;
+        mclw_hal_critical_exit(state);
+        mclw_hal_gpio_write(gpio, high_ns != 0u);
+        return 0;
     }
     if (!square_registered) {
         if (mclw_hal_poll_register(square_poll, NULL) != 0) {
