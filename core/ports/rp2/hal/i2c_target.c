@@ -281,6 +281,14 @@ void mclw_hal_i2c_target_close(struct mclw_i2c_target *t) {
     t->owner = NULL;
     t->image = NULL;
     t->sink = NULL;
+    bool any = false;
+    for (size_t i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+        any = any || targets[i].owner != NULL;
+    }
+    if (!any && poll_registered) {
+        mclw_hal_poll_unregister(poll_sinks, NULL);
+        poll_registered = false;
+    }
 }
 
 int mclw_hal_i2c_target_arm(struct mclw_i2c_target *t, struct mclw_regmap *image) {

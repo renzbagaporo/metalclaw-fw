@@ -2361,6 +2361,10 @@ void mclw_hal_spi_target_close(struct mclw_spi_target *t) {
     if (bus->open_count == 0u) {
         dma_handler_sync(bus, false);
         bus_unload_program(bus);
+        if (bus->poll_registered) {
+            mclw_hal_poll_unregister(poll_targets, NULL);
+            bus->poll_registered = false;
+        }
     }
 }
 
