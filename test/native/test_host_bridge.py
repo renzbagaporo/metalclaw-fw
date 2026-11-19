@@ -631,3 +631,28 @@ def test_an_apa102_takes_the_dut_s_spi_frames(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_an_empty_chip_select_window_leaves_an_sx1262_ready(tmp_path):
+    # sx126x 0.3.0's wait_on_busy() and reset() run a transaction with only
+    # a delay: chip select falls and rises with no clock. The release
+    # raises BUSY as after any window; the part lowers it, as it has no
+    # command to work on.
+    from test.native.host import spi_window
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[SPI0])
+        harness.run("import metalclaw\nradio = metalclaw.attach('sx1262', 'radio', spi=(18, 19, 16, 17), "
+                    "busy=10, dio1=20, nreset=6)")
+        bridge.request(op="gpio", pin=6, level=1)
+        bridge.advance(5_000_000)
+        bridge.actions.clear()
+        spi_window(bridge, 0, 17, b"")
+        bridge.advance(2_000_000)
+        busy = [a["level"] for a in bridge.actions if a["op"] == "gpio" and a["pin"] == 10]
+        assert busy and busy[-1] == 0, busy
+    finally:
+        bridge.close()
+        harness.close()
