@@ -656,3 +656,74 @@ def test_an_empty_chip_select_window_leaves_an_sx1262_ready(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+class FakeI2cTarget:
+    # The emulator's side of i2c_drive: a DUT target at `address` with a
+    # 256-byte page that writes fill and reads serve, wrapping, answering
+    # each event a microsecond after it.
+    def __init__(self, bridge, bus, address):
+        self.bridge, self.bus, self.address = bridge, bus, address
+        self.page, self.at, self.selected = bytearray(256), 0, False
+
+    def serve(self, rounds=20000):
+        for _ in range(rounds):
+            drives = [a for a in self.bridge.actions if a["op"] == "i2c_drive"]
+            self.bridge.actions[:] = [a for a in self.bridge.actions if a["op"] != "i2c_drive"]
+            if not drives:
+                self.bridge.advance(1_000_000)
+                if not any(a["op"] == "i2c_drive" for a in self.bridge.actions):
+                    return
+                continue
+            for a in drives:
+                self.bridge.t_ns = max(self.bridge.t_ns, a["t_ns"]) + 1_000
+                answer = {"op": "i2c_driven", "bus": self.bus}
+                if a["ev"] == "start":
+                    self.selected = a["addr"] == self.address
+                    answer["ack"] = self.selected
+                elif a["ev"] == "write":
+                    self.page[self.at] = a["data"]
+                    self.at = (self.at + 1) % 256
+                    answer["ack"] = True
+                elif a["ev"] == "read":
+                    answer["data"] = self.page[self.at]
+                    self.at = (self.at + 1) % 256
+                self.bridge.request(**answer)
+
+
+def test_an_i2c_page_controller_writes_and_reads_back_a_page(tmp_path):
+    # i2c_page_controller toward the DUT's target (BRIDGE.md i2c_drive): a
+    # page in 16-byte write transfers, then read back the same way.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(i2c=[I2C0])
+        harness.run("import metalclaw\nc = metalclaw.attach('i2c_page_controller', 'c', sda=4, scl=5)\n"
+                    "c.address = 0x42\nc.interval = 1\nc.pages = 1")
+        target = FakeI2cTarget(bridge, 0, 0x42)
+        bridge.advance(2_000_000)
+        target.serve()
+        assert harness.run("print(c.clocked, c.transfers, c.nacks, c.last_error)") == "1 32 0 0"
+        assert harness.run("print(bytes(c.read_region('in', 0, 256)) == bytes(range(256)))") == "True"
+        assert bytes(target.page) == bytes(range(256))
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_an_i2c_page_controller_counts_an_address_no_one_answers(tmp_path):
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(i2c=[I2C0])
+        harness.run("import metalclaw\nc = metalclaw.attach('i2c_page_controller', 'c', sda=4, scl=5)\n"
+                    "c.address = 0x43\nc.interval = 1\nc.pages = 1")
+        target = FakeI2cTarget(bridge, 0, 0x42)
+        bridge.advance(2_000_000)
+        target.serve()
+        assert harness.run("print(c.clocked, c.nacks, c.last_error)") == "1 32 1"
+    finally:
+        bridge.close()
+        harness.close()

@@ -12,9 +12,10 @@ reads acknowledge every byte but each transfer's last. The DUT may stretch
 the clock up to 25 ms. The engine is the port's I2C controller
 (`hal/i2c_controller.h`): on rp2 the hardware I2C block behind the two pins,
 fed from the worker, so the pins must be one block's SDA and SCL pair, and
-no I2C target may hold that block at the same time. The host port has no
-controller yet (the bridge has no harness-driven I2C), so attaching there
-fails with `ENOTSUP`.
+no I2C target may hold that block at the same time. On the host port the
+transfers go to the emulated DUT's target over the bridge, an event at a
+time (`core/ports/host/BRIDGE.md`, `i2c_drive`), on the bus whose pins are
+`sda` and `scl`.
 
 With `offset`, every write starts with the page offset of its first byte,
 and every read is a write of that offset, a repeated START and the read:
