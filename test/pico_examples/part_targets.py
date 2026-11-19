@@ -548,6 +548,14 @@ PART_SPECS.update({
         forbidden=forbid(r"Couldn't write to slave"),
         source="i2c/slave_mem_i2c/slave_mem_i2c.c",
     ),
+    # The rig's own program (test/pico_examples/programs/i2c_target_page):
+    # an I2C target at 0x42 that i2c_page_controller writes a page to and
+    # reads it back from (judged by the part); the console says it is up.
+    "i2c_target_page": Spec(
+        console=(r"I2C target page at 0x42" + NL,),
+        seconds=5.0,
+        source="test/pico_examples/programs/i2c_target_page/i2c_target_page.c",
+    ),
     # i2c/slave_mem_i2c/slave_mem_i2c_burst.c:92-136: the same a byte at a
     # time, 1 ms apart, read back whole.
     "slave_mem_i2c_burst": Spec(

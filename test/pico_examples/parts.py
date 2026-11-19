@@ -542,6 +542,14 @@ JUMPERS: dict[str, tuple[Attach, ...]] = {
     # clock GP5, SPI0 TX GP3 to its data GP4.
     "pio_clocked_input": (_jumper("clock", 2, 5), _jumper("data", 3, 4)),
     "slave_mem_i2c": _i2c_jumpers(),
+    # The rig's own I2C target program at 0x42 on GP4/GP5: one page written
+    # in 16-byte transfers and read back the same way.
+    "i2c_target_page": (Attach("i2c_page_controller", "ctl", {"sda": (4,), "scl": (5,)},
+                               properties={"address": 0x42, "interval": 300, "pages": 1},
+                               checks=(Check("(bytes(part.read_region('in', 0, 256)) == bytes(range(256)), "
+                                             "part.clocked, part.nacks, part.last_error)",
+                                             lambda v: v == (True, 1, 0, 0),
+                                             "one page written and read back whole, with no NACK", 3.0),)),),
     "slave_mem_i2c_burst": _i2c_jumpers(),
 }
 
