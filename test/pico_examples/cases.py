@@ -408,7 +408,9 @@ def test_the_example_parts_saw_the_program(harness, example, parts, record_prope
         # the firmware's model has it.
         record_property(f"part_{name}_last_ignored", harness.run(
             f"print(repr(getattr({name}, 'last_ignored', None)))\n").strip())
-        if "uart" in part.bindings:
+        # The harness's own registers: an rp2 harness's, which the native
+        # host harness has none of.
+        if "uart" in part.bindings and harness.board() != "native":
             record_property("harness_uart_registers", harness.run(HARNESS_UARTS).strip())
             record_property("harness_pio_registers", harness.run(HARNESS_PIOS).strip())
     assert not problems, f"{example.target}: {problems}"

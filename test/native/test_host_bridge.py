@@ -496,3 +496,24 @@ def test_a_tmp116_s_data_ready_clears_on_read_and_waits_out_its_averaging(tmp_pa
     finally:
         bridge.close()
         harness.close()
+
+
+def test_a_glitch_shorter_than_half_a_bit_is_no_frame(tmp_path):
+    # lcd_uart: as the DUT sets UART1 up, GP8 dips low for 200 ns, before
+    # the route shows the UART there; a UART checks its start bit in the
+    # middle and takes no byte from it.
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\ngps = metalclaw.attach('neo_m8n', 'gps', uart=(9, 8))")
+        bridge.advance(1_000_000)
+        t = bridge.t_ns + 100_000
+        bridge.request(op="gpio", pin=8, level=1, t_ns=t)
+        bridge.request(op="gpio", pin=8, level=0, t_ns=t + 1_000)
+        bridge.request(op="gpio", pin=8, level=1, t_ns=t + 1_200)
+        bridge.t_ns = t + 10_000_000
+        bridge.request(op="tick")
+        stats = eval(harness.run("print(gps.stats('uart'))"))
+        assert (stats["bytes_rx"], stats["frame_errors"]) == (0, 0), stats
+    finally:
+        bridge.close()
+        harness.close()
