@@ -101,6 +101,15 @@ def test_pio_spi_flash_is_not_judged_on_fixture_1s_pico_2_build_only():
     assert set(BENCH_LIMITS) <= set(SPECS) | set(PART_SPECS)
 
 
+def test_pio_manchester_encoding_is_not_judged_on_the_carrier():
+    from test.pico_examples.hazards import bench_limit
+    reason = bench_limit("pio_manchester_encoding", "metalclaw_pico_rp2", "pico")
+    assert "48 ns half-bit" in reason and "2 of 12" in reason
+    for board in ("fixture1_pico", "rpi_pi_pico"):
+        assert bench_limit("pio_manchester_encoding", board, "pico2") is None
+    assert bench_limit("pio_differential_manchester", "metalclaw_pico_rp2", "pico") is None
+
+
 def test_the_hardware_example_fixture_skips_a_bench_limit_before_flashing(tmp_path, monkeypatch):
     image = tmp_path / "pio_spi_flash.elf"
     image.touch()
