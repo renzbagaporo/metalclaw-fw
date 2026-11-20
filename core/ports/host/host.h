@@ -71,6 +71,8 @@ bool mclw_host_pin_is_uart_rx(uint8_t pin);
 // at `sck` (-ENODEV when no target there is selected).
 void mclw_host_spi_cs(uint8_t pin, bool level);
 int mclw_host_spi_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint8_t *miso);
+int mclw_host_spi_next_miso(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t *miso);
+bool mclw_host_spi_target_on_cs(uint8_t pin, uint8_t *sck, uint8_t *mosi, uint8_t *miso);
 
 // wire.c: the DUT drove `pin` to `level` (0, 1, or -1 for released) at
 // `t_ns`.
