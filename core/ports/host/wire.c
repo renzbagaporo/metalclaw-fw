@@ -19,7 +19,11 @@
 //   ENVELOPE       the output low from the carrier's first edge until no
 //                  edge for gap_ns; each edge asks the emulator for a
 //                  request at its gap's end, where the release goes out
-// LATCHED_IN is not here yet.
+//   LATCHED_IN     capture() asks the emulator for one look (a
+//                  latch_capture action), which it takes as the rp2 PIO
+//                  program does and sends back whole (a latched request):
+//                  a panel's clock runs at tens of MHz, past what an edge
+//                  a round trip can carry
 
 #include <errno.h>
 #include <stddef.h>
@@ -39,6 +43,8 @@
 // tRSTL 480 us minimum; a slot is 60-120 us).
 #define ONEWIRE_RESET_NS 300000u
 #define STEPS_AHEAD 8u
+// LATCHED_IN: the samples a look holds, the rp2 engine's DMA block.
+#define LATCH_WORDS 512u
 
 struct mclw_wire {
     const void *owner;
@@ -78,6 +84,11 @@ struct mclw_wire {
     uint64_t burst_start_ns;
     uint64_t burst_end_ns;
     uint64_t last_edge_ns;
+    // LATCHED_IN: a look asked for and not yet back, and the look back
+    // that read() has not handed out.
+    bool armed;
+    uint32_t ready[LATCH_WORDS + 1u];
+    uint32_t ready_n;
 };
 
 static struct mclw_wire wires[WIRES_MAX];
@@ -341,6 +352,13 @@ struct mclw_wire *mclw_hal_wire_open(const uint8_t *pins, uint8_t count, const s
         case MCLW_WIRE_STEPS_OUT:
         case MCLW_WIRE_ENVELOPE:
             break;
+        case MCLW_WIRE_LATCHED_IN:
+            // The clock, latch and enable, and pins in a sample's word.
+            if (count != 3u || pins[0] >= 32u || pins[1] >= 32u || pins[2] >= 32u) {
+                *err = -EINVAL;
+                return NULL;
+            }
+            break;
         default:
             *err = -ENOTSUP;
             return NULL;
@@ -390,7 +408,7 @@ struct mclw_wire *mclw_hal_wire_open(const uint8_t *pins, uint8_t count, const s
     } else if (facts->engine == MCLW_WIRE_ENVELOPE) {
         mclw_host_event_watch(pins[0]);
         mclw_host_event_gpio(pins[1], MCLW_HOST_GPIO_RELEASED);
-    } else if (facts->engine != MCLW_WIRE_PINS) {
+    } else if (facts->engine != MCLW_WIRE_PINS && facts->engine != MCLW_WIRE_LATCHED_IN) {
         for (uint8_t k = 0; k < count; k++) {
             mclw_host_event_watch(pins[k]);
         }
@@ -425,14 +443,25 @@ uint8_t mclw_hal_wire_pin(const struct mclw_wire *w, uint8_t index) {
 }
 
 int mclw_hal_wire_sample_bit(const struct mclw_wire *w, uint8_t pin) {
-    (void)w;
-    (void)pin;
-    return -1;
+    return w->facts.engine == MCLW_WIRE_LATCHED_IN && pin < 32u ? (int)pin : -1;
 }
 
 size_t mclw_hal_wire_read(struct mclw_wire *w, uint32_t *out, size_t max) {
     size_t n = 0;
     uint32_t state = mclw_hal_critical_enter();
+
+    if (w->facts.engine == MCLW_WIRE_LATCHED_IN) {
+        if (w->ready_n != 0u && w->ready_n <= max) {
+            n = w->ready_n;
+            memcpy(out, w->ready, n * sizeof(out[0]));
+            w->stats.words += (uint32_t)n;
+        } else if (w->ready_n != 0u) {
+            w->stats.errors++;
+        }
+        w->ready_n = 0;
+        mclw_hal_critical_exit(state);
+        return n;
+    }
 
     while (w->tail != w->head && n < max) {
         out[n++] = w->ring[w->tail++ % RING];
@@ -441,14 +470,63 @@ size_t mclw_hal_wire_read(struct mclw_wire *w, uint32_t *out, size_t max) {
     return n;
 }
 
+// A look samples the PINS wires its owner opened before it too.
 int mclw_hal_wire_capture(struct mclw_wire *w) {
-    (void)w;
-    return -ENOTSUP;
+    uint32_t pins = 0;
+
+    if (w == NULL || w->owner == NULL || w->facts.engine != MCLW_WIRE_LATCHED_IN) {
+        return -EINVAL;
+    }
+    uint32_t state = mclw_hal_critical_enter();
+    for (size_t i = 0; i < WIRES_MAX; i++) {
+        if (&wires[i] != w && wires[i].owner == w->owner && wires[i].facts.engine == MCLW_WIRE_PINS) {
+            for (uint8_t k = 0; k < wires[i].count; k++) {
+                pins |= wires[i].pins[k] < 32u ? 1u << wires[i].pins[k] : 0u;
+            }
+        }
+    }
+    w->ready_n = 0;
+    w->armed = true;
+    mclw_hal_critical_exit(state);
+    mclw_host_event_latch_capture(w->pins[0], w->pins[1], w->pins[2], pins);
+    return 0;
+}
+
+// The look the emulator took for the armed wire whose clock is `clock`
+// (any armed one for MCLW_PIN_NONE):
+// its samples, the latch's last, and the enable line's low time. A look
+// past LATCH_WORDS samples is spoiled, and the wire asks again.
+void mclw_host_wire_latched(uint8_t clock, const uint32_t *samples, size_t count, uint64_t enabled_ns, bool overflow) {
+    struct mclw_wire *again = NULL;
+    uint32_t state = mclw_hal_critical_enter();
+
+    for (size_t i = 0; i < WIRES_MAX; i++) {
+        struct mclw_wire *w = &wires[i];
+
+        if (w->owner == NULL || w->facts.engine != MCLW_WIRE_LATCHED_IN || !w->armed ||
+            (clock != MCLW_PIN_NONE && w->pins[0] != clock)) {
+            continue;
+        }
+        w->armed = false;
+        if (overflow || count == 0u || count > LATCH_WORDS) {
+            w->stats.errors++;
+            again = w;
+            break;
+        }
+        memcpy(w->ready, samples, count * sizeof(samples[0]));
+        w->ready[count] = enabled_ns > UINT32_MAX ? UINT32_MAX : (uint32_t)enabled_ns;
+        w->ready_n = (uint32_t)count + 1u;
+        w->stats.frames++;
+        break;
+    }
+    mclw_hal_critical_exit(state);
+    if (again != NULL) {
+        (void)mclw_hal_wire_capture(again);
+    }
 }
 
 size_t mclw_hal_wire_capture_words(const struct mclw_wire *w) {
-    (void)w;
-    return 0;
+    return w->facts.engine == MCLW_WIRE_LATCHED_IN ? LATCH_WORDS + 1u : 0u;
 }
 
 int mclw_hal_wire_respond(struct mclw_wire *w, const uint32_t *pulses, size_t count) {

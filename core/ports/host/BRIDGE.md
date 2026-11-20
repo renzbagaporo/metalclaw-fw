@@ -43,6 +43,7 @@ quiet.
 | `uart` | `port`, `data` (a byte or a list of bytes the DUT sent) | |
 | `spi` | `bus`, `mosi`, `bits` (8) | `miso` |
 | `gpio` | `pin`, `level` (0, 1, or `"z"` for not driven) | |
+| `latched` | `clock`, `samples` (at most 512 words), `enabled_ns`, `overflow` (true when more samples came) | |
 | `spi_clocked` | `bus`, `mosi`, `miso` (the frame the DUT's slave shifted out, or null) | |
 | `i2c_driven` | `bus`, and `ack` (after a `start` or `write`: whether the DUT's target acknowledged) or `data` (after a `read`: the byte it sent); nothing more after a `stop` | |
 
@@ -77,6 +78,7 @@ applies each at its time.
 | `join`, `unjoin` | `pins`: two DUT pins, wired together inside the emulator until unjoined: the DUT's drive on either is the other's input, and blocks routed to them (I2C, UART, SPI) talk directly, with no requests for it |
 | `pull` | `pin`, `level` (1 up, 0 down): a board pull on the DUT pin's line, weaker than any drive; sent after the hello for every line on the Pico's headers, the harness's board pulling each up |
 | `wake` | at `t_ns`, a request with `op` `wake` and nothing else, for a model's timed end (an IR receiver's burst) |
+| `latch_capture` | `clock`, `latch`, `enable`, `pins`: arm one look, replacing an unfinished one. From the next fall of `latch` on, each rise of `clock` takes a sample, a word whose bit n is the DUT's drive on GPIOn for the clock and each pin in `pins` (a released pin reads 0); the next rise of `latch` takes the last, the clock's bit cleared; then the time `enable` is driven low from that latch's fall to the next latch's rise is summed. At that rise the look goes back as a `latched` request, its first 512 samples kept |
 
 A model makes an interrupt pulse as write, delay, write. The delay does not
 wait: it moves the later actions of the same request on by its length, so
@@ -102,6 +104,7 @@ actions up to a few periods ahead; one that answers a carrier (an IR
 receiver) drives its output from the carrier's first edge to the end of
 the burst, which it sees at the next round, so up to a millisecond late.
 
-## Not yet
-
-The latched wire (a HUB75 panel).
+A shift-register panel (a HUB75) is clocked at tens of MHz, past what a
+round trip an edge can carry, so the emulator takes its looks itself: each
+`latch_capture` action arms one, as the rp2 port's PIO program takes one,
+and a `latched` request brings it back whole.

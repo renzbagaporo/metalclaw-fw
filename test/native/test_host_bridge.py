@@ -727,3 +727,51 @@ def test_an_i2c_page_controller_counts_an_address_no_one_answers(tmp_path):
     finally:
         bridge.close()
         harness.close()
+
+
+def test_a_hub75_takes_each_latched_row_and_its_enabled_time(tmp_path):
+    # pio_hub75's wiring (test/pico_examples/parts.py): clock, latch and
+    # output enable on GP11-13, R0 G0 B0 on GP0-2, R1 G1 B1 on GP3-5, the
+    # row address on GP6-10. The model arms a look (latch_capture) and the
+    # emulator, this test, answers with one (latched): 128 clock samples, the
+    # latch's, and the enable's low time; the model re-arms on its poll.
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\np = metalclaw.attach('hub75', 'p', clock=(11, 12, 13), upper=(0, 1, 2), "
+                    "lower=(3, 4, 5), rows=(6, 7, 8, 9), e=(10,))")
+
+        def armed():
+            bridge.advance(1_000_000)
+            arms = [a for a in bridge.actions if a["op"] == "latch_capture"]
+            bridge.actions.clear()
+            assert arms and {k: arms[-1][k] for k in ("clock", "latch", "enable")} == {
+                "clock": 11, "latch": 12, "enable": 13}
+            assert set(arms[-1]["pins"]) == set(range(11))
+            assert not any(a["op"] == "watch" for a in bridge.actions)
+
+        def look(row, enabled_ns):
+            address = sum((row >> a & 1) << (6 + a if a < 4 else 10) for a in range(5))
+            # R0 lit on every other group of eight columns, starting lit on
+            # even rows.
+            samples = [1 << 11 | address | ((c // 8 + row) % 2 == 0) for c in range(128)]
+            samples.append(address)
+            bridge.request(op="latched", clock=11, samples=samples, enabled_ns=enabled_ns)
+
+        armed()
+        look(0, 1000)
+        armed()
+        look(1, 2000)
+        armed()
+        # A look past the samples the engine holds is dropped, and it asks again.
+        bridge.request(op="latched", clock=11, samples=[1 << 11] * 512, enabled_ns=500, overflow=True)
+        armed()
+        assert harness.run("print(p.latches, p.rows_seen, p.short, p.unmatched)") == "2 3 0 0"
+        row0 = bytes.fromhex(harness.run("print(bytes(p.read_region('planes', 0, 20)).hex())"))
+        row1 = bytes.fromhex(harness.run("print(bytes(p.read_region('planes', 160, 20)).hex())"))
+        assert int.from_bytes(row0[:4], "little") == 1000
+        assert int.from_bytes(row1[:4], "little") == 2000
+        assert list(row0[4:]) == [1, 0] * 8
+        assert list(row1[4:]) == [0, 1] * 8
+    finally:
+        bridge.close()
+        harness.close()

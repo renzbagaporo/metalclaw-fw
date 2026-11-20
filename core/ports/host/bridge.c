@@ -13,6 +13,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "metalclaw/hal/pins.h"
 #include "metalclaw/hal/platform.h"
 
 #include "host.h"
@@ -35,6 +36,7 @@ enum action_kind {
     ACTION_GPIO,
     ACTION_UART,
     ACTION_WATCH,
+    ACTION_LATCH_CAPTURE,
     ACTION_SPI_CLOCK,
     ACTION_JOIN,
     ACTION_UNJOIN,
@@ -50,6 +52,9 @@ struct action {
     uint8_t value;
     // I2C_DRIVE: the event's address or data byte.
     uint8_t extra;
+    // LATCH_CAPTURE: the pins a sample holds besides the clock's three
+    // (pin = clock, value = latch, extra = enable).
+    uint32_t pins;
 };
 
 // Actions toward the DUT. Any thread may make one; the worker sends them
@@ -102,7 +107,8 @@ static void add_action(uint64_t t_ns, uint8_t kind, uint8_t pin, uint8_t value) 
     uint32_t state = mclw_hal_critical_enter();
 
     if (action_count < ACTIONS_MAX) {
-        actions[action_count++] = (struct action){ .t_ns = t_ns, .kind = kind, .pin = pin, .value = value, .extra = 0 };
+        actions[action_count++] = (struct action){ .t_ns = t_ns, .kind = kind, .pin = pin, .value = value, .extra = 0,
+            .pins = 0 };
     } else {
         actions_dropped++;
     }
@@ -158,7 +164,7 @@ bool mclw_host_event_i2c_drive(uint8_t sda, uint8_t scl, uint8_t ev, uint8_t arg
     state = mclw_hal_critical_enter();
     if (action_count < ACTIONS_MAX) {
         actions[action_count++] = (struct action){ .t_ns = t_ns, .kind = ACTION_I2C_DRIVE, .pin = (uint8_t)bus,
-            .value = (uint8_t)(ev | (flag ? 0x10u : 0u)), .extra = arg };
+            .value = (uint8_t)(ev | (flag ? 0x10u : 0u)), .extra = arg, .pins = 0 };
     } else {
         actions_dropped++;
     }
@@ -176,6 +182,18 @@ void mclw_host_event_wake(uint64_t t_ns) {
 
 void mclw_host_event_watch(uint8_t pin) {
     add_action(mclw_host_event_ns(), ACTION_WATCH, pin, 0);
+}
+
+void mclw_host_event_latch_capture(uint8_t clock, uint8_t latch, uint8_t enable, uint32_t pins) {
+    uint32_t state = mclw_hal_critical_enter();
+
+    if (action_count < ACTIONS_MAX) {
+        actions[action_count++] = (struct action){ .t_ns = mclw_host_event_ns(), .kind = ACTION_LATCH_CAPTURE,
+            .pin = clock, .value = latch, .extra = enable, .pins = pins };
+    } else {
+        actions_dropped++;
+    }
+    mclw_hal_critical_exit(state);
 }
 
 void mclw_host_event_uart(uint8_t rx_pin, uint8_t byte, uint64_t t_ns) {
@@ -262,6 +280,17 @@ static size_t put_actions(size_t at) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"pull\",\"pin\":%u,\"level\":%u}", i ? "," : "", a->t_ns,
                     a->pin, a->value);
+            } else if (a->kind == ACTION_LATCH_CAPTURE) {
+                at += (size_t)snprintf(reply + at, REPLY_MAX - at,
+                    "%s{\"t_ns\":%" PRIu64 ",\"op\":\"latch_capture\",\"clock\":%u,\"latch\":%u,\"enable\":%u,"
+                    "\"pins\":[", i ? "," : "", a->t_ns, a->pin, a->value, a->extra);
+                for (uint8_t pin = 0, first = 1; pin < 32u; pin++) {
+                    if ((a->pins >> pin) & 1u) {
+                        at += (size_t)snprintf(reply + at, REPLY_MAX - at, "%s%u", first ? "" : ",", pin);
+                        first = 0;
+                    }
+                }
+                at += (size_t)snprintf(reply + at, REPLY_MAX - at, "]}");
             } else if (a->kind == ACTION_WATCH) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"watch\",\"pin\":%u}", i ? "," : "", a->t_ns, a->pin);
@@ -490,6 +519,22 @@ static size_t handle(const char *text, size_t len) {
                 ack == NULL || ack->kind != JSON_BOOL ? -1 : (ack->boolean ? 1 : 0),
                 data != NULL && data->kind == JSON_NUMBER ? (int)data->number : -1, mclw_host_event_ns());
         }
+        at = (size_t)snprintf(reply, REPLY_MAX, "{");
+    } else if (json_is(op, "latched")) {
+        static uint32_t samples[512];
+        size_t n = 0;
+        bool overflow = json_bool(&doc, root, "overflow", false);
+        const struct json_node *list = json_get(&doc, root, "samples");
+
+        for (const struct json_node *v = json_child(&doc, list); v != NULL; v = json_next(&doc, v)) {
+            if (n == sizeof(samples) / sizeof(samples[0])) {
+                overflow = true;
+                break;
+            }
+            samples[n++] = v->kind == JSON_NUMBER ? (uint32_t)v->number : 0u;
+        }
+        mclw_host_wire_latched((uint8_t)json_int(&doc, root, "clock", MCLW_PIN_NONE), samples, n,
+            (uint64_t)json_int(&doc, root, "enabled_ns", 0), overflow);
         at = (size_t)snprintf(reply, REPLY_MAX, "{");
     } else if (json_is(op, "spi_clocked")) {
         int64_t bus = json_int(&doc, root, "bus", -1);
