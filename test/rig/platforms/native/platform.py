@@ -502,9 +502,12 @@ BOOT_RUN_S = 1.0
 # and why.
 NATIVE_EXAMPLE_LIMITS = {
     ("pio_hub75", None): "the host port has no latched wire engine for the HUB75's data lines",
-    ("pio_spi_flash", None): "a bit-level flash over one bridge round trip per edge runs past the time cap",
-    ("pio_quadrature_encoder", None): "an encoder's edges, one bridge round trip each, run past the time cap",
-    ("pio_quadrature_encoder_substep", None): "an encoder's edges, one bridge round trip each, run past the time cap",
+    ("pio_spi_flash", None): "PIO drives its SCK and MOSI, which the emulator does not decode into SPI frames "
+                             "yet, so the flash sees only empty chip-select windows",
+    ("pio_quadrature_encoder", None): "the emulator's PIO steps the program's every-cycle pin sampling without "
+                                      "parking, past the time cap",
+    ("pio_quadrature_encoder_substep", None): "the emulator's PIO steps the program's every-cycle pin sampling "
+                                              "without parking, past the time cap",
     ("multicore_doorbell", "rp2350"): "core 1 reads its exit flag once and spins (core1_entry+0x18, b .): on "
                                       "silicon core 0's first doorbell lands before that read, while the "
                                       "emulator's core interleaving lets core 1 reach it first",
