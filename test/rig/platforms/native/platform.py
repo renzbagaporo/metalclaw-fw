@@ -501,10 +501,9 @@ BOOT_RUN_S = 1.0
 # Examples native mode cannot judge, by target and chip (None for both),
 # and why.
 NATIVE_EXAMPLE_LIMITS = {
-    ("pio_hub75", None): "the emulator's PIO keeps executing a stalled instruction after the CPU rewrites its "
-                         "INSTR_MEM slot, so each bit plane's first upper-lane pixel takes the previous plane's "
-                         "shift (hub75_data_rgb888_set_shift); and at about 800 times slower than real time one "
-                         "run takes about 2 h",
+    ("pio_hub75", None): "emulator speed: the PIO's pin changes on the panel's 14 pins run about 800 times "
+                         "slower than real time, so one run takes about 2 h (Pico) to 3 h (Pico 2), past the "
+                         "sweep's cap; it passes at a 20000 s cap",
     ("multicore_doorbell", "rp2350"): "core 1 reads its exit flag once and spins (core1_entry+0x18, b .): on "
                                       "silicon core 0's first doorbell lands before that read, while the "
                                       "emulator's core interleaving lets core 1 reach it first",
