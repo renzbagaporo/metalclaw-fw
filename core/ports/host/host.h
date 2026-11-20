@@ -97,6 +97,10 @@ void mclw_host_spi_peer_clocked(uint8_t sck, int miso);
 void mclw_host_event_wake(uint64_t t_ns);
 // wire.c: the wire engines' timed ends (a burst's, a frame's) due by now.
 void mclw_host_wire_poll(uint64_t now_ns);
+// A shift-register panel's look (BRIDGE.md latch_capture, latched): asked
+// of the emulator, and its answer for the wire whose clock is `clock`.
+void mclw_host_event_latch_capture(uint8_t clock, uint8_t latch, uint8_t enable, uint32_t pins);
+void mclw_host_wire_latched(uint8_t clock, const uint32_t *samples, size_t count, uint64_t enabled_ns, bool overflow);
 // Wire two DUT pins together inside the emulator, or part them again.
 void mclw_host_event_join(uint8_t a, uint8_t b, bool joined);
 bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint64_t t_ns);

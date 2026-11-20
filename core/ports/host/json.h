@@ -18,7 +18,8 @@ enum json_kind {
     JSON_OBJECT,
 };
 
-#define JSON_NODES_MAX 512u
+// A latched request: 512 samples and its other fields.
+#define JSON_NODES_MAX 1024u
 
 struct json_node {
     uint8_t kind;

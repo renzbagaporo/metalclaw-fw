@@ -501,7 +501,8 @@ BOOT_RUN_S = 1.0
 # Examples native mode cannot judge, by target and chip (None for both),
 # and why.
 NATIVE_EXAMPLE_LIMITS = {
-    ("pio_hub75", None): "the host port has no latched wire engine for the HUB75's data lines",
+    ("pio_hub75", None): "the emulator does not answer the host's latch_capture yet: the panel's clock, tens of MHz, "
+                         "is past what an edge a round trip can carry",
     ("pio_spi_flash", None): "a bit-level flash over one bridge round trip per edge runs past the time cap",
     ("pio_quadrature_encoder", None): "an encoder's edges, one bridge round trip each, run past the time cap",
     ("pio_quadrature_encoder_substep", None): "an encoder's edges, one bridge round trip each, run past the time cap",
