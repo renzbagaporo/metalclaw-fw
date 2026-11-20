@@ -501,14 +501,10 @@ BOOT_RUN_S = 1.0
 # Examples native mode cannot judge, by target and chip (None for both),
 # and why.
 NATIVE_EXAMPLE_LIMITS = {
-    ("pio_hub75", None): "the emulator does not answer the host's latch_capture yet: the panel's clock, tens of MHz, "
-                         "is past what an edge a round trip can carry",
-    ("pio_spi_flash", None): "PIO drives its SCK and MOSI, which the emulator does not decode into SPI frames "
-                             "yet, so the flash sees only empty chip-select windows",
-    ("pio_quadrature_encoder", None): "the emulator's PIO steps the program's every-cycle pin sampling without "
-                                      "parking, past the time cap",
-    ("pio_quadrature_encoder_substep", None): "the emulator's PIO steps the program's every-cycle pin sampling "
-                                              "without parking, past the time cap",
+    ("pio_hub75", None): "the emulator's PIO keeps executing a stalled instruction after the CPU rewrites its "
+                         "INSTR_MEM slot, so each bit plane's first upper-lane pixel takes the previous plane's "
+                         "shift (hub75_data_rgb888_set_shift); and at about 800 times slower than real time one "
+                         "run takes about 2 h",
     ("multicore_doorbell", "rp2350"): "core 1 reads its exit flag once and spins (core1_entry+0x18, b .): on "
                                       "silicon core 0's first doorbell lands before that read, while the "
                                       "emulator's core interleaving lets core 1 reach it first",
