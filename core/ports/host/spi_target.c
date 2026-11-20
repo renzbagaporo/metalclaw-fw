@@ -372,39 +372,44 @@ void mclw_host_spi_cs(uint8_t pin, bool level) {
     }
 }
 
+// The MISO byte of frame `k` of the open window, from the frames before it.
+static uint8_t frame_miso(struct mclw_spi_target *t, uint32_t k) {
+    switch (t->kind) {
+        case IMAGE_REGMAP:
+            return regmap_miso(t, k);
+        case IMAGE_STREAM:
+            return t->stream->direction == MCLW_STREAM_OUT && k < t->stream->length
+                ? t->stream->frame[t->stream_frame][k] : t->stream->filler;
+        case IMAGE_COMMAND:
+            return command_miso(t, k);
+        default:
+            return 0xff;
+    }
+}
+
+static struct mclw_spi_target *selected_on(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin) {
+    for (size_t i = 0; i < SPI_TARGETS_MAX; i++) {
+        if (targets[i].owner != NULL && targets[i].selected && targets[i].sck == sck &&
+            targets[i].mosi == mosi_pin && targets[i].miso == miso_pin) {
+            return &targets[i];
+        }
+    }
+    return NULL;
+}
+
 // One frame on the bus with `sck`: the selected target's MISO byte, and
 // the MOSI byte it takes. -ENODEV when no target there is selected.
 int mclw_host_spi_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint8_t *miso) {
     uint32_t state = mclw_hal_critical_enter();
-    struct mclw_spi_target *t = NULL;
+    struct mclw_spi_target *t = selected_on(sck, mosi_pin, miso_pin);
 
-    for (size_t i = 0; i < SPI_TARGETS_MAX && t == NULL; i++) {
-        if (targets[i].owner != NULL && targets[i].selected && targets[i].sck == sck &&
-            targets[i].mosi == mosi_pin && targets[i].miso == miso_pin) {
-            t = &targets[i];
-        }
-    }
     if (t == NULL) {
         mclw_hal_critical_exit(state);
         return -ENODEV;
     }
     uint32_t k = t->count;
 
-    switch (t->kind) {
-        case IMAGE_REGMAP:
-            *miso = regmap_miso(t, k);
-            break;
-        case IMAGE_STREAM:
-            *miso = t->stream->direction == MCLW_STREAM_OUT && k < t->stream->length
-                ? t->stream->frame[t->stream_frame][k] : t->stream->filler;
-            break;
-        case IMAGE_COMMAND:
-            *miso = command_miso(t, k);
-            break;
-        default:
-            *miso = 0xff;
-            break;
-    }
+    *miso = frame_miso(t, k);
     if (k < WINDOW_BYTES) {
         t->in[k] = mosi;
     }
@@ -414,6 +419,33 @@ int mclw_host_spi_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t
     t->count = k + 1u;
     mclw_hal_critical_exit(state);
     return 0;
+}
+
+// The MISO byte of the selected target's next frame, which the frames so
+// far decide: for a DUT that shifts it out bit by bit before the frame's
+// MOSI is known. -ENODEV when no target there is selected.
+int mclw_host_spi_next_miso(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t *miso) {
+    uint32_t state = mclw_hal_critical_enter();
+    struct mclw_spi_target *t = selected_on(sck, mosi_pin, miso_pin);
+
+    if (t != NULL) {
+        *miso = frame_miso(t, t->count);
+    }
+    mclw_hal_critical_exit(state);
+    return t != NULL ? 0 : -ENODEV;
+}
+
+// The target whose chip select is `pin`, if one is: its bus pins.
+bool mclw_host_spi_target_on_cs(uint8_t pin, uint8_t *sck, uint8_t *mosi, uint8_t *miso) {
+    for (size_t i = 0; i < SPI_TARGETS_MAX; i++) {
+        if (targets[i].owner != NULL && targets[i].cs == pin) {
+            *sck = targets[i].sck;
+            *mosi = targets[i].mosi;
+            *miso = targets[i].miso;
+            return true;
+        }
+    }
+    return false;
 }
 
 static void command_notify(struct mclw_command_image *image, void *ctx) {

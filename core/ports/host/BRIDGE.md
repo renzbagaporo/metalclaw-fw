@@ -32,7 +32,7 @@ quiet.
 
 | op | fields | reply |
 | --- | --- | --- |
-| `hello` | `version`, `i2c` `[{bus, sda, scl}]`, `uart` `[{port, tx, rx}]`, `spi` `[{bus, sck, mosi, miso}]` | `version` |
+| `hello` | `version`, `i2c` `[{bus, sda, scl}]`, `uart` `[{port, tx, rx}]`, `spi` `[{bus, sck, mosi, miso, cs}]` (`cs` optional) | `version` |
 | `tick` | | |
 | `wake` | | |
 | `route` | `i2c`, `uart`, `spi` as in `hello` | |
@@ -41,8 +41,8 @@ quiet.
 | | `ev`: `read` | `data` |
 | | `ev`: `stop` | |
 | `uart` | `port`, `data` (a byte or a list of bytes the DUT sent) | |
-| `spi` | `bus`, `mosi`, `bits` (8) | `miso` |
-| `gpio` | `pin`, `level` (0, 1, or `"z"` for not driven) | |
+| `spi` | `bus`, `mosi`, `bits` (8) | `miso`; `miso_next` while a target is selected |
+| `gpio` | `pin`, `level` (0, 1, or `"z"` for not driven) | `miso_next` when the level is 0 and the pin is a target's chip select |
 | `latched` | `clock`, `samples` (at most 512 words), `enabled_ns`, `overflow` (true when more samples came) | |
 | `spi_clocked` | `bus`, `mosi`, `miso` (the frame the DUT's slave shifted out, or null) | |
 | `i2c_driven` | `bus`, and `ack` (after a `start` or `write`: whether the DUT's target acknowledged) or `data` (after a `read`: the byte it sent); nothing more after a `stop` | |
@@ -56,7 +56,12 @@ the DUT pins they are wired to (`attach("mcp9808", "t", i2c=(4, 5, 0x18))`).
 A UART's `tx` and `rx` are the DUT's own pins. `gpio` reports the level the
 DUT drives on a pin; inputs of the harness read it, and a target's chip
 select opens and closes its SPI window. An `spi` frame's MISO byte depends
-only on the frames before it in the window, as on the wire.
+only on the frames before it in the window, as on the wire, so the harness
+gives it ahead: `miso_next` is the next frame's MISO, on the reply to the
+frame before it and, for a window's first frame, on the reply to the chip
+select's fall. An emulator that shifts the bits out itself (an SPI decoded
+from the pins, as a PIO program drives them) has each bit on the pin
+before its clock edge; a bus with `cs` in the `hello` is such a one.
 
 An I2C `start` to an address no attached model answers is not acknowledged.
 A `start` while a transaction is open is a repeated START and ends that

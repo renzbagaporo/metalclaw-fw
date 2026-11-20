@@ -500,12 +500,18 @@ static size_t handle(const char *text, size_t len) {
 
             uint8_t miso_pin = pin_or(root, "miso", spi_buses[bus].miso);
 
-            if (mclw_host_spi_frame(sck, mosi_pin, miso_pin, mosi, &miso) != 0 &&
-                !mclw_host_spi_sink_frame(sck, mosi_pin, mosi) &&
+            uint8_t next = 0xff;
+            bool target = mclw_host_spi_frame(sck, mosi_pin, miso_pin, mosi, &miso) == 0;
+
+            if (!target && !mclw_host_spi_sink_frame(sck, mosi_pin, mosi) &&
                 !mclw_host_wire_spi_frame(sck, mosi_pin, mosi)) {
                 (void)mclw_host_spi_peer_frame(sck, mosi_pin, miso_pin, mosi, &miso);
             }
-            at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u", miso);
+            if (target && mclw_host_spi_next_miso(sck, mosi_pin, miso_pin, &next) == 0) {
+                at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u,\"miso_next\":%u", miso, next);
+            } else {
+                at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u", miso);
+            }
         } else {
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":255,\"error\":\"unknown spi bus\"");
         }
@@ -560,7 +566,17 @@ static size_t handle(const char *text, size_t len) {
             mclw_host_spi_cs(pin, value != 0);
             (void)mclw_host_spi_sink_cs(pin, value != 0);
         }
-        at = (size_t)snprintf(reply, REPLY_MAX, "{");
+        uint8_t sck;
+        uint8_t mosi_pin;
+        uint8_t miso_pin;
+        uint8_t first;
+
+        if (value == 0 && mclw_host_spi_target_on_cs(pin, &sck, &mosi_pin, &miso_pin) &&
+            mclw_host_spi_next_miso(sck, mosi_pin, miso_pin, &first) == 0) {
+            at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso_next\":%u", first);
+        } else {
+            at = (size_t)snprintf(reply, REPLY_MAX, "{");
+        }
     } else {
         at = (size_t)snprintf(reply, REPLY_MAX, "{\"error\":\"unknown op\"");
     }

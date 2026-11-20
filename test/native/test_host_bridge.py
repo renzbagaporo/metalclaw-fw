@@ -229,6 +229,32 @@ def test_the_w25q_answers_and_programs_over_spi(tmp_path):
         harness.close()
 
 
+def test_each_spi_reply_gives_the_next_frame_s_miso_ahead(tmp_path):
+    # A bus the emulator decodes from the pins (a PIO SPI) shifts each MISO
+    # bit out before its clock edge, before the frame's MOSI is complete:
+    # the chip select's fall carries the first frame's MISO, each frame's
+    # reply the next's. W25Q16JV 8.2: JEDEC ID (9Fh) answers EFh 40h 15h.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[{"bus": 2, "sck": 18, "mosi": 19, "miso": 16, "cs": 17}])
+        harness.run("import metalclaw\nf = metalclaw.attach('w25q16jv', 'flash', spi=(18, 19, 16, 17))\n"
+                    "f.id_read = True")
+        ahead = [bridge.request(op="gpio", pin=17, level=0)["miso_next"]]
+        got = []
+        for mosi in (0x9F, 0, 0, 0):
+            reply = bridge.request(op="spi", bus=2, mosi=mosi, bits=8)
+            got.append(reply["miso"])
+            ahead.append(reply["miso_next"])
+        assert "miso_next" not in bridge.request(op="gpio", pin=17, level=1)
+        assert got[1:] == [0xEF, 0x40, 0x15]
+        assert ahead[:4] == got
+    finally:
+        bridge.close()
+        harness.close()
+
+
 def _bridged(tmp_path):
     path = tmp_path / "native.sock"
     harness = HostHarness(PROGRAM, path)
