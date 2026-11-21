@@ -221,12 +221,13 @@ class NativeBench:
         self.renode = None
         self.monitor = None
         self.console = None
+        self.flash = None
 
     def start(self) -> None:
         if self.chip not in SCRIPTS:
             pytest.skip(f"native mode has no DUT script for {self.chip!r} yet")
         self.work.mkdir(parents=True, exist_ok=True)
-        flash = flat_image(self.image, self.work)
+        flash = self.flash = flat_image(self.image, self.work)
         # The RP2040's boot ROM comes as an ELF; the script loads the 16 KiB
         # binary in it. The RP2350's is a binary already.
         rom = self.work / "dut_rom.bin"
@@ -255,7 +256,13 @@ class NativeBench:
         self.monitor = Monitor(self.monitor_port)
         self.console = ConsolePty(self.console_port, self.work / "dut_console.log")
 
+    # An image that erases its storage partition (flash_image) is loaded
+    # again, as a bench downloads it again, so each restart starts from
+    # empty storage.
     def restart(self) -> None:
+        if (example_metadata(self.image) or {}).get("flash_image"):
+            self.monitor.command("pause")
+            self.monitor.command(f"xipMemory LoadBinary @{self.flash}")
         self.monitor.command("machine Reset")
         self.monitor.command("start")
 
