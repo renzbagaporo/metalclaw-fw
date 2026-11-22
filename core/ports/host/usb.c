@@ -233,10 +233,14 @@ int mclw_hal_usb_line_coding(const struct mclw_usb_interface *itf, struct mclw_u
     return 0;
 }
 
-// The host port's serial functions carry no breaks yet.
+// A serial function is a pseudo-terminal, which has no break: one toward
+// the host goes out as the NUL a Linux tty in its default mode reads a
+// break as (no BRKINT, IGNBRK or PARMRK), after the bytes before it. A
+// SEND_BREAK from the host has no way through one.
 int mclw_hal_usb_serial_break(struct mclw_usb_interface *itf) {
-    (void)itf;
-    return -ENOTSUP;
+    static const uint8_t nul = 0;
+
+    return mclw_hal_usb_write(itf, &nul, 1) == 1u ? 0 : -ENOSPC;
 }
 
 uint16_t mclw_hal_usb_serial_take_break(struct mclw_usb_interface *itf) {

@@ -84,9 +84,10 @@ a break (a NUL, or FFh 00h 00h with PARMRK). A SEND_BREAK from the host
 (`tcsendbreak`, pyserial's `send_break`) goes to the DUT once the bytes
 queued before it have, held for its length and at least 13 bit times. On
 rp2 a PL011 pin pair carries breaks both ways; the PIO engine carries none
-yet, and counts a break as a frame error. The host port's serial functions
-carry none yet either; its bridge carries them to and from the emulator
-(`uart` with `break`).
+yet, and counts a break as a frame error. On the host port, whose serial
+functions are pseudo-terminals with no break, a break toward the host is
+the NUL such a tty reads one as, and a host's SEND_BREAK cannot pass; its
+bridge carries breaks to and from the emulator (`uart` with `break`).
 
 DTR and RTS are reported and do nothing else: they reset nothing, on the DUT
 or here.
