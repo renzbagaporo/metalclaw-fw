@@ -4,6 +4,7 @@ import pytest
 
 NAME = "imu"
 FAMILY = "icm4268x"
+FIFO_IMAGE = "icm4268x/fifo"
 ALIAS = "imu"
 CHANNELS = "accel_xyz gyro_xyz die_temp"
 
@@ -140,3 +141,107 @@ def test_a_model_reset_clears_the_configuration(dut, imu):
     dut.reset()
     dut.ping()
     assert imu.get("power_mode") == POWER_MODE_LN_BOTH
+
+
+# The FIFO through the bare-SPI image (DS-000347 section 6, 14.22-14.24,
+# 14.45): the cases write the registers and read FIFO_COUNT and FIFO_DATA
+# themselves. ACCEL_CONFIG0 0x0B is 12.5 Hz, a packet every 80 ms, and the
+# sensors are switched off before reading, so the FIFO holds still.
+REG_FIFO_CONFIG = 0x16
+REG_FIFO_COUNTH = 0x2E
+REG_FIFO_DATA = 0x30
+REG_SIGNAL_PATH_RESET = 0x4B
+REG_PWR_MGMT0 = 0x4E
+REG_ACCEL_CONFIG0 = 0x50
+REG_FIFO_CONFIG1 = 0x5F
+PACKET3 = 16
+# RAW clocks the command byte and the data on in one go, with none of the
+# pause the driver's two chunks leave between them for the engine's
+# register lookup: 1 MHz leaves it time.
+RAW_HZ = 1_000_000
+FIFO_ACCEL = (0x1234, -2, 300)
+FIFO_GYRO = (7, -0x1234, 0)
+FIFO_TEMPERATURE = 640
+
+
+def raw_window(dut, frame, write=False, count=1, gap_us=0):
+    line = f"RAW {frame}" + (" w" if write else "") + f" {RAW_HZ}" + (f" n={count} gap={gap_us}" if count > 1 else "")
+    result = dut.command(line, 60.0)
+    assert result["test"] == "test_raw" and result["status"] == "ok", result
+    return result
+
+
+def reg_write(dut, reg, value):
+    raw_window(dut, f"{reg:02x}{value:02x}", write=True)
+
+
+def reg_read(dut, reg, n):
+    return bytes.fromhex(raw_window(dut, f"{0x80 | reg:02x}" + "00" * n)["rx"])[1:]
+
+
+def fifo_count(dut):
+    return int.from_bytes(reg_read(dut, REG_FIFO_COUNTH, 2), "big")
+
+
+@pytest.fixture(scope="module")
+def fifo(harness, dut, fixture):
+    dut.require_image(FIFO_IMAGE)
+    harness.run(attach(fixture))
+    imu = Imu(harness)
+    imu.set(FIFO_ACCEL, FIFO_GYRO, FIFO_TEMPERATURE)
+    return imu
+
+
+def fill(dut, seconds):
+    import time
+    reg_write(dut, REG_SIGNAL_PATH_RESET, 0x02)
+    reg_write(dut, REG_ACCEL_CONFIG0, 0x0B)
+    reg_write(dut, REG_FIFO_CONFIG1, 0x07)
+    reg_write(dut, REG_FIFO_CONFIG, 0x40)
+    reg_write(dut, REG_PWR_MGMT0, 0x0F)
+    time.sleep(seconds)
+    reg_write(dut, REG_PWR_MGMT0, 0x00)
+    return fifo_count(dut)
+
+
+def test_fifo_packets_read_back_byte_for_byte_and_pop(dut, fifo):
+    n = fill(dut, 1.0)
+    assert n % PACKET3 == 0 and 8 * PACKET3 <= n <= 20 * PACKET3, n
+    packets = []
+    while fifo_count(dut) > 0 and len(packets) < 24:
+        packets.append(reg_read(dut, REG_FIFO_DATA, PACKET3))
+    assert len(packets) == n // PACKET3
+    payload = bytes.fromhex("1234fffe012c" "0007edcc0000") + bytes([FIFO_TEMPERATURE // 64])
+    for i, p in enumerate(packets):
+        assert p[0] == (0x6B if i == 0 else 0x68), (i, p.hex())
+        assert p[1:14] == payload, (i, p.hex())
+    steps = {(int.from_bytes(b[14:], "big") - int.from_bytes(a[14:], "big")) & 0xFFFF
+             for a, b in zip(packets, packets[1:])}
+    assert steps == {80000 & 0xFFFF}, steps
+    # Empty, FIFO_DATA reads 0xFF.
+    assert reg_read(dut, REG_FIFO_DATA, 4) == b"\xff" * 4
+    stats = fifo.stats()
+    assert stats["dma_faults"] == 0 and stats["short_windows"] == 0, stats
+
+
+def test_back_to_back_fifo_reads_each_take_the_next_packet(dut, fifo):
+    # Eight reads in a row: each pop lands in the interrupt at the window's
+    # end, before the next window starts.
+    n = fill(dut, 1.0)
+    assert n >= 8 * PACKET3, n
+    result = raw_window(dut, f"{0x80 | REG_FIFO_DATA:02x}" + "00" * PACKET3, count=8, gap_us=50)
+    assert fifo_count(dut) == n - 8 * PACKET3, result
+    # The packets differ only in their timestamps, so every later read
+    # differs from the first.
+    assert result["mismatches"] == 7, result
+
+
+def test_a_burst_from_int_status_runs_into_fifo_data(dut, fifo):
+    # INT_STATUS, FIFO_COUNTH..L and a packet in one burst, the address
+    # held at FIFO_DATA once it gets there, as icm426xx reads them.
+    n = fill(dut, 1.0)
+    assert n >= 2 * PACKET3, n
+    data = reg_read(dut, 0x2D, 3 + PACKET3)
+    assert int.from_bytes(data[1:3], "big") == n, data.hex()
+    assert data[3] == 0x68 and data[4:16] == bytes.fromhex("1234fffe012c" "0007edcc0000"), data.hex()
+    assert fifo_count(dut) == n - PACKET3

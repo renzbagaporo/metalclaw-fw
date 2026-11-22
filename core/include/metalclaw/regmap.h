@@ -35,6 +35,7 @@ struct mclw_regmap;
 typedef void (*mclw_regmap_on_write_t)(struct mclw_regmap *map, uint8_t bank, uint8_t reg,
     uint8_t value, void *ctx);
 typedef void (*mclw_regmap_on_input_t)(struct mclw_regmap *map, uint8_t value, void *ctx);
+typedef void (*mclw_regmap_on_stream_t)(struct mclw_regmap *map, size_t taken, void *ctx);
 
 struct mclw_regmap {
     uint8_t bank_count;
@@ -48,6 +49,16 @@ struct mclw_regmap {
     const uint8_t *pointer_map;
     mclw_regmap_on_input_t on_input;
     void *on_input_ctx;
+    // A register whose reads stream a buffer, not the image: `window` is
+    // the lead's copies of the registers below it, then the stream.
+    bool has_stream;
+    uint8_t stream_bank;
+    uint8_t stream_reg;
+    uint8_t stream_lead;
+    uint8_t *window;
+    size_t stream_size;
+    mclw_regmap_on_stream_t on_stream;
+    void *on_stream_ctx;
 };
 
 // Clears the hook and the pointer map as well as the image.
@@ -85,6 +96,25 @@ void mclw_regmap_set_pointer_map(struct mclw_regmap *map, const uint8_t *address
 // landing in the image. The I2C engine applies it; SPI framing addresses the
 // image directly. NULL, the default, restores the register pointer.
 void mclw_regmap_set_on_input(struct mclw_regmap *map, mclw_regmap_on_input_t fn, void *ctx);
+
+// A register whose reads take bytes off a stream rather than the image (a
+// FIFO's data register, which a burst read keeps popping): a read reaching
+// `reg` in `bank` stays there and returns the stream from its start, up to
+// `size` bytes, and `fn` is told how many it took, in interrupt context
+// with the rules of on_write; it drops them, moving what follows to the
+// stream's start. A burst that starts up to `lead` registers below `reg`
+// reads them and runs on into the stream, as a part's auto-increment does
+// into its FIFO port; one that starts further down reads the image only.
+// `window` is `lead` bytes, which the core keeps as copies of those
+// registers, followed by the stream's `size`; the model keeps the stream,
+// at window + lead, under the critical section. Set before arming, after
+// the registers' first values. The SPI engines apply it.
+void mclw_regmap_set_stream(struct mclw_regmap *map, uint8_t bank, uint8_t reg, uint8_t lead, uint8_t *window,
+    size_t size, mclw_regmap_on_stream_t fn, void *ctx);
+// Where a read starting at `reg` in `bank` streams from, and how many bytes
+// it may run, when it starts within the lead or at the stream: NULL
+// otherwise. For the engines.
+const uint8_t *mclw_regmap_stream_from(const struct mclw_regmap *map, uint8_t bank, uint8_t reg, size_t *bytes);
 
 // The engine side: the image address a pointer value the bus wrote selects;
 // where the next transaction starts, given the address the last pointer byte

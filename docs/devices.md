@@ -249,7 +249,7 @@ is enabled on core 1, so MicroPython's atomic sections never delay one.
 | `uart` `on_rx` | the worker | the runtime lock |
 | `command` `on_window` | the worker | the runtime lock |
 | `sink` `on_bytes` | the worker | the runtime lock |
-| `regmap` `on_write`, `stream` `on_frame` | an engine interrupt | the critical section |
+| `regmap` `on_write`, `on_stream`, `stream` `on_frame` | an engine interrupt | the critical section |
 | `onewire` network layer (core, per slot) | an engine interrupt | the critical section |
 
 The runtime lock (`mclw_hal_lock`) is what lets a model touch its
