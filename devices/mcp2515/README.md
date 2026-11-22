@@ -21,9 +21,16 @@ RTS, BIT MODIFY and RESET reach the model after chip select rises.
 | 1 | `int` | `gpio_out` | no | INT, low while an enabled interrupt flag is set (7.0) |
 
 SPI modes 0,0 and 1,1, MSB first (12.0). The immediate responses lower the
-clock the harness serves the part at to 250 kHz
-(`mclw_hal_spi_target_max_clock_hz`): at 500 kHz an RP2040 harness
-answered them late; the part runs to 10 MHz.
+clock the harness serves the part at (`mclw_hal_spi_target_max_clock_hz`)
+to 250 kHz on an RP2040 harness, which answered them late at 500 kHz, and
+to 1 MHz on an RP2350 one, exact to 2 MHz and late at 4 MHz; the part runs
+to 10 MHz.
+
+WRITE and BIT MODIFY take effect at chip select's rise, as on the part:
+the harness applies them to the registers it serves at the window's
+release, a few microseconds before the model has taken the window, so a
+READ right after reads the new value (CANSTAT's OPMOD after a mode change
+included).
 
 ```python
 import metalclaw

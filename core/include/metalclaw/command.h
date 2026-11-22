@@ -93,6 +93,14 @@ struct mclw_command_image;
 typedef void (*mclw_command_on_window_t)(struct mclw_command_image *image, const uint8_t *bytes,
     size_t len, bool busy, void *ctx);
 typedef void (*mclw_command_notify_t)(struct mclw_command_image *image, void *ctx);
+// A window's effect on the registers, applied by the engine at the window's
+// release, before the model has taken it, so the next window reads it (a
+// CAN controller's WRITE and BIT MODIFY take effect at once): `bytes` and
+// `len` as on_window has them, `pages[i]` the served copy of the image's
+// i-th page. After every publish the engine applies it again for each
+// window still waiting for the model. Called from the engine's interrupt:
+// a RAM function that touches nothing but its arguments.
+typedef void (*mclw_command_on_release_t)(const uint8_t *bytes, size_t len, uint8_t *const *pages, void *ctx);
 
 struct mclw_command_image {
     uint8_t status;
@@ -120,6 +128,8 @@ struct mclw_command_image {
     volatile uint8_t dirty;
     mclw_command_on_window_t on_window;
     void *on_window_ctx;
+    mclw_command_on_release_t on_release;
+    void *on_release_ctx;
     // Set by the engine at arm; called by mclw_command_publish.
     mclw_command_notify_t notify;
     void *notify_ctx;
@@ -132,6 +142,7 @@ void mclw_command_init(struct mclw_command_image *image, uint8_t read_register_o
     uint8_t read_buffer_opcode);
 void mclw_command_set_on_window(struct mclw_command_image *image, mclw_command_on_window_t fn,
     void *ctx);
+void mclw_command_set_on_release(struct mclw_command_image *image, mclw_command_on_release_t fn, void *ctx);
 // A memory read opcode, which takes the place of the register or buffer
 // read on that opcode; a part with neither names the memory opcode for both.
 void mclw_command_set_memory_read(struct mclw_command_image *image, uint8_t opcode);

@@ -99,6 +99,11 @@ void mclw_command_set_on_window(struct mclw_command_image *image, mclw_command_o
     image->on_window_ctx = ctx;
 }
 
+void mclw_command_set_on_release(struct mclw_command_image *image, mclw_command_on_release_t fn, void *ctx) {
+    image->on_release = fn;
+    image->on_release_ctx = ctx;
+}
+
 int mclw_command_add_page(struct mclw_command_image *image, uint8_t page) {
     for (uint8_t i = 0; i < image->page_count; i++) {
         if (image->page_number[i] == page) {
