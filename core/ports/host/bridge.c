@@ -91,9 +91,12 @@ static struct {
 static char line[LINE_MAX];
 static bool pulls_due;
 
+// A bus with no MISO (a half-duplex link), or a lookup naming none,
+// matches on SCK and MOSI alone.
 static int spi_bus_for(uint8_t sck, uint8_t mosi, uint8_t miso) {
     for (size_t i = 0; i < SPI_BUSES_MAX; i++) {
-        if (spi_buses[i].used && spi_buses[i].sck == sck && spi_buses[i].mosi == mosi && spi_buses[i].miso == miso) {
+        if (spi_buses[i].used && spi_buses[i].sck == sck && spi_buses[i].mosi == mosi &&
+            (spi_buses[i].miso == miso || spi_buses[i].miso == MCLW_PIN_NONE || miso == MCLW_PIN_NONE)) {
             return (int)i;
         }
     }
@@ -127,7 +130,8 @@ static int spi_bus_for(uint8_t sck, uint8_t mosi, uint8_t miso);
 
 // A controller names the data pins from its own side, the swap of the
 // bus's: the DUT's RX pin takes the controller's MOSI. Its SCK is the bus.
-bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint64_t t_ns) {
+bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint16_t mosi, uint8_t bits, bool hold,
+    uint64_t t_ns) {
     int bus = spi_bus_for(sck, mosi_pin, miso_pin);
 
     if (bus < 0) {
@@ -137,7 +141,15 @@ bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, 
     if (bus < 0) {
         return false;
     }
-    add_action(t_ns, ACTION_SPI_CLOCK, (uint8_t)bus, mosi);
+    uint32_t state = mclw_hal_critical_enter();
+
+    if (action_count < ACTIONS_MAX) {
+        actions[action_count++] = (struct action){ .t_ns = t_ns, .kind = ACTION_SPI_CLOCK, .pin = (uint8_t)bus,
+            .value = bits, .extra = hold ? 1u : 0u, .pins = mosi };
+    } else {
+        actions_dropped++;
+    }
+    mclw_hal_critical_exit(state);
     return true;
 }
 
@@ -250,8 +262,8 @@ static size_t put_actions(size_t at) {
                 }
             } else if (a->kind == ACTION_SPI_CLOCK) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
-                    "%s{\"t_ns\":%" PRIu64 ",\"op\":\"spi_clock\",\"bus\":%u,\"mosi\":%u}", i ? "," : "",
-                    a->t_ns, a->pin, a->value);
+                    "%s{\"t_ns\":%" PRIu64 ",\"op\":\"spi_clock\",\"bus\":%u,\"mosi\":%" PRIu32 ",\"bits\":%u%s}",
+                    i ? "," : "", a->t_ns, a->pin, a->pins, a->value, a->extra ? ",\"cs_hold\":true" : "");
             } else if (a->kind == ACTION_JOIN || a->kind == ACTION_UNJOIN) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"%s\",\"pins\":[%u,%u]}", i ? "," : "", a->t_ns,
@@ -376,7 +388,7 @@ static void bind_blocks(const struct json_node *root, bool hello) {
             spi_buses[bus].used = true;
             spi_buses[bus].sck = (uint8_t)json_int(&doc, b, "sck", 0);
             spi_buses[bus].mosi = (uint8_t)json_int(&doc, b, "mosi", 0);
-            spi_buses[bus].miso = (uint8_t)json_int(&doc, b, "miso", 0);
+            spi_buses[bus].miso = (uint8_t)json_int(&doc, b, "miso", MCLW_PIN_NONE);
         }
     }
 }
@@ -496,21 +508,26 @@ static size_t handle(const char *text, size_t len) {
                 json_get(&doc, root, "pins") != NULL)) {
             uint8_t sck = pin_or(root, "sck", spi_buses[bus].sck);
             uint8_t mosi_pin = pin_or(root, "mosi", spi_buses[bus].mosi);
-            uint8_t mosi = (uint8_t)json_int(&doc, root, "mosi", 0);
-
-            uint8_t miso_pin = pin_or(root, "miso", spi_buses[bus].miso);
+            uint16_t mosi = (uint16_t)json_int(&doc, root, "mosi", 0);
+            uint8_t bits = (uint8_t)json_int(&doc, root, "bits", 8);
+            // A frame whose pins name no MISO has none, whatever the bus has.
+            const struct json_node *pins = json_get(&doc, root, "pins");
+            uint8_t miso_pin = pins != NULL ? pin_or(root, "miso", MCLW_PIN_NONE) : spi_buses[bus].miso;
 
             uint8_t next = 0xff;
-            bool target = mclw_host_spi_frame(sck, mosi_pin, miso_pin, mosi, &miso) == 0;
+            uint16_t wide = bits == 16u ? 0xffffu : 0xffu;
+            bool target = bits == 8u && mclw_host_spi_frame(sck, mosi_pin, miso_pin, (uint8_t)mosi, &miso) == 0;
 
-            if (!target && !mclw_host_spi_sink_frame(sck, mosi_pin, mosi) &&
-                !mclw_host_wire_spi_frame(sck, mosi_pin, mosi)) {
-                (void)mclw_host_spi_peer_frame(sck, mosi_pin, miso_pin, mosi, &miso);
+            if (target) {
+                wide = miso;
+            } else if (bits != 8u || (!mclw_host_spi_sink_frame(sck, mosi_pin, (uint8_t)mosi) &&
+                           !mclw_host_wire_spi_frame(sck, mosi_pin, (uint8_t)mosi))) {
+                (void)mclw_host_spi_peer_frame(sck, mosi_pin, miso_pin, mosi, bits, &wide);
             }
             if (target && mclw_host_spi_next_miso(sck, mosi_pin, miso_pin, &next) == 0) {
                 at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u,\"miso_next\":%u", miso, next);
             } else {
-                at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u", miso);
+                at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":%u", wide);
             }
         } else {
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"miso\":255,\"error\":\"unknown spi bus\"");

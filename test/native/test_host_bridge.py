@@ -446,6 +446,79 @@ def test_an_spi_page_controller_clocks_the_dut_and_keeps_its_answers(tmp_path):
         harness.close()
 
 
+def _spi_pair(tmp_path, route):
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    bridge.hello(spi=[route])
+    return harness, bridge
+
+
+def test_a_short_transfer_stays_readable_once_the_target_realigns(tmp_path):
+    # Ten bytes, not a page: the rings start again at 0 for the next
+    # transfer, and what came in stays readable, however long the host takes.
+    harness, bridge = _spi_pair(tmp_path, SPI0)
+    try:
+        harness.run("import metalclaw\np = metalclaw.attach('spi_page_target', 'p', sck=(18,), mosi=(19,), "
+                    "miso=(16,), cs=(17,))")
+        for i in range(10):
+            bridge.request(op="spi", bus=0, mosi=i, bits=8)
+        time.sleep(0.3)
+        bridge.advance(20_000_000)
+        assert harness.run("print(p.bytes, bytes(p.read_region('mosi', 0, 10)).hex())") == "10 00010203040506070809"
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_a_half_duplex_dut_s_frames_reach_the_target(tmp_path):
+    # A transmit-only DUT routes no MISO, and its frames name none.
+    harness, bridge = _spi_pair(tmp_path, {"bus": 0, "sck": 18, "mosi": 19})
+    try:
+        harness.run("import metalclaw\np = metalclaw.attach('spi_page_target', 'p', sck=(18,), mosi=(19,), cs=(17,))")
+        for i in range(4):
+            assert bridge.request(op="spi", bus=0, mosi=0x40 + i, bits=8)["miso"] == 0xff
+        assert harness.run("print(p.bytes, bytes(p.read_region('mosi', 0, 4)).hex())") == "4 40414243"
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_a_controller_clocks_a_receive_only_dut_in_held_windows(tmp_path):
+    # A 10-byte transfer under one chip select into a DUT with no MISO:
+    # every frame but the last says its window goes on.
+    harness, bridge = _spi_pair(tmp_path, {"bus": 0, "sck": 18, "mosi": 19})
+    try:
+        harness.run("import metalclaw\nc = metalclaw.attach('spi_page_controller', 'c', sck=(18,), mosi=(19,), "
+                    "cs=(17,))\nc.length = 10\nc.window = 10\nc.interval = 1\nc.pages = 1")
+        clocks = []
+        for _ in range(50):
+            clocks += [a for a in bridge.advance(1_000_000).get("actions", []) if a["op"] == "spi_clock"]
+            if len(clocks) >= 10:
+                break
+        assert [a["mosi"] for a in clocks] == list(range(10))
+        assert [a.get("cs_hold", False) for a in clocks] == [True] * 9 + [False]
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_a_target_answers_16_bit_lsb_first_frames(tmp_path):
+    # A frame is what the DUT's block shifted, MSB first on the wire: the
+    # target set LSB first takes 0x8000 as 0x0001, and answers likewise.
+    harness, bridge = _spi_pair(tmp_path, SPI0)
+    try:
+        harness.run("import metalclaw\np = metalclaw.attach('spi_page_target', 'p', sck=(18,), mosi=(19,), "
+                    "miso=(16,), cs=(17,))\np.bits = 16\np.lsb_first = True\n"
+                    "p.write_region('miso', 0, bytes([0x00, 0x01, 0x12, 0x34]))")
+        got = [bridge.request(op="spi", bus=0, mosi=v, bits=16)["miso"] for v in (0x8000, 0x4000)]
+        assert got == [0x8000, 0x2c48]
+        assert harness.run("print(p.bytes, bytes(p.read_region('mosi', 0, 4)).hex())") == "4 00010002"
+    finally:
+        bridge.close()
+        harness.close()
+
+
 def test_a_command_typed_ahead_of_the_raw_repl_is_kept(tmp_path):
     # The raw REPL switches its terminal's mode after each command; a
     # command already waiting then (two sent in one write) still runs.

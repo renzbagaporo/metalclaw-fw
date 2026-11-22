@@ -141,6 +141,9 @@ struct mclw_spi_peer {
     bool busy;
     uint32_t restarts;
     uint8_t mode;
+    uint8_t bits;
+    bool lsb_first;
+    size_t window;
 };
 
 static struct mclw_spi_peer peer;
@@ -153,6 +156,7 @@ static struct mclw_spi_peer *open_peer(bool controller, struct mclw_gpio *const 
     }
     memset(&peer, 0, sizeof(peer));
     peer.controller = controller;
+    peer.bits = 8u;
     peer.open = true;
     return &peer;
 }
@@ -191,13 +195,15 @@ void mclw_hal_spi_peer_received(const struct mclw_spi_peer *p, size_t at, uint8_
     }
 }
 
-int mclw_hal_spi_peer_transfer(struct mclw_spi_peer *p, const uint8_t *out, uint8_t *in, size_t len) {
+int mclw_hal_spi_peer_transfer(struct mclw_spi_peer *p, const uint8_t *out, uint8_t *in, size_t frames,
+    size_t window) {
     if (p->busy) {
         return -EBUSY;
     }
     p->out = out;
     p->in = in;
-    p->len = len;
+    p->len = frames;
+    p->window = window;
     p->busy = true;
     return 0;
 }
@@ -206,14 +212,16 @@ bool mclw_hal_spi_peer_busy(const struct mclw_spi_peer *p) {
     return p->busy;
 }
 
-int mclw_hal_spi_peer_set_mode(struct mclw_spi_peer *p, uint8_t mode) {
-    if (mode > 3u) {
+int mclw_hal_spi_peer_set_format(struct mclw_spi_peer *p, const struct mclw_spi_peer_format *f) {
+    if (f->mode > 3u || (f->bits != 8u && f->bits != 16u)) {
         return -EINVAL;
     }
     if (p->busy) {
         return -EBUSY;
     }
-    p->mode = mode;
+    p->mode = f->mode;
+    p->bits = f->bits;
+    p->lsb_first = f->lsb_first;
     if (!p->controller) {
         mclw_hal_spi_peer_restart(p);
     }
@@ -391,10 +399,10 @@ static void page_target(void) {
     tick(m, 20);
     CHECK(get(m, "bytes") == 256 && peer.restarts == 1u);
 
-    // A page cut short by a DUT reset: after a few quiet polls the rings
+    // A page cut short by a DUT reset: after 5 ms without a frame the rings
     // start again at 0, and the next page lines up.
     dut_clocks(100, junk, NULL);
-    tick(m, SPI_PAGE_REALIGN_POLLS);
+    tick(m, SPI_PAGE_REALIGN_US / 1000u);
     CHECK(peer.count == 356u);
     tick(m, 1);
     CHECK(peer.count == 0u && get(m, "bytes") == 356);
@@ -415,6 +423,8 @@ static void page_target(void) {
     CHECK(peer.mode == 1u && peer.count == 0u && get(m, "mode") == 1 && get(m, "bytes") == 614);
     dut_clocks(1, counting, miso);
     CHECK(miso[0] == 0x12 && get(m, "bytes") == 615);
+    // 16-bit frames: `bytes` counts two a frame from here on.
+    CHECK(set(m, "bits", 16) == 0 && peer.bits == 16u && peer.count == 0u && get(m, "bytes") == 615);
     CHECK(m->ops->reset(&instance, true) == 0);
     CHECK(peer.mode == 0u && get(m, "mode") == 0);
     m->ops->deinit(&instance);
@@ -467,6 +477,24 @@ static void page_controller(void) {
     tick(m, 1);
     CHECK(set(m, "mode", 1) == 0 && peer.mode == 1u);
     CHECK(m->ops->reset(&instance, true) == 0 && peer.mode == 0u && get(m, "mode") == 0);
+
+    // A 10-byte transfer of 16-bit LSB-first frames, all under one chip
+    // select: five frames, one window of them.
+    CHECK(set(m, "bits", 12) == -EINVAL && set(m, "bits", 16) == 0 && set(m, "lsb_first", 1) == 0);
+    CHECK(peer.bits == 16u && peer.lsb_first && get(m, "bits") == 16 && get(m, "lsb_first") == 1);
+    CHECK(set(m, "length", 10) == 0 && set(m, "window", 5) == 0 && set(m, "pages", 1) == 0);
+    tick(m, SPI_PAGE_INTERVAL_MS);
+    CHECK(peer.busy && peer.len == 5u && peer.window == 5u);
+    CHECK(set(m, "length", 4) == -EBUSY && set(m, "bits", 8) == -EBUSY);
+    // What has come back shows before the transfer ends.
+    peer.in[0] = 0xab;
+    tick(m, 1);
+    CHECK(m->ops->read_region(&instance, 0, 0, got, 1) == 0 && got[0] == 0xab);
+    peer.busy = false;
+    tick(m, 1);
+    CHECK(get(m, "clocked") == 1);
+    CHECK(m->ops->reset(&instance, true) == 0 && peer.bits == 8u && !peer.lsb_first && get(m, "length") == 256 &&
+        get(m, "window") == 1);
     m->ops->deinit(&instance);
 }
 

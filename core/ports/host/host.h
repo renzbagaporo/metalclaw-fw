@@ -89,7 +89,8 @@ bool mclw_host_wire_spi_frame(uint8_t sck, uint8_t mosi_pin, uint8_t mosi);
 void mclw_host_spi_sink_line(uint8_t pin, int level);
 
 // spi_peer.c: a frame for a target peer on that bus; false when none.
-bool mclw_host_spi_peer_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint8_t *miso);
+bool mclw_host_spi_peer_frame(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint16_t mosi, uint8_t bits,
+    uint16_t *miso);
 // The frame a controller peer clocked into the DUT's slave on that bus:
 // what came back, or -1 when the DUT's block is no enabled slave.
 void mclw_host_spi_peer_clocked(uint8_t sck, int miso);
@@ -105,7 +106,8 @@ void mclw_host_event_latch_capture(uint8_t clock, uint8_t latch, uint8_t enable,
 void mclw_host_wire_latched(uint8_t clock, const uint32_t *samples, size_t count, uint64_t enabled_ns, bool overflow);
 // Wire two DUT pins together inside the emulator, or part them again.
 void mclw_host_event_join(uint8_t a, uint8_t b, bool joined);
-bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint8_t mosi, uint64_t t_ns);
+bool mclw_host_event_spi_clock(uint8_t sck, uint8_t mosi_pin, uint8_t miso_pin, uint16_t mosi, uint8_t bits, bool hold,
+    uint64_t t_ns);
 // The harness as I2C controller (BRIDGE.md i2c_drive): one event at a
 // time toward the DUT's target on the bus with these pins, each answered
 // by an i2c_driven request; false when no bus has those pins.

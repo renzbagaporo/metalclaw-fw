@@ -394,11 +394,12 @@ port exists.
   open-drain join, twelve, waits out a 2 µs settle after it lets a side go
   before it looks at that side again).
 - `spi_peer.h`: an SPI peer on four pins a model holds as gpio bindings,
-  in any of the four SPI modes (mode 0 when it opens), MSB first, one byte
-  per chip-select window, the framing a PL022 uses in mode 0: a target that shifts out the next byte of a 256-byte
+  MISO optional, in any of the four SPI modes, 8- or 16-bit frames MSB or
+  LSB first, any number of frames per chip-select window (one byte per
+  window in mode 0 when it opens, the framing a PL022 uses): a target that shifts out the next byte of a 256-byte
   ring per window and keeps what came in at the same place, or a controller
   that clocks a transfer at its own rate. On rp2 one PIO state machine
-  (nine and seven instructions) and two DMA channels each.
+  (eleven and nine instructions) and two DMA channels each.
 - `swd.h`: the SWD wire: transfers, bit sequences, pin control, clock. On
   rp2 it is a PIO program; every wait is bounded and a timeout resyncs the
   state machine. A wait for the state machine's FIFOs sleeps on WFE, woken
