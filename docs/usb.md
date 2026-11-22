@@ -25,13 +25,15 @@ re-enumerates, once, after the changes settle.
 | --- | --- | --- | --- |
 | 0, 1 | CDC ACM | `0x85` notify, `0x01` out, `0x81` in | MicroPython REPL |
 | 2 | MSC, SCSI, bulk-only | `0x02` out, `0x82` in | the flash filesystem |
-| 3, 4 and 5, 6 | CDC ACM | `0x88`, `0x89` notify, `0x06`, `0x07` out, `0x86`, `0x87` in | serial functions, one per attached device that declares one |
+| 3, 4 to 9, 10 | CDC ACM | `0x8a`..`0x8d` notify, `0x06`..`0x09` out, `0x86`..`0x89` in | serial functions, one per attached device that declares one |
 | after them | vendor `FF/00/00`, bulk | `0x03`.. out, `0x83`.. in | vendor interfaces, one per attached device that declares one |
 
 A device declares a `usb_interface` binding with a function kind and an
-interface string. Up to two serial functions (`CFG_TUD_CDC` is 3, the REPL
+interface string. Up to four serial functions (`CFG_TUD_CDC` is 5, the REPL
 included) and `CFG_TUD_VENDOR` (2) vendor interfaces may be attached at
-once. Serial functions come first, in the order their slots were taken, so
+once; `metalclaw.board()["serial_functions"]` says how many serial
+functions the build has and `["serial_functions_free"]` how many are not
+open now. Serial functions come first, in the order their slots were taken, so
 the first one is always interfaces 3 and 4 whether or not a vendor
 interface exists; vendor interfaces follow and their numbers move when a
 serial function comes or goes. Endpoint numbers are fixed per position,
@@ -42,7 +44,8 @@ nothing ever moves it. The interface string is the device's to choose;
 
 On Linux the REPL appears as `/dev/serial/by-id/usb-Metalclaw_<product>_<serial>-if00`,
 a serial function as the same name ending in its control interface number
-in two hex digits: the first one is `-if03`, the second `-if05`. On the
+in two hex digits: the first one is `-if03`, the second `-if05`, then
+`-if07` and `-if09`. On the
 bench that is
 `/dev/serial/by-id/usb-Metalclaw_Metalclaw_E6612483CB313225-if03`.
 The volume is a raw FAT block device with no partition table.

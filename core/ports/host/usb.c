@@ -237,6 +237,16 @@ uint8_t mclw_hal_usb_control_lines(const struct mclw_usb_interface *itf) {
     return itf->connected ? (uint8_t)(MCLW_USB_LINE_DTR | MCLW_USB_LINE_RTS) : 0u;
 }
 
+size_t mclw_hal_usb_serial_functions(size_t *free) {
+    if (free != NULL) {
+        *free = 0;
+        for (size_t i = 0; i < INTERFACES_MAX; i++) {
+            *free += interfaces[i].owner == NULL && interfaces[i].desc == NULL ? 1u : 0u;
+        }
+    }
+    return INTERFACES_MAX;
+}
+
 const char *mclw_hal_usb_serial(void) {
     return "host";
 }

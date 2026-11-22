@@ -14,7 +14,7 @@
 #define CFG_TUD_ENDPOINT0_SIZE      64
 
 // The REPL, then serial functions devices can attach.
-#define CFG_TUD_CDC                 3
+#define CFG_TUD_CDC                 5
 #define CFG_TUD_CDC_EP_BUFSIZE      64
 #define CFG_TUD_CDC_RX_BUFSIZE      256
 #define CFG_TUD_CDC_TX_BUFSIZE      256
