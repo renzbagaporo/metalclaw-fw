@@ -38,8 +38,15 @@
 #define UART_PIO_RX_RING_MASK (UART_PIO_RX_RING_SIZE - 1u)
 #define UART_PIO_TX_RING_MASK (UART_PIO_TX_RING_SIZE - 1u)
 // The receive channel is re-armed by the poll once it has run this many
-// bytes: four billion, days of traffic even at 921600 baud.
+// bytes. An RP2350's TRANS_COUNT is 28 bits under its mode field, whose
+// all-ones is ENDLESS: a count that never moves, and the ring's laps
+// misread from it, losing a byte at every half ring. 2^28 bytes is over
+// forty minutes of traffic at 921600 baud; an RP2040's four billion, days.
+#if PICO_RP2040
 #define UART_PIO_RX_DMA_COUNT 0xffffffffu
+#else
+#define UART_PIO_RX_DMA_COUNT 0x0fffffffu
+#endif
 // A backlog this close to the ring size may already be overwritten while it
 // is copied out, so it counts as an overrun.
 #define UART_PIO_RX_SLACK 16u
@@ -229,7 +236,7 @@ static int tx_drain(struct uart_pio *u) {
 
 static void rx_deliver(struct uart_pio *u) {
     dma_channel_hw_t *ch = dma_channel_hw_addr(u->rx_dma);
-    uint32_t remaining = ch->transfer_count;
+    uint32_t remaining = ch->transfer_count & UART_PIO_RX_DMA_COUNT;
     uint32_t pos = (ch->write_addr - (uint32_t)(uintptr_t)u->rx_ring) & UART_PIO_RX_RING_MASK;
     uint32_t issued = UART_PIO_RX_DMA_COUNT - remaining;
 
@@ -246,7 +253,7 @@ static void rx_deliver(struct uart_pio *u) {
     // The count moves when a read is issued, the write address when the
     // byte has landed; the ring offset is exact, the count says how many
     // laps it has made. The two differ by the bytes in flight at most.
-    remaining = ch->transfer_count;
+    remaining = ch->transfer_count & UART_PIO_RX_DMA_COUNT;
     issued = UART_PIO_RX_DMA_COUNT - remaining;
     pos = (ch->write_addr - (uint32_t)(uintptr_t)u->rx_ring) & UART_PIO_RX_RING_MASK;
     uint32_t delta = (pos - u->rx_base - issued) & UART_PIO_RX_RING_MASK;
