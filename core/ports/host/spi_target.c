@@ -205,6 +205,17 @@ static uint8_t regmap_miso(const struct mclw_spi_target *t, uint32_t k) {
     if (k == 0u || (command & t->framing.read_bit_mask) == 0u || k - 1u < dummies) {
         return map->filler;
     }
+    {
+        uint8_t first = (uint8_t)(command & t->framing.address_mask);
+        size_t streamed;
+        const uint8_t *from = mclw_regmap_stream_from(map, map->active_bank, first, &streamed);
+
+        if (from != NULL && (t->framing.auto_increment || first == map->stream_reg)) {
+            uint32_t at = k - 1u - dummies;
+
+            return at < streamed ? from[at] : map->filler;
+        }
+    }
     address = (uint32_t)(command & t->framing.address_mask) + (t->framing.auto_increment ? k - 1u - dummies : 0u);
     return address < MCLW_REGMAP_BANK_SIZE ? map->value[map->active_bank][address] : map->filler;
 }
@@ -335,9 +346,14 @@ static void window_end(struct mclw_spi_target *t) {
                 uint32_t payload = t->count - 1u;
                 uint32_t served = payload > dummies ? payload - dummies : 0u;
 
-                if (address + served > MCLW_REGMAP_BANK_SIZE) {
+                size_t streamed;
+                bool stream = mclw_regmap_stream_from(t->map, t->map->active_bank, address, &streamed) != NULL &&
+                    (t->framing.auto_increment || address == t->map->stream_reg);
+                uint32_t room = stream ? (uint32_t)streamed : MCLW_REGMAP_BANK_SIZE - address;
+
+                if (served > room) {
                     t->stats.long_windows++;
-                    served = MCLW_REGMAP_BANK_SIZE - address;
+                    served = room;
                 }
                 mclw_regmap_bus_read_burst(t->map, address, served, t->framing.auto_increment);
             } else {

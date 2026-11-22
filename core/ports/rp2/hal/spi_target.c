@@ -1721,7 +1721,10 @@ static void __not_in_flash_func(regmap_take)(struct mclw_spi_target *t, const st
 
     address = command & t->framing.address_mask;
     if ((command & t->framing.read_bit_mask) != 0u) {
-        uint32_t available = dummies + (SPI_BANK_BYTES - address);
+        size_t streamed;
+        bool stream = mclw_regmap_stream_from(map, map->active_bank, (uint8_t)address, &streamed) != NULL &&
+            (t->framing.auto_increment || address == map->stream_reg);
+        uint32_t available = dummies + (stream ? (uint32_t)streamed : SPI_BANK_BYTES - address);
         uint32_t served;
 
         if (payload > available) {
@@ -2250,6 +2253,15 @@ static void build_tables(struct mclw_spi_target *t) {
 
                 table[command].count = SPI_BANK_BYTES - address;
                 table[command].source = (uint32_t)(uintptr_t)(base + address);
+                size_t streamed;
+                const uint8_t *from = mclw_regmap_stream_from(map, b, (uint8_t)address, &streamed);
+
+                // A read reaching the stream runs on into it from the
+                // window, the lead's copies first.
+                if (from != NULL && (t->framing.auto_increment || address == map->stream_reg)) {
+                    table[command].count = (uint32_t)streamed;
+                    table[command].source = (uint32_t)(uintptr_t)from;
+                }
             } else {
                 table[command].count = SPI_BUFFER_BYTES;
                 table[command].source = (uint32_t)(uintptr_t)t->tx_buf[0];

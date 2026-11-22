@@ -1,0 +1,45 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		raw = &imu_raw;
+	};
+};
+
+&pinctrl {
+	spi0_fixture1: spi0_fixture1 {
+		group1 {
+			pinmux = <SPI0_SCK_P18>, <SPI0_TX_P19>;
+		};
+		group2 {
+			pinmux = <SPI0_RX_P16>;
+			input-enable;
+		};
+	};
+};
+
+/*
+ * The IMU as a bare SPI device in mode 3: the cases configure its FIFO and
+ * read FIFO_COUNT and FIFO_DATA themselves through RAW, to check the
+ * packets byte for byte and that each burst read pops what it read. A GPIO
+ * chip select and its 1 ms setup delay, as in the driver image: without
+ * the delay the clock starts before the target has joined the window.
+ */
+&spi0 {
+	status = "okay";
+	pinctrl-0 = <&spi0_fixture1>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpio0 17 GPIO_ACTIVE_LOW>;
+
+	imu_raw: imu@0 {
+		compatible = "vnd,spi-device";
+		reg = <0>;
+		spi-max-frequency = <10714285>;
+		spi-cpol;
+		spi-cpha;
+		spi-cs-setup-delay-ns = <1000000>;
+		status = "okay";
+	};
+};
