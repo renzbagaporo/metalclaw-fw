@@ -64,6 +64,8 @@ console.detach()
 | `discarded` | u32 | ro | bytes | | DUT bytes lost because the host queue was full while it did not |
 | `codings_refused` | u32 | ro | | | host line codings the UART could not take, while following |
 | `short_writes` | u32 | ro | | | hand-offs to the host queue that it took only part of, either way |
+| `breaks_to_host` | u32 | ro | | | breaks the DUT sent, passed to the host |
+| `breaks_from_host` | u32 | ro | | | breaks the host asked for (SEND_BREAK), sent to the DUT |
 
 `baud` defaults to 115200. A host's line coding (the baud, data bits, parity
 and stop bits a program sets on the port) is ignored unless
@@ -74,6 +76,17 @@ and the setting itself, is applied once the UART's queue has drained; a
 coding the UART cannot frame (mark or space parity, 1.5 stop bits, or
 anything but 8N1 and 8N2 on a PIO UART) is counted in `codings_refused` and
 leaves the UART as it was.
+
+A break the DUT sends (its line at space for a frame or longer, a LIN
+header's 13 bits dominant) reaches the host after the bytes before it, as a
+CDC SERIAL_STATE notification with Break set: on Linux the tty reads it as
+a break (a NUL, or FFh 00h 00h with PARMRK). A SEND_BREAK from the host
+(`tcsendbreak`, pyserial's `send_break`) goes to the DUT once the bytes
+queued before it have, held for its length and at least 13 bit times. On
+rp2 a PL011 pin pair carries breaks both ways; the PIO engine carries none
+yet, and counts a break as a frame error. The host port's serial functions
+carry none yet either; its bridge carries them to and from the emulator
+(`uart` with `break`).
 
 DTR and RTS are reported and do nothing else: they reset nothing, on the DUT
 or here.

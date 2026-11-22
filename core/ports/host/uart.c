@@ -23,6 +23,7 @@
 #define RX_RING 4096u
 // Edges kept for one frame: start, data, parity and stop bits.
 #define FRAME_EDGES 16u
+#define UART_BREAKS_MAX 8u
 
 struct mclw_uart {
     const void *owner;
@@ -32,6 +33,12 @@ struct mclw_uart {
     struct mclw_uart_format format;
     mclw_uart_rx_t on_rx;
     void *on_rx_ctx;
+    mclw_uart_break_t on_break;
+    void *on_break_ctx;
+    // Breaks the worker has yet to deliver, by the ring position they follow.
+    uint32_t brk_at[UART_BREAKS_MAX];
+    uint32_t brk_head;
+    uint32_t brk_tail;
     // Received bytes the worker has yet to deliver.
     uint8_t ring[RX_RING];
     uint32_t head;
@@ -66,6 +73,14 @@ static uint64_t frame_ns(const struct mclw_uart *u) {
 // Bit `bit` of a frame, 0 the start bit, in virtual ns from its start.
 static uint64_t bit_at_ns(const struct mclw_uart *u, uint32_t bit) {
     return (uint64_t)bit * 1000000000u / u->baud;
+}
+
+// Called with the critical section held.
+static void break_put(struct mclw_uart *u) {
+    u->stats.breaks++;
+    if (u->brk_head - u->brk_tail < UART_BREAKS_MAX) {
+        u->brk_at[u->brk_head++ % UART_BREAKS_MAX] = u->head;
+    }
 }
 
 static void ring_put(struct mclw_uart *u, uint8_t byte) {
@@ -112,6 +127,11 @@ static bool frame_finish(struct mclw_uart *u, uint64_t now_ns) {
     }
     u->in_frame = false;
     if (frame_level(u, start + bit_at_ns(u, bits - 1u) + bit_at_ns(u, 1u) / 2u) == 0) {
+        // All zeros through the stop bit: a break, not a byte.
+        if (byte == 0u) {
+            break_put(u);
+            return true;
+        }
         u->stats.frame_errors++;
     }
     ring_put(u, byte);
@@ -171,19 +191,50 @@ static void rx_deliver(struct mclw_work *work) {
     }
     for (;;) {
         uint32_t state = mclw_hal_critical_enter();
-        uint32_t n = u->head - u->tail;
+        bool at_break = u->brk_tail != u->brk_head;
+        uint32_t until = at_break ? u->brk_at[u->brk_tail % UART_BREAKS_MAX] : u->head;
+        uint32_t n = until - u->tail;
 
         for (uint32_t i = 0; i < n; i++) {
             chunk[i] = u->ring[(u->tail + i) % RX_RING];
         }
         u->tail += n;
+        if (at_break) {
+            u->brk_tail++;
+        }
         mclw_hal_critical_exit(state);
-        if (n == 0u || u->owner == NULL || u->on_rx == NULL) {
+        if (u->owner == NULL) {
             break;
         }
-        u->on_rx(u, chunk, n, u->on_rx_ctx);
+        if (n != 0u && u->on_rx != NULL) {
+            u->on_rx(u, chunk, n, u->on_rx_ctx);
+        }
+        if (at_break && u->on_break != NULL) {
+            u->on_break(u, u->on_break_ctx);
+        }
+        if (n == 0u && !at_break) {
+            break;
+        }
     }
     mclw_hal_unlock();
+}
+
+void mclw_host_uart_receive_break(uint8_t dut_tx_pin) {
+    uint32_t state = mclw_hal_critical_enter();
+    struct mclw_uart *found = NULL;
+
+    for (size_t i = 0; i < UARTS_MAX && found == NULL; i++) {
+        if (uarts[i].owner != NULL && uarts[i].rx == dut_tx_pin) {
+            found = &uarts[i];
+        }
+    }
+    if (found != NULL) {
+        break_put(found);
+    }
+    mclw_hal_critical_exit(state);
+    if (found != NULL) {
+        mclw_hal_work_post(&found->work);
+    }
 }
 
 void mclw_host_uart_receive(uint8_t dut_tx_pin, const uint8_t *bytes, size_t len) {
@@ -365,6 +416,37 @@ size_t mclw_hal_uart_send(struct mclw_uart *u, const uint8_t *bytes, size_t len)
     u->stats.bytes_tx += (uint32_t)len;
     mclw_hal_critical_exit(state);
     return len;
+}
+
+void mclw_hal_uart_set_break(struct mclw_uart *u, mclw_uart_break_t fn, void *ctx) {
+    uint32_t state = mclw_hal_critical_enter();
+    u->on_break = fn;
+    u->on_break_ctx = ctx;
+    mclw_hal_critical_exit(state);
+}
+
+// After what is queued: a `break` action to a DUT whose UART takes whole
+// frames, or the line held low for `bits` bit times.
+int mclw_hal_uart_send_break(struct mclw_uart *u, uint32_t bits) {
+    if (u == NULL || u->owner == NULL || bits == 0u) {
+        return -EINVAL;
+    }
+    uint32_t state = mclw_hal_critical_enter();
+    uint64_t at = mclw_host_event_ns();
+
+    if (u->tx_busy_until_ns > at) {
+        at = u->tx_busy_until_ns;
+    }
+    uint64_t end = at + bit_at_ns(u, bits);
+    if (mclw_host_pin_is_uart_rx(u->tx)) {
+        mclw_host_event_uart_break(u->tx, end);
+    } else {
+        mclw_host_event_gpio_at(u->tx, MCLW_HOST_GPIO_LOW, at);
+        mclw_host_event_gpio_at(u->tx, MCLW_HOST_GPIO_HIGH, end);
+    }
+    u->tx_busy_until_ns = end + bit_at_ns(u, 1u);
+    mclw_hal_critical_exit(state);
+    return 0;
 }
 
 void mclw_hal_uart_stats(const struct mclw_uart *u, struct mclw_uart_stats *out) {

@@ -233,6 +233,17 @@ int mclw_hal_usb_line_coding(const struct mclw_usb_interface *itf, struct mclw_u
     return 0;
 }
 
+// The host port's serial functions carry no breaks yet.
+int mclw_hal_usb_serial_break(struct mclw_usb_interface *itf) {
+    (void)itf;
+    return -ENOTSUP;
+}
+
+uint16_t mclw_hal_usb_serial_take_break(struct mclw_usb_interface *itf) {
+    (void)itf;
+    return 0;
+}
+
 uint8_t mclw_hal_usb_control_lines(const struct mclw_usb_interface *itf) {
     return itf->connected ? (uint8_t)(MCLW_USB_LINE_DTR | MCLW_USB_LINE_RTS) : 0u;
 }

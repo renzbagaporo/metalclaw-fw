@@ -7,7 +7,9 @@
 //                  receiver overflowed after it, 'f' a framing error, 'r'
 //                  no room in the ring, 'b' both 'o' and 'r'
 //   bridge <takes...>  each take one hand-off of 8 bytes, the write taking
-//                  that many ("all" for every one), with DTR held
+//                  that many ("all" for every one), with DTR held; "B" a
+//                  break from the DUT instead, "S<ms>" a SEND_BREAK from the
+//                  host
 //
 // Prints the counters as key=value on one line.
 
@@ -26,6 +28,37 @@ extern const struct mclw_model mclw_model_console_bridge;
 static size_t write_takes;
 static mclw_uart_rx_t bridge_rx;
 static void *bridge_rx_ctx;
+static mclw_uart_break_t bridge_break;
+static void *bridge_break_ctx;
+static unsigned usb_breaks;
+static uint16_t host_break_ms;
+static uint32_t uart_break_bits;
+
+int mclw_hal_usb_serial_break(struct mclw_usb_interface *itf) {
+    (void)itf;
+    usb_breaks++;
+    return 0;
+}
+
+uint16_t mclw_hal_usb_serial_take_break(struct mclw_usb_interface *itf) {
+    uint16_t ms = host_break_ms;
+
+    (void)itf;
+    host_break_ms = 0;
+    return ms;
+}
+
+void mclw_hal_uart_set_break(struct mclw_uart *uart, mclw_uart_break_t fn, void *ctx) {
+    (void)uart;
+    bridge_break = fn;
+    bridge_break_ctx = ctx;
+}
+
+int mclw_hal_uart_send_break(struct mclw_uart *uart, uint32_t bits) {
+    (void)uart;
+    uart_break_bits = bits;
+    return 0;
+}
 
 size_t mclw_hal_usb_write(struct mclw_usb_interface *itf, const uint8_t *data, size_t len) {
     (void)itf;
@@ -144,11 +177,22 @@ static int bridge(int argc, char **argv) {
         return 3;
     }
     for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "B") == 0) {
+            bridge_break(bindings[0].uart, bridge_break_ctx);
+            continue;
+        }
+        if (argv[i][0] == 'S') {
+            host_break_ms = (uint16_t)strtoul(argv[i] + 1, NULL, 0);
+            mclw_model_console_bridge.ops->usb_control(&inst, 1);
+            mclw_model_console_bridge.ops->time_advanced(&inst, 0);
+            continue;
+        }
         write_takes = strcmp(argv[i], "all") == 0 ? SIZE_MAX : (size_t)strtoul(argv[i], NULL, 0);
         bridge_rx(bindings[0].uart, bytes, sizeof(bytes), bridge_rx_ctx);
     }
-    printf("to_host=%lld overruns=%lld short_writes=%lld", get(&inst, "to_host"), get(&inst, "overruns"),
-        get(&inst, "short_writes"));
+    printf("to_host=%lld overruns=%lld short_writes=%lld breaks_to_host=%lld usb_breaks=%u breaks_from_host=%lld "
+        "break_bits=%u", get(&inst, "to_host"), get(&inst, "overruns"), get(&inst, "short_writes"),
+        get(&inst, "breaks_to_host"), usb_breaks, get(&inst, "breaks_from_host"), (unsigned)uart_break_bits);
     if (mclw_model_console_bridge.ops->reset(&inst, false) != 0) {
         return 4;
     }

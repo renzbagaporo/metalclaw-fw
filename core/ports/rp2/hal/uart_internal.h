@@ -19,6 +19,8 @@ struct mclw_uart_engine {
     int (*set_baud)(struct mclw_uart *uart, uint32_t baud);
     int (*set_format)(struct mclw_uart *uart, const struct mclw_uart_format *format);
     size_t (*send)(struct mclw_uart *uart, const uint8_t *bytes, size_t len);
+    // NULL where the engine cannot.
+    int (*send_break)(struct mclw_uart *uart, uint32_t bits);
 };
 
 // `stats` is written by the engine under the critical section; `on_rx` and
@@ -29,6 +31,8 @@ struct mclw_uart {
     uint32_t baud;
     mclw_uart_rx_t on_rx;
     void *on_rx_ctx;
+    mclw_uart_break_t on_break;
+    void *on_break_ctx;
     struct mclw_uart_stats stats;
 };
 

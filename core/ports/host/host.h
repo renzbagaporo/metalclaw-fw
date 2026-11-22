@@ -49,6 +49,8 @@ void mclw_host_event_gpio_at(uint8_t pin, uint8_t state, uint64_t t_ns);
 // Asks the emulator to report every level the DUT drives on `pin`.
 void mclw_host_event_watch(uint8_t pin);
 void mclw_host_event_uart(uint8_t rx_pin, uint8_t byte, uint64_t t_ns);
+void mclw_host_event_uart_break(uint8_t rx_pin, uint64_t t_ns);
+void mclw_host_uart_receive_break(uint8_t dut_tx_pin);
 
 // gpio.c: the level the DUT drives on `pin`, 0 or 1, or -1 for released.
 void mclw_host_gpio_dut(uint8_t pin, int level);
