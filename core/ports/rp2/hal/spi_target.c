@@ -98,8 +98,9 @@
 #define SPI_TX_BUFFERS 3u
 // Command windows waiting for the worker. A part with BUSY has at most one;
 // a part without is polled back to back and has a write enable and the
-// erase right behind it.
-#define SPI_QUEUE 8u
+// erase right behind it, or takes a run of writes faster than the model
+// does (a CAN driver's 32 filter and mask writes, 55 us apart at 1 MHz).
+#define SPI_QUEUE 32u
 #define SPI_FORCED 6u
 // Longer than any reset program, which runs in about 3 us.
 #define SPI_KICK_WAIT_US 20u
