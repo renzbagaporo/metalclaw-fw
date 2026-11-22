@@ -229,6 +229,22 @@ def test_the_w25q_answers_and_programs_over_spi(tmp_path):
         harness.close()
 
 
+def test_an_spi_target_reports_all_its_counters(tmp_path):
+    # The ten an SPI target has, max_clock_hz last: none cut off.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[SPI0])
+        harness.run("import metalclaw\nf = metalclaw.attach('w25q16jv', 'flash', spi=(18, 19, 16, 17))")
+        keys = harness.run("print(sorted(f.stats('spi')))")
+        for key in ("transactions", "lost_windows", "max_batch", "max_clock_hz"):
+            assert f"'{key}'" in keys, keys
+    finally:
+        bridge.close()
+        harness.close()
+
+
 def test_the_w25q_status_poll_after_a_write_enable_reads_wel(tmp_path):
     # W25Q16JV 8.2: Write Enable (06h) sets WEL and Write Disable (04h)
     # clears it; the Read Status (05h) right after either reads the change.

@@ -99,9 +99,11 @@ int mclw_spi_mode_get(struct mclw_instance *inst, size_t binding, struct mclw_va
 int mclw_spi_mode_set(struct mclw_instance *inst, size_t binding, const struct mclw_value *in);
 
 // The bound engine's counters for one binding, as named values, so a
-// binding or a host codec never switches on the kind. Returns how many were
-// written, -EINVAL for an unbound binding, -ENOTSUP for a kind with none.
-#define MCLW_STATS_MAX 8
+// binding or a host codec never switches on the kind. Returns how many the
+// binding has (more than `max` writes only the first `max`), -EINVAL for an
+// unbound binding, -ENOTSUP for a kind with none. MCLW_STATS_MAX holds the
+// longest list, an SPI target's ten.
+#define MCLW_STATS_MAX 16
 
 struct mclw_stat {
     const char *name;

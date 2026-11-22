@@ -202,6 +202,9 @@ static mp_obj_t instance_stats(mp_obj_t self_in, mp_obj_t name_in) {
         mp_raise_ValueError(MP_ERROR_TEXT("binding has no stats"));
     }
     mclw_check(n);
+    if (n > MCLW_STATS_MAX) {
+        n = MCLW_STATS_MAX;
+    }
     mp_obj_t d = mp_obj_new_dict((size_t)n);
     for (int i = 0; i < n; i++) {
         mp_obj_dict_store(d, mp_obj_new_str_from_cstr(stats[i].name), mp_obj_new_int_from_uint(stats[i].value));
