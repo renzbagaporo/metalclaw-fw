@@ -229,6 +229,26 @@ def test_the_w25q_answers_and_programs_over_spi(tmp_path):
         harness.close()
 
 
+def test_the_w25q_status_poll_after_a_write_enable_reads_wel(tmp_path):
+    # W25Q16JV 8.2: Write Enable (06h) sets WEL and Write Disable (04h)
+    # clears it; the Read Status (05h) right after either reads the change.
+    from test.native.host import spi_window
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(spi=[SPI0])
+        harness.run("import metalclaw\nf = metalclaw.attach('w25q16jv', 'flash', spi=(18, 19, 16, 17))")
+        for _ in range(3):
+            spi_window(bridge, 0, 17, b"\x06")
+            assert spi_window(bridge, 0, 17, b"\x05\x00")[1] == 0x02
+            spi_window(bridge, 0, 17, b"\x04")
+            assert spi_window(bridge, 0, 17, b"\x05\x00")[1] == 0x00
+    finally:
+        bridge.close()
+        harness.close()
+
+
 def test_each_spi_reply_gives_the_next_frame_s_miso_ahead(tmp_path):
     # A bus the emulator decodes from the pins (a PIO SPI) shifts each MISO
     # bit out before its clock edge, before the frame's MOSI is complete:

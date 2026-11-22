@@ -87,8 +87,10 @@ struct mclw_spi_target {
     uint32_t count;
     uint8_t list;
     uint8_t stream_frame;
-    // Windows for the worker.
+    // Windows for the worker, and the one with the model now.
     struct queued queue[SPI_QUEUE];
+    struct queued delivered;
+    bool delivering;
     uint32_t queue_first;
     uint32_t queue_count;
     struct mclw_spi_target_stats stats;
@@ -97,13 +99,37 @@ struct mclw_spi_target {
 static struct mclw_spi_target targets[SPI_TARGETS_MAX];
 static bool poll_registered;
 
+static void status_consider(const struct mclw_command_image *s, const struct queued *q, uint8_t *status,
+    bool *held) {
+    if (*held || q->len == 0u) {
+        return;
+    }
+    if (q->forced || mclw_command_status_held(s, *status)) {
+        *held = true;
+        return;
+    }
+    *status = mclw_command_status_after(s, *status, q->bytes[0]);
+}
+
+// As the rp2 engine serves it: the model's status as last published, each
+// status opcode's change among the windows it has yet to take applied
+// from the window's release, up to one the part would ignore, and the busy
+// bits while a busy window waits.
 static uint8_t command_status(const struct mclw_spi_target *t) {
     const struct mclw_command_image *s = &t->shadow;
+    uint8_t status = s->status;
+    bool held = false;
 
-    if (t->forced_pending != 0u) {
-        return (uint8_t)((s->status | s->busy_status) & (uint8_t)~s->ready_status);
+    if (t->delivering) {
+        status_consider(s, &t->delivered, &status, &held);
     }
-    return s->status;
+    for (uint32_t k = 0; k < t->queue_count; k++) {
+        status_consider(s, &t->queue[(t->queue_first + k) % SPI_QUEUE], &status, &held);
+    }
+    if (t->forced_pending != 0u) {
+        return (uint8_t)((status | s->busy_status) & (uint8_t)~s->ready_status);
+    }
+    return status;
 }
 
 static uint8_t command_list(const struct mclw_command_image *s, uint8_t opcode) {
@@ -233,22 +259,23 @@ static void enqueue(struct mclw_spi_target *t, bool forced) {
 static void deliver(struct mclw_spi_target *t) {
     while (t->queue_count != 0u) {
         uint32_t state = mclw_hal_critical_enter();
-        struct queued q = t->queue[t->queue_first];
+        struct queued *q = &t->delivered;
         struct mclw_command_image *image = t->kind == IMAGE_COMMAND ? t->image : NULL;
 
+        *q = t->queue[t->queue_first];
+        t->delivering = true;
         t->queue_first = (t->queue_first + 1u) % SPI_QUEUE;
         t->queue_count--;
         mclw_hal_critical_exit(state);
         if (image != NULL && image->on_window != NULL) {
-            image->on_window(image, q.bytes, q.len, q.busy, image->on_window_ctx);
+            image->on_window(image, q->bytes, q->len, q->busy, image->on_window_ctx);
         }
-        if (q.forced) {
-            state = mclw_hal_critical_enter();
-            if (t->forced_pending != 0u) {
-                t->forced_pending--;
-            }
-            mclw_hal_critical_exit(state);
+        state = mclw_hal_critical_enter();
+        t->delivering = false;
+        if (q->forced && t->forced_pending != 0u) {
+            t->forced_pending--;
         }
+        mclw_hal_critical_exit(state);
     }
 }
 
@@ -567,6 +594,7 @@ int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_comma
     t->busy = false;
     t->forced_pending = 0;
     t->queue_count = 0;
+    t->delivering = false;
     image->notify = command_notify;
     image->notify_ctx = t;
     t->shadow = *image;

@@ -328,10 +328,19 @@ the part idle too early. Without a BUSY line the engine queues up to eight
 windows for the worker rather than one, so a write enable and the erase
 right behind it both reach the model; a host polling faster than the
 worker delivers fills that queue with polls, and each new window then
-displaces a queued one that only repeats the window before it. A publish
-of the status reaches the next window from the engine at once, and one of
-the rest lands at once even while a window that reads only the status byte
-is open. `w25q` is built this way. An image may instead have one immediate
+displaces a queued one that only repeats the window before it. The status
+a publish sets is served from the next chip-select release on: the window
+armed at the last release keeps the status from before, so a poll reads a
+change the model made on its own (a program ending) one poll late. The rest
+of a publish lands at once, even while a window that reads only the status
+byte is open. Opcodes that change status bits as the part takes them are
+the image's status opcodes (`mclw_command_add_status_opcode`, a write
+enable's WEL): the engine applies their change at the window's own
+release, so the poll right after it reads the change, unless the part
+ignores such commands then: its busy bits are set, a busy window waits for
+the model, or the model holds the status (`mclw_command_set_status_hold`,
+a flash in power-down). Status opcodes the model has yet to take compose
+when they change the same bits. `w25q` is built this way. An image may instead have one immediate
 response, which follows the opcode with no NOP (a NOR flash's Read JEDEC
 ID); the engine then serves every window's second byte once the opcode is
 decoded, not ahead of it, and takes no BUSY line with it.
@@ -429,7 +438,8 @@ port exists.
   program again, and a register map's changed bank, or a command image's
   changed status if it has BUSY, is put in the next window by the CPU in a
   few instructions, which cuts a window that a host ignoring BUSY begins in
-  those instructions; an image without BUSY has its status from the next
+  those instructions; an image without BUSY serves a published status from
+  the next release on, and a status opcode's change from its own window's
   release. A register map's command byte and a command image's opcode, offset and
   address lookups are chains of DMA control blocks that patch each other,
   which is what bounds their clocks. Two targets may share one bus; each
@@ -440,7 +450,10 @@ port exists.
   later for the forced jump that first parks it, not measured, so a window
   may begin clocking that soon after the rise before it, and the response
   program is armed 1.9 µs after it for a register map and 2.7 µs for a
-  command image, so a window's first byte must take at least that long. A rise that comes
+  command image (3.1 µs for one with status opcodes, whose four blocks
+  come before the arm: 444 to 464 cycles from the token, against 388 to
+  402 without, measured on the carrier with an instrumented build), so a
+  window's first byte must take at least that long. A rise that comes
   while the reset program for the one before it still runs, under about
   3 µs apart, is re-armed for only once that one ends. Not measured on
   fixture 1's 125 MHz RP2040; scaled by clock, about 0.3 µs, 0.55 µs and

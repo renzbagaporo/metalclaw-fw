@@ -21,7 +21,9 @@
 //             sees it: status on every byte that carries no data, the
 //             memory read from the published pages and filler, the busy
 //             bits set at the release of a busy opcode's window until the
-//             model has taken it, and the model told of each window only after
+//             model has taken it, a status opcode's bits changed from its
+//             window's release unless the part ignores it then, and the
+//             model told of each window only after
 //             the next one has been clocked, as a worker that lags a
 //             window behind a host polling back to back.
 // A simulated clock ticks every model's time_advanced and poll once a
@@ -257,8 +259,8 @@ struct mclw_spi_target {
     struct mclw_command_image *command;
     // The command engine's copy of what the model published.
     uint8_t status;
-    bool status_forced;
     int busy_windows;
+    bool delivering;
     uint8_t pages[MCLW_COMMAND_PAGES_MAX][MCLW_COMMAND_PAGE_SIZE];
     // Windows clocked but not yet handed to the model.
     uint8_t pending[2][MCLW_COMMAND_WINDOW_MAX + 1];
@@ -278,13 +280,24 @@ int mclw_hal_spi_target_arm_regmap(struct mclw_spi_target *t, struct mclw_regmap
     return 0;
 }
 
+// The model's status with the windows it has yet to take, as the engine
+// serves it.
+static uint8_t command_projected(const struct mclw_spi_target *t, const struct mclw_command_image *image) {
+    uint8_t status = image->status;
+
+    for (size_t i = t->delivering ? 1 : 0; i < t->pending_count; i++) {
+        if (t->pending_forced[i] || mclw_command_status_held(image, status)) {
+            break;
+        }
+        status = mclw_command_status_after(image, status, t->pending[i][0]);
+    }
+    return (uint8_t)(status | (t->busy_windows != 0 ? image->busy_status : 0));
+}
+
 static void command_notify(struct mclw_command_image *image, void *ctx) {
     struct mclw_spi_target *t = ctx;
 
-    if ((image->dirty & MCLW_COMMAND_DIRTY_STATUS) != 0 || t->status_forced) {
-        t->status = (uint8_t)(image->status | (t->busy_windows != 0 ? image->busy_status : 0));
-        t->status_forced = false;
-    }
+    t->status = command_projected(t, image);
     if ((image->dirty & MCLW_COMMAND_DIRTY_PAGES) != 0) {
         memcpy(t->pages, image->pages, sizeof(t->pages));
     }
@@ -352,12 +365,13 @@ static uint8_t command_page_byte(uint16_t address) {
 static void command_deliver(void) {
     struct mclw_command_image *image = spi.command;
 
+    spi.delivering = true;
     image->on_window(image, spi.pending[0], spi.pending_len[0], false, image->on_window_ctx);
     if (spi.pending_forced[0]) {
         spi.busy_windows--;
-        spi.status_forced = true;
         command_notify(image, &spi);
     }
+    spi.delivering = false;
     memmove(spi.pending[0], spi.pending[1], sizeof(spi.pending[0]));
     spi.pending_len[0] = spi.pending_len[1];
     spi.pending_forced[0] = spi.pending_forced[1];
@@ -383,6 +397,8 @@ static void spi_command_window(const uint8_t *mosi, uint8_t *miso, size_t len) {
     if (forced) {
         spi.status |= image->busy_status;
         spi.busy_windows++;
+    } else if (len != 0 && spi.busy_windows == 0 && !mclw_command_status_held(image, spi.status)) {
+        spi.status = mclw_command_status_after(image, spi.status, opcode);
     }
     size_t kept = memory ? (len < 4 ? len : 4) : (len > MCLW_COMMAND_WINDOW_MAX + 1 ? MCLW_COMMAND_WINDOW_MAX + 1 : len);
     CHECK(spi.pending_count < 2);
@@ -1052,6 +1068,21 @@ static void behaviours_w25q(void) {
     static uint8_t miso[4 + 256];
 
     attach(&mclw_model_w25q16jv);
+    // The status poll right after a write enable or disable, before the
+    // model has taken it, reads the change.
+    memset(mosi, 0, sizeof(mosi));
+    mosi[0] = 0x06;
+    spi_window(mosi, miso, 1);
+    mosi[0] = 0x05;
+    spi_window(mosi, miso, 2);
+    CHECK(miso[1] == 0x02);
+    mosi[0] = 0x04;
+    spi_window(mosi, miso, 1);
+    mosi[0] = 0x05;
+    spi_window(mosi, miso, 2);
+    CHECK(miso[1] == 0x00);
+    spi_settle();
+    CHECK(get1("write_enabled") == 0);
     // Program without a write enable: ignored, and the BUSY the engine set
     // at the release goes once the model has taken the window.
     memset(mosi, 0, sizeof(mosi));
@@ -1119,13 +1150,31 @@ static void behaviours_w25q(void) {
     mosi[3] = 0x00;
     spi_window(mosi, miso, 4);
     spi_settle();
-    flash_write_enable();
+    mosi[0] = 0x04;
+    spi_window(mosi, miso, 1);
+    mosi[0] = 0x05;
+    spi_window(mosi, miso, 2);
+    CHECK(miso[1] == 0x03);
     spi_settle();
     CHECK(get1("busy") == 1 && get1("ignored") == 2);
     sleep_ms(46);
-    CHECK(get1("busy") == 0);
+    CHECK(get1("busy") == 0 && get1("write_enabled") == 0);
     flash_read(0x0100, miso, 4);
     CHECK(miso[0] == 0xff);
+    // In power-down a write enable is ignored, by the engine too.
+    memset(mosi, 0, sizeof(mosi));
+    mosi[0] = 0xb9;
+    spi_window(mosi, miso, 1);
+    spi_settle();
+    mosi[0] = 0x06;
+    spi_window(mosi, miso, 1);
+    mosi[0] = 0x05;
+    spi_window(mosi, miso, 2);
+    CHECK(miso[1] == 0x00);
+    mosi[0] = 0xab;
+    spi_window(mosi, miso, 1);
+    spi_settle();
+    CHECK(get1("write_enabled") == 0 && get1("power_down") == 0);
 }
 
 int main(int argc, char **argv) {

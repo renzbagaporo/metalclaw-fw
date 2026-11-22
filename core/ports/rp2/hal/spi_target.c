@@ -27,7 +27,8 @@
 // state machine runs again after 36 to 38 cycles, and one DMA transfer more
 // for the forced jump that parks it, not measured; a window may start
 // clocking from then on; the response program is armed after about 285
-// cycles for a register map and 410 for a command image. Its first byte out of the TX FIFO is needed once the
+// cycles for a register map, 410 for a command image and about 470 for one
+// with status opcodes. Its first byte out of the TX FIFO is needed once the
 // window's first byte has been clocked, and a register map's descriptor is
 // fetched once its command byte is in, so a window whose first byte ends
 // sooner than that after the previous rise is answered late.
@@ -90,6 +91,8 @@
 // interrupt takes them a few microseconds after each window, so a slot is
 // reused only after this many more windows.
 #define SPI_RECORDS 4u
+// The longest list, a command image's with BUSY and status opcodes, is 27
+// blocks.
 #define SPI_RESET_CBS 28u
 #define SPI_REGMAP_CBS 4u
 #define SPI_TX_BUFFERS 3u
@@ -313,16 +316,34 @@ _Static_assert(offsetof(struct spi_command_block, sink) == 0x5c0u, "the sink fol
 // write list's offset, so the reset program raises it with one byte copy
 // to page + head that lands harmlessly in this page for every other head.
 //
-//   [4] the model's status   [8] the same with the busy bits, then 8
-//   [32] served             [33] 4 or 8: which of the two the reset
+//   [4] the model's status   [5] the same with the busy bits, then 5
+//   [7] an opcode that changes no status bits
+//   [32] served             [33] 4 or 5: which of the two the reset
 //                                program serves after a window that set
 //                                no busy bits
+//   [64] a status opcode's pair, [4] and [5] after its window, two bytes
+//        each
+//   [512] a status opcode's pair's offset by opcode, 4 for any other
+//
+// At the release of a window that began with a status opcode the reset
+// program copies its pair over [4] and [5] before it picks what to serve,
+// so the next window reads the change, and a busy window right after it
+// raises the busy bits on it. The CPU keeps every pair at what the window
+// would leave, from the model's status and the windows it has yet to take,
+// or at [4] and [5] unchanged while the part ignores such commands.
 #define SPI_STATUS_MODEL 4u
-#define SPI_STATUS_BUSY 8u
+#define SPI_STATUS_BUSY 5u
+#define SPI_STATUS_NEUTRAL 7u
 #define SPI_STATUS_SERVED (SPI_LIST_BUSY * sizeof(struct spi_cb))
 #define SPI_STATUS_SELECT (SPI_STATUS_SERVED + 1u)
-#define SPI_STATUS_PAGE 512u
+#define SPI_STATUS_PAIRS 64u
+#define SPI_STATUS_TABLE 512u
+#define SPI_STATUS_PAGE 768u
 
+_Static_assert(SPI_STATUS_BUSY == SPI_STATUS_MODEL + 1u, "a pair is one halfword");
+_Static_assert(SPI_STATUS_PAIRS >= SPI_LIST_RESPONSE * sizeof(struct spi_cb) + 2u &&
+    SPI_STATUS_PAIRS + 2u * MCLW_COMMAND_STATUS_OPCODES_MAX <= SPI_LIST_BUFFER * sizeof(struct spi_cb),
+    "the pairs sit between two list heads' offsets");
 _Static_assert(SPI_STATUS_SERVED == 32u, "the busy head addresses the served status");
 
 // `token` is what the monitor pushed: 0 at a chip-select rise, all ones
@@ -421,6 +442,14 @@ struct mclw_spi_target {
     volatile bool shadow_pending;
     bool busy_image;
     uint8_t busy_windows;
+    // The image has status opcodes, and a window taken since the status
+    // pairs were last written may change them.
+    bool status_image;
+    volatile bool status_stale;
+    // The model's status as it last published it, and whether the
+    // delivered window is with the model still.
+    uint8_t model_status;
+    volatile bool delivering;
     // A window that set the busy bits was dropped, or its record lost, so
     // nothing will be delivered to lower them: the poll lowers them.
     volatile bool busy_orphaned;
@@ -460,6 +489,8 @@ static struct spi_bus spi_bus;
 static struct mclw_spi_target targets[SPI_TARGET_COUNT];
 static struct spi_engine engines[SPI_TARGET_COUNT] __attribute__((aligned(16)));
 static uint8_t status_pages[SPI_TARGET_COUNT][SPI_STATUS_PAGE] __attribute__((aligned(256)));
+
+_Static_assert(SPI_STATUS_PAGE % 256u == 0u, "every target's page is aligned");
 
 union spi_table {
     struct spi_descriptor descriptors[MCLW_REGMAP_BANK_SIZE];
@@ -963,6 +994,22 @@ static void command_lists(struct mclw_spi_target *t) {
         emit_front(&lb, t, r, true, true);
         (void)emit(&lb, &b->prologue[SPI_PROLOGUE_LOOKUP], r->hdr, SPI_HDR_WORDS, DMA_SIZE_32, true, true);
         emit_word(&lb, &b->lists[SPI_LIST_REGISTER + 3].read, &r->reghi);
+        if (t->status_image) {
+            // The pair the window's opcode names over [4] and [5], or [4]
+            // and [5] onto themselves for any other; then the lookup's
+            // opcode back to one that names none, so that a release with no
+            // opcode in its window (a bare chip-select pulse) changes
+            // nothing. Before the head moves: a window the CPU has taken
+            // has had its pair applied.
+            uint32_t pick = emit(&lb, &b->prologue[SPI_PROLOGUE_LOOKUP].read, NULL, 1u, DMA_SIZE_8, false, false);
+            uint32_t apply = emit(&lb, &s[SPI_STATUS_TABLE], NULL, 1u, DMA_SIZE_8, false, false);
+
+            lb.cb[pick].write = address_of(&lb.cb[pick + 1u].read);
+            lb.cb[apply].write = address_of(&lb.cb[apply + 1u].read);
+            (void)emit(&lb, &s[SPI_STATUS_MODEL], &s[SPI_STATUS_MODEL], 1u, DMA_SIZE_16, false, false);
+            (void)emit(&lb, &s[SPI_STATUS_NEUTRAL], &b->prologue[SPI_PROLOGUE_LOOKUP].read, 1u, DMA_SIZE_8,
+                false, false);
+        }
         if (t->busy_image) {
             patch_jump = emit(&lb, &b->jump, NULL, 1u, DMA_SIZE_8, false, false);
         }
@@ -1145,12 +1192,58 @@ static uint8_t __not_in_flash_func(command_shadow)(struct mclw_spi_target *t) {
     return dirty;
 }
 
-static void command_status_publish(struct mclw_spi_target *t) {
+static void __not_in_flash_func(status_consider)(const struct mclw_command_image *image,
+    const struct spi_queued *q, uint8_t *status, bool *held) {
+    if (*held || q->len == 0u) {
+        return;
+    }
+    if (q->forced || mclw_command_status_held(image, *status)) {
+        *held = true;
+        return;
+    }
+    *status = mclw_command_status_after(image, *status, q->bytes[0]);
+}
+
+// The status the part has once the model has taken every window the engine
+// holds for it: the model's own, changed by each status opcode among them,
+// up to one the part would ignore. `held` says the part ignores the next.
+static uint8_t __not_in_flash_func(command_projected)(const struct mclw_spi_target *t, bool *held) {
+    const struct mclw_command_image *image = t->command;
+    uint8_t status = t->model_status;
+
+    *held = false;
+    if (t->delivering) {
+        status_consider(image, &t->delivered, &status, held);
+    }
+    for (uint32_t k = 0; k < t->queue_count; k++) {
+        status_consider(image, &t->queue[(t->queue_first + k) % SPI_QUEUE], &status, held);
+    }
+    *held = *held || mclw_command_status_held(image, status);
+    return status;
+}
+
+static void __not_in_flash_func(status_pair)(uint8_t *s, uint32_t at, const struct mclw_command_image *image,
+    uint8_t status) {
+    uint8_t busy = (uint8_t)((status | image->busy_status) & (uint8_t)~image->ready_status);
+
+    *(volatile uint16_t *)(void *)&s[at] = (uint16_t)(status | (uint16_t)busy << 8);
+}
+
+// [4] and [5], and every status opcode's pair, from the model's status and
+// the windows it has yet to take. Called in the critical section.
+static void __not_in_flash_func(command_status_publish)(struct mclw_spi_target *t) {
     const struct mclw_command_image *image = t->command;
     uint8_t *s = t->status;
+    bool held = false;
+    uint8_t status = t->status_image ? command_projected(t, &held) : t->model_status;
 
-    s[SPI_STATUS_MODEL] = image->status;
-    s[SPI_STATUS_BUSY] = (uint8_t)((image->status | image->busy_status) & (uint8_t)~image->ready_status);
+    t->status_stale = false;
+    for (uint8_t i = 0; t->status_image && i < image->status_opcode_count; i++) {
+        uint8_t after = held ? status : mclw_command_status_after(image, status, image->status_opcodes[i].opcode);
+
+        status_pair(s, SPI_STATUS_PAIRS + 2u * i, image, after);
+    }
+    status_pair(s, SPI_STATUS_MODEL, image, status);
 }
 
 // A register read runs on from its page's slot into the next one, as the
@@ -1235,6 +1328,19 @@ static void command_build(struct mclw_spi_target *t) {
     memset(pages, image->filler, SPI_COMMAND_PAGE_SLOTS * MCLW_COMMAND_PAGE_SIZE);
     memset(s, 0, SPI_STATUS_PAGE);
     t->busy_image = false;
+    t->status_image = image->status_opcode_count != 0u;
+    t->status_stale = false;
+    t->delivering = false;
+    memset(&s[SPI_STATUS_TABLE], SPI_STATUS_MODEL, 256u);
+    for (uint8_t i = 0; i < image->status_opcode_count; i++) {
+        s[SPI_STATUS_TABLE + image->status_opcodes[i].opcode] = (uint8_t)(SPI_STATUS_PAIRS + 2u * i);
+    }
+    for (uint32_t op = 0; op < 256u; op++) {
+        if (s[SPI_STATUS_TABLE + op] == SPI_STATUS_MODEL) {
+            s[SPI_STATUS_NEUTRAL] = (uint8_t)op;
+            break;
+        }
+    }
 
     memset(b->optab, (int)(SPI_LIST_WRITE * sizeof(struct spi_cb)), sizeof(b->optab));
     if (image->busy_status != 0u || image->ready_status != 0u) {
@@ -1348,6 +1454,7 @@ static void command_build(struct mclw_spi_target *t) {
 
     image->dirty = 0xffu;
     (void)command_shadow(t);
+    t->model_status = image->status;
     command_status_publish(t);
     s[SPI_STATUS_SERVED] = s[SPI_STATUS_MODEL];
     s[SPI_STATUS_SELECT] = SPI_STATUS_MODEL;
@@ -1473,6 +1580,9 @@ static void __not_in_flash_func(command_take)(struct mclw_spi_target *t, const s
         uint32_t loaded = command_progress(t, r, head == SPI_LIST_BUSY ? SPI_LIST_WRITE : head);
 
         q->bytes[len++] = HDR_BYTE(r, prologue[SPI_PROLOGUE_LOOKUP].read);
+        if (t->status_image) {
+            t->status_stale = true;
+        }
         if (head == SPI_LIST_BUSY) {
             forced = true;
             t->busy_windows++;
@@ -1697,20 +1807,33 @@ static void __not_in_flash_func(intake)(struct mclw_spi_target *t) {
     if (head >= SPI_RECORDS) {
         return;
     }
-    while (t->tail != head) {
-        struct spi_record *r = &e->rec[t->tail];
+    for (;;) {
+        while (t->tail != head) {
+            struct spi_record *r = &e->rec[t->tail];
 
-        if (t->skip_first) {
-            t->skip_first = false;
-        } else if (r->token != 0u) {
-        } else if (t->image == SPI_IMAGE_REGMAP) {
-            regmap_take(t, r);
-        } else if (t->image == SPI_IMAGE_STREAM) {
-            stream_take(t, r);
-        } else if (t->image == SPI_IMAGE_COMMAND) {
-            command_take(t, r);
+            if (t->skip_first) {
+                t->skip_first = false;
+            } else if (r->token != 0u) {
+            } else if (t->image == SPI_IMAGE_REGMAP) {
+                regmap_take(t, r);
+            } else if (t->image == SPI_IMAGE_STREAM) {
+                stream_take(t, r);
+            } else if (t->image == SPI_IMAGE_COMMAND) {
+                command_take(t, r);
+            }
+            t->tail = (uint8_t)((t->tail + 1u) % SPI_RECORDS);
         }
-        t->tail = (uint8_t)((t->tail + 1u) % SPI_RECORDS);
+        if (t->image != SPI_IMAGE_COMMAND || !t->status_stale) {
+            break;
+        }
+        // The pairs a release applies are the CPU's; one that applied its
+        // pair while they were rewritten is taken and they are rewritten
+        // again.
+        command_status_publish(t);
+        head = e->head;
+        if (head >= SPI_RECORDS || t->tail == head) {
+            break;
+        }
     }
     count_faults(t);
     if (t->image == SPI_IMAGE_REGMAP) {
@@ -1764,8 +1887,12 @@ static void command_notify(struct mclw_command_image *image, void *ctx) {
     if (t->image == SPI_IMAGE_COMMAND) {
         uint8_t *s = t->status;
 
-        command_status_publish(t);
+        t->model_status = image->status;
+        t->status_stale = true;
         intake(t);
+        if (t->status_stale) {
+            command_status_publish(t);
+        }
         // Only a part with BUSY is re-primed: its host waits for BUSY, which
         // the model lowers after this. A part without has the new status
         // from the next release, and a host that polls it back to back
@@ -1854,6 +1981,7 @@ static void command_deliver(struct mclw_work *work) {
         }
         image = t->image == SPI_IMAGE_COMMAND ? t->command : NULL;
         copy_queued(&t->delivered, &t->queue[t->queue_first]);
+        t->delivering = true;
         t->queue_first = (uint8_t)((t->queue_first + 1u) % SPI_QUEUE);
         t->queue_count--;
         mclw_hal_critical_exit(state);
@@ -1867,6 +1995,7 @@ static void command_deliver(struct mclw_work *work) {
         if (image != NULL && image->on_window != NULL) {
             image->on_window(image, t->delivered.bytes, t->delivered.len, t->delivered.busy, image->on_window_ctx);
         }
+        t->delivering = false;
         if (image != NULL && forced) {
             state = mclw_hal_critical_enter();
             if (t->busy_windows != 0u) {
