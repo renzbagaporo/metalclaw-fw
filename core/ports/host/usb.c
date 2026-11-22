@@ -243,9 +243,9 @@ int mclw_hal_usb_serial_break(struct mclw_usb_interface *itf) {
     return mclw_hal_usb_write(itf, &nul, 1) == 1u ? 0 : -ENOSPC;
 }
 
-uint16_t mclw_hal_usb_serial_take_break(struct mclw_usb_interface *itf) {
+int32_t mclw_hal_usb_serial_take_break(struct mclw_usb_interface *itf) {
     (void)itf;
-    return 0;
+    return -1;
 }
 
 uint8_t mclw_hal_usb_control_lines(const struct mclw_usb_interface *itf) {

@@ -425,6 +425,13 @@ void mclw_hal_uart_set_break(struct mclw_uart *u, mclw_uart_break_t fn, void *ct
     mclw_hal_critical_exit(state);
 }
 
+// The host port's serial functions never ask for a held break.
+int mclw_hal_uart_hold_break(struct mclw_uart *u, bool on) {
+    (void)u;
+    (void)on;
+    return -ENOTSUP;
+}
+
 // After what is queued: a `break` action to a DUT whose UART takes whole
 // frames, or the line held low for `bits` bit times.
 int mclw_hal_uart_send_break(struct mclw_uart *u, uint32_t bits) {

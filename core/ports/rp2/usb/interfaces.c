@@ -43,7 +43,8 @@ struct serial_state {
     volatile uint8_t brk_head;
     volatile uint8_t brk_tail;
     uint32_t brk_at[SERIAL_BREAKS_MAX];
-    volatile uint16_t break_ms;
+    // The host's last SEND_BREAK, its wValue with bit 16 set; 0 for none.
+    volatile uint32_t break_request;
     // A bulk IN transfer of the bytes is out, and a break's SERIAL_STATE
     // the host has yet to take: the host polls the notify endpoint only
     // every bInterval, so the bytes on either side of a break wait for
@@ -344,13 +345,13 @@ int mclw_hal_usb_serial_break(struct mclw_usb_interface *s) {
     return 0;
 }
 
-uint16_t mclw_hal_usb_serial_take_break(struct mclw_usb_interface *s) {
+int32_t mclw_hal_usb_serial_take_break(struct mclw_usb_interface *s) {
     if (s == NULL || !s->open || s->serial == NULL) {
-        return 0;
+        return -1;
     }
-    uint16_t ms = s->serial->break_ms;
-    s->serial->break_ms = 0;
-    return ms;
+    uint32_t request = s->serial->break_request;
+    s->serial->break_request = 0;
+    return request != 0u ? (int32_t)(request & 0xffffu) : -1;
 }
 
 uint8_t mclw_hal_usb_control_lines(const struct mclw_usb_interface *s) {
@@ -524,10 +525,10 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
 // mclw_hal_usb_serial_take_break.
 void tud_cdc_send_break_cb(uint8_t itf, uint16_t duration_ms) {
     struct mclw_usb_interface *s = serial_for_cdc(itf);
-    if (s == NULL || duration_ms == 0u) {
+    if (s == NULL) {
         return;
     }
-    s->serial->break_ms = duration_ms;
+    s->serial->break_request = 0x10000u | duration_ms;
     if (s->control != NULL) {
         s->control(s, s->ctx);
     }

@@ -21,6 +21,7 @@ struct mclw_uart_engine {
     size_t (*send)(struct mclw_uart *uart, const uint8_t *bytes, size_t len);
     // NULL where the engine cannot.
     int (*send_break)(struct mclw_uart *uart, uint32_t bits);
+    int (*hold_break)(struct mclw_uart *uart, bool on);
 };
 
 // `stats` is written by the engine under the critical section; `on_rx` and

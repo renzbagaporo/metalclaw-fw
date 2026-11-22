@@ -8,6 +8,7 @@
 #ifndef MCLW_HAL_UART_H
 #define MCLW_HAL_UART_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -53,6 +54,9 @@ void mclw_hal_uart_set_break(struct mclw_uart *uart, mclw_uart_break_t fn, void 
 // left, then lets it go; returns once it has. -ENOTSUP where the engine
 // cannot.
 int mclw_hal_uart_send_break(struct mclw_uart *uart, uint32_t bits);
+// Holds TX at its space level from once what is queued has left (`on`)
+// until it is let go (`on` false). -ENOTSUP where the engine cannot.
+int mclw_hal_uart_hold_break(struct mclw_uart *uart, bool on);
 
 // Returns how many bytes were queued; fewer than `len` when the queue is full.
 size_t mclw_hal_uart_send(struct mclw_uart *uart, const uint8_t *bytes, size_t len);
