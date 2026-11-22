@@ -3,8 +3,9 @@
 // them: `jumper` carries a push-pull signal from one pin to the other,
 // `jumper_open_drain` joins two open-drain lines (an I2C bus's SDA) both
 // ways, and `jumper_open_drain_clock` an I2C bus's SCL, keeping a target's
-// clock stretching as one wire would. The port keeps the link up in
-// hardware.
+// clock stretching as one wire would; `jumper_open_drain_clock_edge` does
+// that for a controller that clocks itself from its own SCL pin's edges.
+// The port keeps the link up in hardware.
 
 #include <errno.h>
 #include <stdbool.h>
@@ -95,16 +96,25 @@ static int join_init(struct mclw_instance *inst, const struct mclw_binding *bind
     return err;
 }
 
-static int clock_init(struct mclw_instance *inst, const struct mclw_binding *bindings) {
+static int clock_link(struct mclw_instance *inst, const struct mclw_binding *bindings, bool edge) {
     struct jumper_state *s = inst->state;
     int err;
 
     s->pins[0] = bindings[0].gpio;
     s->pins[1] = bindings[1].gpio;
-    err = mclw_hal_gpio_join_clock(s->pins[0], s->pins[1]);
+    err = edge ? mclw_hal_gpio_join_clock_edge(s->pins[0], s->pins[1]) :
+        mclw_hal_gpio_join_clock(s->pins[0], s->pins[1]);
     s->linked = err == 0;
     mclw_trace(inst, MCLW_TRACE_STATE, mclw_hal_gpio_pin(s->pins[1]), 0u, (int16_t)err);
     return err;
+}
+
+static int clock_init(struct mclw_instance *inst, const struct mclw_binding *bindings) {
+    return clock_link(inst, bindings, false);
+}
+
+static int edge_init(struct mclw_instance *inst, const struct mclw_binding *bindings) {
+    return clock_link(inst, bindings, true);
 }
 
 static void jumper_deinit(struct mclw_instance *inst) {
@@ -140,6 +150,12 @@ static const struct mclw_model_ops join_ops = {
 
 static const struct mclw_model_ops clock_ops = {
     .init = clock_init,
+    .deinit = jumper_deinit,
+    .get = jumper_get,
+};
+
+static const struct mclw_model_ops edge_ops = {
+    .init = edge_init,
     .deinit = jumper_deinit,
     .get = jumper_get,
 };
@@ -193,4 +209,21 @@ const struct mclw_model mclw_model_jumper_open_drain_clock = {
     .binding_count = sizeof(join_bindings) / sizeof(join_bindings[0]),
     .state_size = sizeof(struct jumper_state),
     .ops = &clock_ops,
+};
+
+const struct mclw_model mclw_model_jumper_open_drain_clock_edge = {
+    .abi_version = MCLW_ABI_VERSION,
+    .id = "jumper_open_drain_clock_edge",
+    .family = "jumper",
+    .config = NULL,
+    .properties = jumper_properties,
+    .property_count = sizeof(jumper_properties) / sizeof(jumper_properties[0]),
+    .regions = NULL,
+    .region_count = 0,
+    .faults = NULL,
+    .fault_count = 0,
+    .bindings = join_bindings,
+    .binding_count = sizeof(join_bindings) / sizeof(join_bindings[0]),
+    .state_size = sizeof(struct jumper_state),
+    .ops = &edge_ops,
 };

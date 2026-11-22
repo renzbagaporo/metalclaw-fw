@@ -52,6 +52,10 @@ int mclw_hal_gpio_join(struct mclw_gpio *a, struct mclw_gpio *b);
 // other side only as the whole line rises, so a target stretching the
 // clock holds the controller's side low throughout. Not for SDA.
 int mclw_hal_gpio_join_clock(struct mclw_gpio *a, struct mclw_gpio *b);
+// join_clock for a controller that clocks itself from its own SCL pin's
+// edges: its side never shows an edge it did not make, and the other side
+// rises ahead of it, a fixed time after each fall (see the port).
+int mclw_hal_gpio_join_clock_edge(struct mclw_gpio *a, struct mclw_gpio *b);
 void mclw_hal_gpio_unlink(struct mclw_gpio *gpio);
 
 #endif

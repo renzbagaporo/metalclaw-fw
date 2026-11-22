@@ -32,7 +32,32 @@
 //         letting SDA go for a STOP would find it held low and take that
 //         for lost arbitration.
 //
-// The A of a join or clock link is its side-set pin (driven as a pin direction) and its
+// edge    a clock link for a controller that clocks its shifters from
+//         its own SCL pin's edges, with no spike filter: the clock
+//         link's handover shows the controller's side high for up to two
+//         PIO cycles as it lets go, which such a controller counts as an
+//         edge. When a side falls the edge link holds both sides low: the
+//         falling side under its own controller, so nothing shows there.
+//         After HOLD it lets the other side go, and keeps the controller's
+//         side held until that side is up: a target stretching the clock
+//         keeps it held, so the controller's release shows no edge, and
+//         the target's release gives one clean rise; with no stretch it
+//         lets go at once, under the controller, whose release is the only
+//         edge on its side. The target's SCL therefore rises HOLD after
+//         each fall, ahead of the controller: the controller must have its
+//         next bit on SDA by then, as one that changes SDA at its SCL fall
+//         does (a bit-banged controller that waits half a bit first changes
+//         SDA under a high SCL, a START or STOP to the target), and its SCL
+//         low time must outlast HOLD (a 100 kHz bus or slower). HOLD
+//         outlasts SETTLE: an SDA join handing SDA back to the controller
+//         after the target's ACK looks at the controller's side again only
+//         after SETTLE, and a target clocked sooner would read the
+//         controller's next bit from SDA before the join has carried it. A
+//         target must start stretching within HOLD of the fall, as one
+//         that holds SCL from the falling edge does. Either side may be
+//         the controller's. 19 instructions.
+//
+// The A of a join, clock or edge link is its side-set pin (driven as a pin direction) and its
 // JMP pin; B is its SET pin and its IN pin.
 
 #include <errno.h>
@@ -77,11 +102,23 @@
 #define CLOCK_A_ROSE 23u
 #define CLOCK_B_SETTLE 25u
 #define CLOCK_B_SETTLE_NEXT 29u
+// (EDGE_HOLD_COUNT + 1) x (JOIN_SETTLE_DELAY + 1) cycles: 352, 2.35 us
+// at 150 MHz and 2.8 us at 125 MHz, past an SDA join's SETTLE of 256.
+#define EDGE_HOLD_COUNT 21u
+#define EDGE_LENGTH 19u
+#define EDGE_IDLE 0u
+#define EDGE_A_HOLD 6u
+#define EDGE_A_FREE 9u
+#define EDGE_B_FELL 11u
+#define EDGE_B_HOLD 13u
+#define EDGE_B_WAIT 14u
+#define EDGE_B_FREE 16u
 
 enum link_kind {
     LINK_FOLLOW,
     LINK_JOIN,
     LINK_CLOCK,
+    LINK_EDGE,
     LINK_KINDS,
 };
 
@@ -105,6 +142,7 @@ static struct link_program programs[LINK_KINDS][NUM_PIOS];
 static uint16_t follow_words[FOLLOW_LENGTH];
 static uint16_t join_words[JOIN_LENGTH];
 static uint16_t clock_words[CLOCK_LENGTH];
+static uint16_t edge_words[EDGE_LENGTH];
 
 static const pio_program_t follow_program = {
     .instructions = follow_words,
@@ -123,6 +161,13 @@ static const pio_program_t join_program = {
 static const pio_program_t clock_program = {
     .instructions = clock_words,
     .length = CLOCK_LENGTH,
+    .origin = -1,
+    .pio_version = 0,
+};
+
+static const pio_program_t edge_program = {
+    .instructions = edge_words,
+    .length = EDGE_LENGTH,
     .origin = -1,
     .pio_version = 0,
 };
@@ -196,10 +241,45 @@ static void encode_programs(void) {
     p[28] = (uint16_t)pio_encode_jmp(CLOCK_TEST_B) | side(0);
     p[29] = (uint16_t)(pio_encode_jmp_y_dec(CLOCK_B_SETTLE) | side(0) | pio_encode_delay(JOIN_SETTLE_DELAY));
     p[30] = (uint16_t)pio_encode_jmp(CLOCK_B_LOW) | side(0);
+    p = edge_words;
+    // Neither side driven by the link: B low first is B's controller's fall
+    // (B_FELL); A low (the JMP pin), A's.
+    p[0] = (uint16_t)pio_encode_mov(pio_osr, pio_pins) | side(0);
+    p[1] = (uint16_t)pio_encode_out(pio_x, 1u) | side(0);
+    p[2] = (uint16_t)pio_encode_jmp_not_x(EDGE_B_FELL) | side(0);
+    p[3] = (uint16_t)pio_encode_jmp_pin(EDGE_IDLE) | side(0);
+    // A fell: hold both low for HOLD, then let B go and hold A until B is
+    // up.
+    p[4] = (uint16_t)pio_encode_set(pio_pindirs, 1u) | side(1);
+    p[5] = (uint16_t)pio_encode_set(pio_y, EDGE_HOLD_COUNT) | side(1);
+    p[6] = (uint16_t)(pio_encode_jmp_y_dec(EDGE_A_HOLD) | side(1) | pio_encode_delay(JOIN_SETTLE_DELAY));
+    p[7] = (uint16_t)pio_encode_set(pio_pindirs, 0u) | side(1);
+    p[8] = (uint16_t)pio_encode_wait_pin(true, 0u) | side(1);
+    // Let A go, and wait for A's controller to let go too.
+    p[9] = (uint16_t)pio_encode_jmp_pin(EDGE_IDLE) | side(0);
+    p[10] = (uint16_t)pio_encode_jmp(EDGE_A_FREE) | side(0);
+    // B fell: the same, the other way round.
+    p[11] = (uint16_t)pio_encode_set(pio_pindirs, 1u) | side(1);
+    p[12] = (uint16_t)pio_encode_set(pio_y, EDGE_HOLD_COUNT) | side(1);
+    p[13] = (uint16_t)(pio_encode_jmp_y_dec(EDGE_B_HOLD) | side(1) | pio_encode_delay(JOIN_SETTLE_DELAY));
+    p[14] = (uint16_t)pio_encode_jmp_pin(EDGE_B_FREE) | side(0);
+    p[15] = (uint16_t)pio_encode_jmp(EDGE_B_WAIT) | side(0);
+    p[16] = (uint16_t)pio_encode_set(pio_pindirs, 0u) | side(0);
+    p[17] = (uint16_t)pio_encode_wait_pin(true, 0u) | side(0);
+    p[18] = (uint16_t)pio_encode_jmp(EDGE_IDLE) | side(0);
 }
 
 static const pio_program_t *program_of(enum link_kind kind) {
-    return kind == LINK_FOLLOW ? &follow_program : kind == LINK_JOIN ? &join_program : &clock_program;
+    switch (kind) {
+        case LINK_FOLLOW:
+            return &follow_program;
+        case LINK_JOIN:
+            return &join_program;
+        case LINK_CLOCK:
+            return &clock_program;
+        default:
+            return &edge_program;
+    }
 }
 
 static int acquire(struct gpio_link *l, uint64_t pins) {
@@ -260,8 +340,8 @@ static void start_join(struct gpio_link *l) {
     if (l->kind == LINK_JOIN) {
         sm_config_set_wrap(&c, offset + JOIN_TEST_B, offset + JOIN_SETTLE_LOOP);
     } else {
-        // Every path of the clock program ends in a jump.
-        sm_config_set_wrap(&c, offset, offset + CLOCK_LENGTH - 1u);
+        // Every path of the clock and edge programs ends in a jump.
+        sm_config_set_wrap(&c, offset, offset + program_of(l->kind)->length - 1u);
     }
     sm_config_set_sideset(&c, 1u, false, true);
     sm_config_set_sideset_pins(&c, a);
@@ -326,6 +406,10 @@ int mclw_hal_gpio_join(struct mclw_gpio *a, struct mclw_gpio *b) {
 
 int mclw_hal_gpio_join_clock(struct mclw_gpio *a, struct mclw_gpio *b) {
     return link_pins(LINK_CLOCK, a, b);
+}
+
+int mclw_hal_gpio_join_clock_edge(struct mclw_gpio *a, struct mclw_gpio *b) {
+    return link_pins(LINK_EDGE, a, b);
 }
 
 void mclw_hal_gpio_unlink(struct mclw_gpio *g) {

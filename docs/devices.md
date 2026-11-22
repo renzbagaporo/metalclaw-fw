@@ -127,7 +127,8 @@ a clock, a button pressed and let go, a wake signal, or, behind an RC
 filter, a PWM level;
 [`jumper`](../devices/jumper/README.md), a jumper wire between two of the
 board's pins, push-pull one way (`jumper`) or open-drain both ways
-(`jumper_open_drain`); and
+(`jumper_open_drain`, and for an I2C clock `jumper_open_drain_clock` and
+`jumper_open_drain_clock_edge`); and
 [`spi_page`](../devices/spi_page/README.md), the other end of an SPI link
 that moves 256-byte pages one byte per chip-select window, as the target
 (`spi_page_target`) or the controller (`spi_page_controller`).

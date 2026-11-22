@@ -36,7 +36,30 @@ reach them. Two models:
   throughout, as on one wire. A release shows a side high for two PIO cycles
   at most, under an I2C input's 50 ns spike filter (UM10204 table 10, tSP).
   Not for SDA: a controller that lets SDA go for a STOP would find it still
-  held low, and take that for lost arbitration.
+  held low, and take that for lost arbitration. A controller that clocks
+  its shifters from its own SCL pin's edges, with no spike filter, counts
+  that two-cycle release as an edge and loses step with the target:
+  use `jumper_open_drain_clock_edge` for it.
+- `jumper_open_drain_clock_edge` joins SCL for such a controller, clock
+  stretching included, without ever showing the controller an edge it did
+  not make. When a side falls, the harness holds both sides low (the
+  controller holds its own side too, so nothing shows there), lets the
+  other side go 2.35 µs later (2.8 µs at 125 MHz), and keeps the
+  controller's side held until the other side is up. A target stretching
+  the clock keeps it held, so the controller's release shows nothing and
+  the target's release gives one clean rise; with no stretch the harness
+  lets go at once, under the controller, whose own release is the only edge
+  on its side. So the target side's SCL rises 2.35 µs after each fall,
+  ahead of the controller's, which sets three conditions: the controller
+  has its next bit on SDA by then, as one that changes SDA at its SCL fall
+  does (MicroPython's SoftI2C, which waits half a bit first, changes SDA
+  under a high SCL, a START or STOP to the target: use
+  `jumper_open_drain_clock` for it); its SCL low time outlasts 2.35 µs (a
+  100 kHz bus or slower); and a target starts stretching within that time
+  of the fall, as one that holds SCL from the falling edge does. The wait
+  outlasts the 2 µs an SDA jumper takes to look at the controller's side
+  again after the target's ACK. Either side may be the controller's. Not
+  for SDA.
 
 The link lives in the port's hardware from attach to detach; on rp2 each is
 one PIO state machine with no CPU or DMA, on PIO0, then PIO2, then PIO1, and
@@ -52,6 +75,8 @@ both pins must be in that block's 32-pin window.
 | `jumper_open_drain` | `b` | `gpio_in` | yes | the other side |
 | `jumper_open_drain_clock` | `a` | `gpio_in` | yes | one side |
 | `jumper_open_drain_clock` | `b` | `gpio_in` | yes | the other side |
+| `jumper_open_drain_clock_edge` | `a` | `gpio_in` | yes | one side |
+| `jumper_open_drain_clock_edge` | `b` | `gpio_in` | yes | the other side |
 
 ```python
 import metalclaw
