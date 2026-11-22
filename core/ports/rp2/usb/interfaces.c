@@ -38,6 +38,12 @@ struct serial_state {
     volatile uint8_t brk_tail;
     uint32_t brk_at[SERIAL_BREAKS_MAX];
     volatile uint16_t break_ms;
+    // A bulk IN transfer of the bytes is out, and a break's SERIAL_STATE
+    // the host has yet to take: the host polls the notify endpoint only
+    // every bInterval, so the bytes on either side of a break wait for
+    // both, or it would read them out of order.
+    volatile bool tx_inflight;
+    volatile bool notify_busy;
 };
 
 struct mclw_usb_interface {
@@ -370,7 +376,9 @@ static bool serial_drain(struct serial_state *st, uint8_t cdc, uint32_t until) {
         tail += n;
     }
     st->tail = tail;
-    tud_cdc_n_write_flush(cdc);
+    if (tud_cdc_n_write_flush(cdc) != 0u) {
+        st->tx_inflight = true;
+    }
     return tail == until;
 }
 
@@ -378,6 +386,9 @@ static bool serial_drain(struct serial_state *st, uint8_t cdc, uint32_t until) {
 // SERIAL_STATE notification with Break set (PSTN 1.2 6.5.4).
 static void serial_to_host(struct serial_state *st, uint8_t cdc) {
     for (;;) {
+        if (st->notify_busy) {
+            return;
+        }
         uint8_t brk_tail = st->brk_tail;
         bool at_break = brk_tail != st->brk_head;
         __dmb();
@@ -386,12 +397,38 @@ static void serial_to_host(struct serial_state *st, uint8_t cdc) {
         if (!serial_drain(st, cdc, until) || !at_break) {
             return;
         }
+        // The bytes before the break have reached the host.
+        if (st->tx_inflight || tud_cdc_n_write_available(cdc) < CFG_TUD_CDC_TX_BUFSIZE) {
+            return;
+        }
         cdc_notify_uart_state_t state = { 0 };
         state.bBreak = 1;
+        st->notify_busy = true;
         if (!tud_cdc_n_notify_uart_state(cdc, &state)) {
+            st->notify_busy = false;
             return;
         }
         st->brk_tail = (uint8_t)(brk_tail + 1u);
+    }
+}
+
+static struct mclw_usb_interface *serial_for_cdc(uint8_t cdc);
+
+// Called once a bulk IN transfer is done, before TinyUSB starts the next
+// from what the FIFO holds: the transfer still counts as out while it does.
+void tud_cdc_tx_complete_cb(uint8_t itf) {
+    struct mclw_usb_interface *s = serial_for_cdc(itf);
+
+    if (s != NULL) {
+        s->serial->tx_inflight = tud_cdc_n_write_available(itf) < CFG_TUD_CDC_TX_BUFSIZE;
+    }
+}
+
+void tud_cdc_notify_complete_cb(uint8_t itf) {
+    struct mclw_usb_interface *s = serial_for_cdc(itf);
+
+    if (s != NULL) {
+        s->serial->notify_busy = false;
     }
 }
 
@@ -461,6 +498,7 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
     if (dtr && (st->lines & MCLW_USB_LINE_DTR) == 0u) {
         st->tail = st->head;
         st->brk_tail = st->brk_head;
+        st->tx_inflight = false;
         tud_cdc_n_write_clear(itf);
     }
     st->lines = (uint8_t)((dtr ? MCLW_USB_LINE_DTR : 0u) | (rts ? MCLW_USB_LINE_RTS : 0u));
