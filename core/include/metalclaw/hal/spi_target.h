@@ -76,7 +76,9 @@ int mclw_hal_spi_target_arm_stream(struct mclw_spi_target *t, struct mclw_stream
 // high is still served, from the image as last published.
 int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_command_image *image,
     struct mclw_gpio *busy);
-// Thread context, or the worker.
+// Thread context, or the worker. Lowering waits while the engine holds a
+// window the model has yet to take (queued, open, or released and not yet
+// taken): that window's release raised BUSY, and its delivery lowers it.
 void mclw_hal_spi_target_set_busy(struct mclw_spi_target *t, bool busy);
 void mclw_hal_spi_target_disarm(struct mclw_spi_target *t);
 

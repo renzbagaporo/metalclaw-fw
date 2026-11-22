@@ -312,7 +312,11 @@ executes the command, edits the image and calls
 until it has processed a command, and the host waits for it, which is what
 makes all of that free of timing: the engine raises BUSY in hardware at
 every chip-select release and the model lowers it with
-`mclw_hal_spi_target_set_busy()` once its edits are published.
+`mclw_hal_spi_target_set_busy()` once its edits are published. BUSY
+stays high while the engine holds a window the model has yet to take, even
+one a host began without waiting for BUSY (a driver that pulses chip
+select with no clocks after every command): a command sent once BUSY is
+low is always executed.
 
 The same image serves a serial NOR flash. Its Read Data is a memory read:
 the opcode, three address bytes and the array from that address, with no
