@@ -209,10 +209,17 @@ static uint8_t regmap_miso(const struct mclw_spi_target *t, uint32_t k) {
     return address < MCLW_REGMAP_BANK_SIZE ? map->value[map->active_bank][address] : map->filler;
 }
 
+static void command_release(struct mclw_spi_target *t, const struct queued *q);
+
 static void enqueue(struct mclw_spi_target *t, bool forced) {
     struct queued *q;
     uint32_t len = 1u;
 
+    if (t->count != 0u && !forced && mclw_command_quiet_opcode(&t->shadow, t->in[0])) {
+        t->stats.transactions++;
+        t->stats.bytes += 1u;
+        return;
+    }
     if (t->busy_gpio != NULL && t->queue_count != 0u) {
         t->stats.stale_windows++;
         return;
@@ -254,6 +261,21 @@ static void enqueue(struct mclw_spi_target *t, bool forced) {
     t->queue_count++;
     t->stats.transactions++;
     t->stats.bytes += len;
+    command_release(t, q);
+}
+
+// The image's on_release over the served pages (the shadow's), for one
+// window.
+static void command_release(struct mclw_spi_target *t, const struct queued *q) {
+    uint8_t *pages[MCLW_COMMAND_PAGES_MAX];
+
+    if (t->shadow.on_release == NULL || q->len == 0u) {
+        return;
+    }
+    for (uint8_t i = 0; i < t->shadow.page_count; i++) {
+        pages[i] = t->shadow.pages[i];
+    }
+    t->shadow.on_release(q->bytes, q->len, pages, t->shadow.on_release_ctx);
 }
 
 static void deliver(struct mclw_spi_target *t) {
@@ -481,6 +503,11 @@ static void command_notify(struct mclw_command_image *image, void *ctx) {
 
     t->shadow = *image;
     image->dirty = 0;
+    // The model published what it has taken; the windows still waiting for
+    // it have their effect again.
+    for (uint32_t k = 0; k < t->queue_count; k++) {
+        command_release(t, &t->queue[(t->queue_first + k) % SPI_QUEUE]);
+    }
     mclw_hal_critical_exit(state);
 }
 

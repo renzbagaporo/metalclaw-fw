@@ -98,8 +98,9 @@
 #define SPI_TX_BUFFERS 3u
 // Command windows waiting for the worker. A part with BUSY has at most one;
 // a part without is polled back to back and has a write enable and the
-// erase right behind it.
-#define SPI_QUEUE 8u
+// erase right behind it, or takes a run of writes faster than the model
+// does (a CAN driver's 32 filter and mask writes, 55 us apart at 1 MHz).
+#define SPI_QUEUE 32u
 #define SPI_FORCED 6u
 // Longer than any reset program, which runs in about 3 us.
 #define SPI_KICK_WAIT_US 20u
@@ -257,8 +258,14 @@ enum {
 // first: its three blocks and the opcode copy's repeats come before D's
 // first transfer, twice the one-response path. Measured with Zephyr's
 // MCP2515 driver and its isotp sample: 500 kHz corrupts responses on a
-// 125 MHz RP2040 harness every run, 250 kHz passes.
+// 125 MHz RP2040 harness every run, 250 kHz passes. On a 150 MHz RP2350
+// harness an mcp2515's READ RX BUFFER and READ STATUS are exact to 2 MHz
+// and wrong at 4 MHz: 1 MHz keeps a factor of two.
+#if PICO_RP2040
 #define SPI_COMMAND_IMMEDIATE_LOOKUP_CLOCK_HZ 250000u
+#else
+#define SPI_COMMAND_IMMEDIATE_LOOKUP_CLOCK_HZ 1000000u
+#endif
 // How long a publish waits for an open window's opcode, to learn whether
 // the window reads only the status byte: a byte at 250 kHz.
 #define SPI_COMMAND_OPCODE_WAIT_US 32u
@@ -1171,6 +1178,20 @@ static void engine_start(struct mclw_spi_target *t) {
 
 // The engine's copy of what the model published, but for the status, which
 // the status page holds. Called with no window reading what it copies.
+// The image's on_release over the served pages, for one window.
+static void __not_in_flash_func(command_release)(struct mclw_spi_target *t, const struct spi_queued *q) {
+    const struct mclw_command_image *image = t->command;
+    uint8_t *pages[MCLW_COMMAND_PAGES_MAX];
+
+    if (image->on_release == NULL || q->len == 0u) {
+        return;
+    }
+    for (uint8_t i = 0; i < image->page_count; i++) {
+        pages[i] = command_pages(t)[t->page_slot[i]];
+    }
+    image->on_release(q->bytes, q->len, pages, image->on_release_ctx);
+}
+
 static uint8_t __not_in_flash_func(command_shadow)(struct mclw_spi_target *t) {
     struct mclw_command_image *image = t->command;
     struct spi_command_block *b = command_block(t);
@@ -1185,6 +1206,11 @@ static uint8_t __not_in_flash_func(command_shadow)(struct mclw_spi_target *t) {
     if ((dirty & MCLW_COMMAND_DIRTY_PAGES) != 0u) {
         for (uint8_t i = 0; i < image->page_count; i++) {
             memcpy(command_pages(t)[t->page_slot[i]], image->pages[i], MCLW_COMMAND_PAGE_SIZE);
+        }
+        // The model published what it has taken; the windows still waiting
+        // for it have their effect again.
+        for (uint32_t k = 0; k < t->queue_count; k++) {
+            command_release(t, &t->queue[(t->queue_first + k) % SPI_QUEUE]);
         }
     }
     if ((dirty & MCLW_COMMAND_DIRTY_BUFFER) != 0u) {
@@ -1620,6 +1646,9 @@ static void __not_in_flash_func(command_take)(struct mclw_spi_target *t, const s
         }
         t->stats.transactions++;
         t->stats.bytes += len;
+        if (!forced && mclw_command_quiet_opcode(t->command, q->bytes[0])) {
+            return;
+        }
     }
     q->len = len;
     q->busy = window_busy;
@@ -1647,6 +1676,7 @@ static void __not_in_flash_func(command_take)(struct mclw_spi_target *t, const s
     }
     copy_queued(queued(t, t->queue_count), q);
     t->queue_count++;
+    command_release(t, q);
     mclw_hal_work_post(&t->record_work);
 }
 

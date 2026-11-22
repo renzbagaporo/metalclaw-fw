@@ -117,10 +117,14 @@ static uint8_t mode(struct mcp2515_state *s) {
 }
 
 // CANCTRL and CANSTAT read alike at every xFh and xEh (table 11-1).
-static void put_mirrored(struct mcp2515_state *s, uint8_t reg, uint8_t value) {
+static void MCLW_RAM_FUNC(page_put_mirrored)(uint8_t *page, uint8_t reg, uint8_t value) {
     for (uint8_t row = 0; row < REGISTERS; row += 0x10u) {
-        put(s, (uint8_t)(row | (reg & 0x0fu)), value);
+        page[(uint8_t)(row | (reg & 0x0fu))] = value;
     }
+}
+
+static void put_mirrored(struct mcp2515_state *s, uint8_t reg, uint8_t value) {
+    page_put_mirrored(mclw_command_register(&s->image, 0), reg, value);
 }
 
 // CANSTAT's ICOD (register 10-2): the highest enabled pending interrupt,
@@ -221,20 +225,20 @@ static void reset_registers(struct mcp2515_state *s) {
 
 // 10.0: the mode REQOP requests is the one CANSTAT reports; ABAT ends every
 // pending transmission (3.4), marking it aborted.
-static void control_written(struct mcp2515_state *s, uint8_t value) {
+static void MCLW_RAM_FUNC(page_control_written)(uint8_t *page, uint8_t value) {
     uint8_t requested = (uint8_t)(value >> MCP2515_CANCTRL_REQOP_SHIFT);
 
-    put_mirrored(s, MCP2515_CANCTRL, value);
+    page_put_mirrored(page, MCP2515_CANCTRL, value);
     if (requested <= MCP2515_MODE_CONFIG) {
-        put_mirrored(s, MCP2515_CANSTAT,
-            (uint8_t)((get(s, MCP2515_CANSTAT) & 0x1fu) | (uint8_t)(requested << MCP2515_CANCTRL_REQOP_SHIFT)));
+        page_put_mirrored(page, MCP2515_CANSTAT,
+            (uint8_t)((page[MCP2515_CANSTAT] & 0x1fu) | (uint8_t)(requested << MCP2515_CANCTRL_REQOP_SHIFT)));
     }
     if ((value & MCP2515_CANCTRL_ABAT) != 0) {
         for (uint8_t n = 0; n < TX_BUFFERS; n++) {
             uint8_t ctrl = (uint8_t)(MCP2515_TXB0CTRL + 0x10u * n);
 
-            if ((get(s, ctrl) & MCP2515_TXB_TXREQ) != 0) {
-                put(s, ctrl, (uint8_t)((get(s, ctrl) & ~MCP2515_TXB_TXREQ) | MCP2515_TXB_ABTF));
+            if ((page[ctrl] & MCP2515_TXB_TXREQ) != 0) {
+                page[ctrl] = (uint8_t)((page[ctrl] & ~MCP2515_TXB_TXREQ) | MCP2515_TXB_ABTF);
             }
         }
     }
@@ -244,48 +248,52 @@ static void control_written(struct mcp2515_state *s, uint8_t value) {
 // status, counters and received messages are the controller's, and the bit
 // timing, filters and masks take writes only in Configuration mode (5.0,
 // 4.5).
-static void write_register(struct mcp2515_state *s, uint8_t reg, uint8_t value) {
+static void MCLW_RAM_FUNC(page_write_register)(uint8_t *page, uint8_t reg, uint8_t value) {
     uint8_t low = reg & 0x0fu;
-    bool config = mode(s) == MCP2515_MODE_CONFIG;
+    bool config = (page[MCP2515_CANSTAT] >> MCP2515_CANCTRL_REQOP_SHIFT) == MCP2515_MODE_CONFIG;
 
     if (reg >= REGISTERS || low == 0x0eu || reg == MCP2515_TEC || reg == MCP2515_REC) {
         return;
     }
     if (low == 0x0fu) {
-        control_written(s, value);
+        page_control_written(page, value);
         return;
     }
     if (reg < 0x0cu || (reg >= 0x10u && reg < 0x1cu) || (reg >= MCP2515_RXM0SIDH && reg <= MCP2515_CNF1)) {
         if (config) {
-            put(s, reg, value);
+            page[reg] = value;
         }
         return;
     }
     if (reg == MCP2515_EFLG) {
-        put(s, reg, (uint8_t)((get(s, reg) & 0x3fu) | (value & 0xc0u)));
+        page[reg] = (uint8_t)((page[reg] & 0x3fu) | (value & 0xc0u));
         return;
     }
     if (reg >= MCP2515_TXB0CTRL && reg < MCP2515_RXB0CTRL && low == 0) {
-        put(s, reg, (uint8_t)((get(s, reg) & 0x70u) | (value & 0x0bu)));
+        page[reg] = (uint8_t)((page[reg] & 0x70u) | (value & 0x0bu));
         return;
     }
     if (reg == MCP2515_RXB0CTRL) {
-        put(s, reg, (uint8_t)((get(s, reg) & 0x0bu) | (value & 0x64u) | ((value & MCP2515_RXB0_BUKT) >> 1)));
+        page[reg] = (uint8_t)((page[reg] & 0x0bu) | (value & 0x64u) | ((value & MCP2515_RXB0_BUKT) >> 1));
         return;
     }
     if (reg == MCP2515_RXB1CTRL) {
-        put(s, reg, (uint8_t)((get(s, reg) & 0x0fu) | (value & 0x60u)));
+        page[reg] = (uint8_t)((page[reg] & 0x0fu) | (value & 0x60u));
         return;
     }
     if ((reg > MCP2515_RXB0CTRL && reg <= 0x6du) || (reg > MCP2515_RXB1CTRL && reg <= 0x7du)) {
         return;
     }
-    put(s, reg, value);
+    page[reg] = value;
+}
+
+static void write_register(struct mcp2515_state *s, uint8_t reg, uint8_t value) {
+    page_write_register(mclw_command_register(&s->image, 0), reg, value);
 }
 
 // BIT MODIFY works on these alone (table 11-1, shaded); any other register
 // takes the data as if the mask were FFh (12.10).
-static bool bit_modifiable(uint8_t reg) {
+static bool MCLW_RAM_FUNC(bit_modifiable)(uint8_t reg) {
     uint8_t low = reg & 0x0fu;
 
     return reg == MCP2515_BFPCTRL || reg == MCP2515_TXRTSCTRL || low == 0x0fu ||
@@ -515,6 +523,28 @@ static void mcp2515_on_window(struct mclw_command_image *image, const uint8_t *b
     publish(s);
 }
 
+// WRITE and BIT MODIFY take effect at once on the part (a READ right after
+// reads them), long before the model has taken the window: the engine runs
+// this on the registers it serves at the window's release. Everything else
+// the instruction does (an RTS, a mode's effect on the CAN side) waits for
+// the model.
+static void MCLW_RAM_FUNC(mcp2515_on_release)(const uint8_t *bytes, size_t len, uint8_t *const *pages, void *ctx) {
+    uint8_t *page = pages[0];
+
+    (void)ctx;
+    if (bytes[0] == MCP2515_WRITE && len >= 3u) {
+        for (size_t i = 2; i < len; i++) {
+            page_write_register(page, (uint8_t)(bytes[1] + (i - 2u)), bytes[i]);
+        }
+    } else if (bytes[0] == MCP2515_BIT_MODIFY && len >= 4u) {
+        uint8_t mask = bit_modifiable(bytes[1]) ? bytes[2] : 0xffu;
+
+        if (bytes[1] < REGISTERS) {
+            page_write_register(page, bytes[1], (uint8_t)((page[bytes[1]] & ~mask) | (bytes[3] & mask)));
+        }
+    }
+}
+
 static void build_image(struct mcp2515_state *s) {
     static const uint8_t responses[] = { 0x90, 0x92, 0x94, 0x96, MCP2515_READ_STATUS, MCP2515_RX_STATUS };
 
@@ -526,6 +556,13 @@ static void build_image(struct mcp2515_state *s) {
         (void)mclw_command_add_response(&s->image, responses[i]);
     }
     mclw_command_set_on_window(&s->image, mcp2515_on_window, s);
+    mclw_command_set_on_release(&s->image, mcp2515_on_release, s);
+    // READ, READ STATUS and RX STATUS have no side effect on the part: a
+    // driver polling them back to back leaves the queue to the windows
+    // that change something.
+    mclw_command_add_quiet_opcode(&s->image, MCP2515_READ);
+    mclw_command_add_quiet_opcode(&s->image, MCP2515_READ_STATUS);
+    mclw_command_add_quiet_opcode(&s->image, MCP2515_RX_STATUS);
     reset_registers(s);
 }
 

@@ -541,6 +541,24 @@ def test_a_target_answers_16_bit_lsb_first_frames(tmp_path):
         harness.close()
 
 
+def test_an_mcp2515_read_right_after_a_mode_change_reads_the_new_mode(tmp_path):
+    # BIT MODIFY of CANCTRL's REQOP to Loopback, then READ of CANSTAT at
+    # once, with no time for the model: OPMOD already reads Loopback.
+    from test.native.host import spi_window
+    harness, bridge = _spi_pair(tmp_path, SPI0)
+    try:
+        harness.run("import metalclaw\nc = metalclaw.attach('mcp2515', 'can', spi=(18, 19, 16, 17))")
+        spi_window(bridge, 0, 17, b"\xc0")
+        bridge.advance(5_000_000)
+        spi_window(bridge, 0, 17, b"\x05\x0f\xe0\x40")
+        assert spi_window(bridge, 0, 17, b"\x03\x0e\x00")[2] >> 5 == 2
+        spi_window(bridge, 0, 17, b"\x02\x2b\x23")
+        assert spi_window(bridge, 0, 17, b"\x03\x2b\x00")[2] == 0x23
+    finally:
+        bridge.close()
+        harness.close()
+
+
 def test_a_command_typed_ahead_of_the_raw_repl_is_kept(tmp_path):
     # The raw REPL switches its terminal's mode after each command; a
     # command already waiting then (two sent in one write) still runs.
