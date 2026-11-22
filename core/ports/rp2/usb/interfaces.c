@@ -19,6 +19,12 @@
 // USB event, so while a serial function is open core 0 looks this often.
 #define SERIAL_TICK_US 1000
 #define SERIAL_BREAKS_MAX 8u
+// A break's notification waits this long after the bulk transfer before it
+// completes, and the bytes after it this long after the notification does:
+// Linux's cdc-acm puts the break into the tty when it processes that
+// notification, and processes it apart from the bulk transfers around it
+// (a break was read after three later bytes).
+#define SERIAL_BREAK_HOLD_US 5000u
 
 struct serial_state {
     // Free-running. Producers are model contexts, serialised by the runtime
@@ -44,6 +50,8 @@ struct serial_state {
     // both, or it would read them out of order.
     volatile bool tx_inflight;
     volatile bool notify_busy;
+    volatile uint32_t notify_done_us;
+    volatile uint32_t tx_done_us;
 };
 
 struct mclw_usb_interface {
@@ -105,7 +113,8 @@ void mclw_usb_layout_take(struct mclw_usb_layout *out) {
 static bool serial_pending(void) {
     for (size_t i = 0; i < MCLW_USB_SERIAL_MAX; i++) {
         const struct serial_state *st = &serial_states[i];
-        if (serial_slots[i].open && (st->head != st->tail || st->stage_at != st->stage_len)) {
+        if (serial_slots[i].open && (st->head != st->tail || st->stage_at != st->stage_len ||
+                st->brk_head != st->brk_tail)) {
             return true;
         }
     }
@@ -386,7 +395,7 @@ static bool serial_drain(struct serial_state *st, uint8_t cdc, uint32_t until) {
 // SERIAL_STATE notification with Break set (PSTN 1.2 6.5.4).
 static void serial_to_host(struct serial_state *st, uint8_t cdc) {
     for (;;) {
-        if (st->notify_busy) {
+        if (st->notify_busy || time_us_32() - st->notify_done_us < SERIAL_BREAK_HOLD_US) {
             return;
         }
         uint8_t brk_tail = st->brk_tail;
@@ -398,7 +407,8 @@ static void serial_to_host(struct serial_state *st, uint8_t cdc) {
             return;
         }
         // The bytes before the break have reached the host.
-        if (st->tx_inflight || tud_cdc_n_write_available(cdc) < CFG_TUD_CDC_TX_BUFSIZE) {
+        if (st->tx_inflight || tud_cdc_n_write_available(cdc) < CFG_TUD_CDC_TX_BUFSIZE ||
+            time_us_32() - st->tx_done_us < SERIAL_BREAK_HOLD_US) {
             return;
         }
         cdc_notify_uart_state_t state = { 0 };
@@ -420,6 +430,7 @@ void tud_cdc_tx_complete_cb(uint8_t itf) {
     struct mclw_usb_interface *s = serial_for_cdc(itf);
 
     if (s != NULL) {
+        s->serial->tx_done_us = time_us_32();
         s->serial->tx_inflight = tud_cdc_n_write_available(itf) < CFG_TUD_CDC_TX_BUFSIZE;
     }
 }
@@ -428,6 +439,7 @@ void tud_cdc_notify_complete_cb(uint8_t itf) {
     struct mclw_usb_interface *s = serial_for_cdc(itf);
 
     if (s != NULL) {
+        s->serial->notify_done_us = time_us_32();
         s->serial->notify_busy = false;
     }
 }
