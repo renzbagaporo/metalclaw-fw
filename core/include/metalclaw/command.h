@@ -39,6 +39,14 @@
 // the model has taken it, and every such window before it, so a host that
 // polls at once never sees the part idle before the model has taken the
 // command. From then on the status is the model's, as it last published it.
+//
+// The image may also name opcodes that change status bits as the part
+// takes them, before the model has (a NOR flash's Write Enable sets WEL and
+// Write Disable clears it). The engine applies the change at the window's
+// release, so the next window already reads it, unless the part ignores
+// such commands then: its busy bits are set or its ready bits clear in the
+// status the engine serves, a busy opcode's window waits for the model, or
+// the model holds the status (a flash in power-down).
 
 #ifndef MCLW_COMMAND_H
 #define MCLW_COMMAND_H
@@ -54,6 +62,7 @@
 #define MCLW_COMMAND_RESPONSE_MAX 16
 // The longest window a model is handed: the opcode and this many bytes.
 #define MCLW_COMMAND_WINDOW_MAX 264
+#define MCLW_COMMAND_STATUS_OPCODES_MAX 4
 
 enum mclw_command_dirty {
     MCLW_COMMAND_DIRTY_STATUS = 1u << 0,
@@ -65,6 +74,12 @@ enum mclw_command_dirty {
 struct mclw_command_response {
     uint8_t opcode;
     uint8_t bytes[MCLW_COMMAND_RESPONSE_MAX];
+};
+
+struct mclw_command_status_opcode {
+    uint8_t opcode;
+    uint8_t set;
+    uint8_t clear;
 };
 
 struct mclw_command_image;
@@ -91,6 +106,9 @@ struct mclw_command_image {
     uint8_t busy_status;
     uint8_t ready_status;
     uint8_t busy_opcodes[256 / 8];
+    uint8_t status_opcode_count;
+    struct mclw_command_status_opcode status_opcodes[MCLW_COMMAND_STATUS_OPCODES_MAX];
+    bool status_hold;
     uint8_t response_count;
     struct mclw_command_response responses[MCLW_COMMAND_RESPONSES_MAX];
     uint8_t page_count;
@@ -137,6 +155,20 @@ void mclw_command_set_busy_status(struct mclw_command_image *image, uint8_t bits
 void mclw_command_set_ready_status(struct mclw_command_image *image, uint8_t bits);
 void mclw_command_add_busy_opcode(struct mclw_command_image *image, uint8_t opcode);
 bool mclw_command_busy_opcode(const struct mclw_command_image *image, uint8_t opcode);
+// The status bits the engine sets and clears at the release of a window
+// that began with `opcode`. -EINVAL for a busy opcode or no bits, -ENOSPC
+// when the image has MCLW_COMMAND_STATUS_OPCODES_MAX already. Several such
+// windows the model has yet to take compose when they change the same bits.
+int mclw_command_add_status_opcode(struct mclw_command_image *image, uint8_t opcode, uint8_t set,
+    uint8_t clear);
+// While held, the engine changes no status bits for status opcodes: the
+// part ignores those commands (a flash in power-down). Reaches the engine
+// with the next publish.
+void mclw_command_set_status_hold(struct mclw_command_image *image, bool hold);
+// For the engines: whether the part ignores status opcodes with `status`
+// served, and `status` after a window that began with `opcode`.
+bool mclw_command_status_held(const struct mclw_command_image *image, uint8_t status);
+uint8_t mclw_command_status_after(const struct mclw_command_image *image, uint8_t status, uint8_t opcode);
 // -ENOSPC when the image is full.
 int mclw_command_add_page(struct mclw_command_image *image, uint8_t page);
 int mclw_command_add_response(struct mclw_command_image *image, uint8_t opcode);

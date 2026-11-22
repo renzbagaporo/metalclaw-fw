@@ -10,6 +10,7 @@
 #include "metalclaw/runtime.h"
 #include "metalclaw/version.h"
 #include "metalclaw/hal/platform.h"
+#include "metalclaw/hal/usb.h"
 #include "metalclaw_module.h"
 
 int mclw_check(int ret) {
@@ -288,8 +289,13 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mclw_worker_stats_obj, 0, 1, mclw_wor
 
 // What the firmware was built to know about its board.
 static mp_obj_t mclw_board_fn(void) {
-    mp_obj_t info = mp_obj_new_dict(1);
+    mp_obj_t info = mp_obj_new_dict(3);
+    size_t free = 0;
+    size_t serial = mclw_hal_usb_serial_functions(&free);
+
     dict_store(info, "line_pullups", mp_obj_new_bool(METALCLAW_LINE_PULLUPS));
+    dict_store(info, "serial_functions", mp_obj_new_int((mp_int_t)serial));
+    dict_store(info, "serial_functions_free", mp_obj_new_int((mp_int_t)free));
     return info;
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mclw_board_obj, mclw_board_fn);

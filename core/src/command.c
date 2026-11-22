@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "metalclaw/command.h"
+#include "metalclaw/hal/platform.h"
 
 void mclw_command_init(struct mclw_command_image *image, uint8_t read_register_opcode,
     uint8_t read_buffer_opcode) {
@@ -45,6 +46,51 @@ void mclw_command_add_busy_opcode(struct mclw_command_image *image, uint8_t opco
 
 bool mclw_command_busy_opcode(const struct mclw_command_image *image, uint8_t opcode) {
     return (image->busy_opcodes[opcode / 8u] & (1u << (opcode % 8u))) != 0u;
+}
+
+int mclw_command_add_status_opcode(struct mclw_command_image *image, uint8_t opcode, uint8_t set,
+    uint8_t clear) {
+    if (mclw_command_busy_opcode(image, opcode) || (set | clear) == 0u) {
+        return -EINVAL;
+    }
+    for (uint8_t i = 0; i < image->status_opcode_count; i++) {
+        if (image->status_opcodes[i].opcode == opcode) {
+            image->status_opcodes[i].set = set;
+            image->status_opcodes[i].clear = clear;
+            return 0;
+        }
+    }
+    if (image->status_opcode_count >= MCLW_COMMAND_STATUS_OPCODES_MAX) {
+        return -ENOSPC;
+    }
+    image->status_opcodes[image->status_opcode_count++] =
+        (struct mclw_command_status_opcode){ opcode, set, clear };
+    return 0;
+}
+
+void mclw_command_set_status_hold(struct mclw_command_image *image, bool hold) {
+    if (image->status_hold != hold) {
+        image->status_hold = hold;
+        image->dirty |= MCLW_COMMAND_DIRTY_STATUS;
+    }
+}
+
+// The engines call these two from their interrupt path.
+bool MCLW_RAM_FUNC(mclw_command_status_held)(const struct mclw_command_image *image, uint8_t status) {
+    return image->status_hold || (status & image->busy_status) != 0u ||
+        (image->ready_status != 0u && (status & image->ready_status) != image->ready_status);
+}
+
+uint8_t MCLW_RAM_FUNC(mclw_command_status_after)(const struct mclw_command_image *image, uint8_t status,
+    uint8_t opcode) {
+    for (uint8_t i = 0; i < image->status_opcode_count; i++) {
+        const struct mclw_command_status_opcode *op = &image->status_opcodes[i];
+
+        if (op->opcode == opcode) {
+            return (uint8_t)((status | op->set) & (uint8_t)~op->clear);
+        }
+    }
+    return status;
 }
 
 void mclw_command_set_on_window(struct mclw_command_image *image, mclw_command_on_window_t fn,

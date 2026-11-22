@@ -26,7 +26,7 @@ SPI modes 0 and 3, MSB first (datasheet 6.1). The part reads at up to
 estimate not yet measured on the bench (`docs/devices.md`). The engine
 re-arms in hardware at every chip-select rise; a host may start the next
 window at once, as long as its first clock comes about a quarter of a
-microsecond after the rise and its first byte ends at least 2.7 us after it
+microsecond after the rise and its first byte ends at least 3.1 us after it
 (`docs/devices.md`, measured on the carrier).
 
 ```python
@@ -100,6 +100,15 @@ poll right after the window never sees the part idle before the model knows
 of the command (`mclw_command_set_busy_status`). For a window the model
 then ignores, for want of WEL say, that BUSY lasts only as long as the
 worker takes to deliver it.
+
+Write Enable (06h) and Write Disable (04h) are the image's status opcodes
+(`mclw_command_add_status_opcode`): the engine sets or clears WEL from the
+window's release, so the status poll right after either reads the change
+before the model has taken it, as on the part. It changes nothing while
+BUSY is set, while a program or erase window waits for the model, or in
+power-down (`mclw_command_set_status_hold`), where the part ignores both.
+A program or erase right behind a write enable reads BUSY with WEL set. The
+engine sets WEL for a 06h window of any length, as the model does.
 
 ## Not modelled
 

@@ -116,6 +116,16 @@ static bool serial_any_open(void) {
     return false;
 }
 
+size_t mclw_hal_usb_serial_functions(size_t *free) {
+    if (free != NULL) {
+        *free = 0;
+        for (size_t i = 0; i < MCLW_USB_SERIAL_MAX; i++) {
+            *free += serial_slots[i].open ? 0u : 1u;
+        }
+    }
+    return MCLW_USB_SERIAL_MAX;
+}
+
 struct mclw_usb_interface *mclw_hal_usb_open(const struct mclw_usb_interface_desc *desc,
     mclw_usb_rx_t rx, mclw_usb_control_t control, void *ctx, const void *owner, int *err) {
     if (desc == NULL || desc->name == NULL || rx == NULL || owner == NULL ||

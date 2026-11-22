@@ -71,6 +71,10 @@ int mclw_hal_usb_line_coding(const struct mclw_usb_interface *itf, struct mclw_u
 // MCLW_USB_LINE_* bits. Any thread context.
 uint8_t mclw_hal_usb_control_lines(const struct mclw_usb_interface *itf);
 
+// How many serial functions the port can have open at once; `free`, when
+// not NULL, gets how many of those are not open now.
+size_t mclw_hal_usb_serial_functions(size_t *free);
+
 // The device's USB serial string, for protocols that echo it (CMSIS-DAP).
 const char *mclw_hal_usb_serial(void);
 

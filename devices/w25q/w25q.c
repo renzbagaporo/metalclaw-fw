@@ -149,6 +149,7 @@ static uint8_t *held(struct w25q_state *s, uint32_t address) {
 
 static void publish(struct w25q_state *s) {
     mclw_command_set_status(&s->image, s->status);
+    mclw_command_set_status_hold(&s->image, s->power_down);
     mclw_command_publish(&s->image);
 }
 
@@ -326,6 +327,11 @@ static void build_image(struct w25q_state *s) {
     for (size_t i = 0; i < sizeof(busy_opcodes); i++) {
         mclw_command_add_busy_opcode(&s->image, busy_opcodes[i]);
     }
+    // Write Enable and Write Disable change WEL as the part takes them: the
+    // engine serves the change from the window's release, before the model
+    // has run, unless BUSY is set or the part is in power-down.
+    (void)mclw_command_add_status_opcode(&s->image, W25Q_WRITE_ENABLE, W25Q_SR1_WEL, 0);
+    (void)mclw_command_add_status_opcode(&s->image, W25Q_WRITE_DISABLE, 0, W25Q_SR1_WEL);
     for (uint8_t page = 0; page < W25Q_HELD_PAGES; page++) {
         uint8_t number = (uint8_t)((s->held_base >> 8) + page);
 
