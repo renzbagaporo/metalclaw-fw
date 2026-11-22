@@ -514,6 +514,12 @@ def test_a_controller_clocks_a_receive_only_dut_in_held_windows(tmp_path):
                 break
         assert [a["mosi"] for a in clocks] == list(range(10))
         assert [a.get("cs_hold", False) for a in clocks] == [True] * 9 + [False]
+        # Its slave answers with no MISO; the page counts at once, read back
+        # as FFh, without waiting for the controller's next tick.
+        for a in clocks:
+            bridge.request(op="spi_clocked", bus=0, mosi=a["mosi"], miso=None, t_ns=max(a["t_ns"], bridge.t_ns))
+        bridge.advance(800_000)
+        assert harness.run("print(c.clocked, bytes(c.read_region('miso', 0, 2)).hex())") == "1 ffff"
     finally:
         bridge.close()
         harness.close()
