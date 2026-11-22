@@ -557,6 +557,12 @@ static void build_image(struct mcp2515_state *s) {
     }
     mclw_command_set_on_window(&s->image, mcp2515_on_window, s);
     mclw_command_set_on_release(&s->image, mcp2515_on_release, s);
+    // READ, READ STATUS and RX STATUS have no side effect on the part: a
+    // driver polling them back to back leaves the queue to the windows
+    // that change something.
+    mclw_command_add_quiet_opcode(&s->image, MCP2515_READ);
+    mclw_command_add_quiet_opcode(&s->image, MCP2515_READ_STATUS);
+    mclw_command_add_quiet_opcode(&s->image, MCP2515_RX_STATUS);
     reset_registers(s);
 }
 

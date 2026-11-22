@@ -215,6 +215,11 @@ static void enqueue(struct mclw_spi_target *t, bool forced) {
     struct queued *q;
     uint32_t len = 1u;
 
+    if (t->count != 0u && !forced && mclw_command_quiet_opcode(&t->shadow, t->in[0])) {
+        t->stats.transactions++;
+        t->stats.bytes += 1u;
+        return;
+    }
     if (t->busy_gpio != NULL && t->queue_count != 0u) {
         t->stats.stale_windows++;
         return;

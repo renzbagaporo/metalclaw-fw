@@ -114,6 +114,7 @@ struct mclw_command_image {
     uint8_t busy_status;
     uint8_t ready_status;
     uint8_t busy_opcodes[256 / 8];
+    uint8_t quiet_opcodes[256 / 8];
     uint8_t status_opcode_count;
     struct mclw_command_status_opcode status_opcodes[MCLW_COMMAND_STATUS_OPCODES_MAX];
     bool status_hold;
@@ -166,6 +167,12 @@ void mclw_command_set_busy_status(struct mclw_command_image *image, uint8_t bits
 void mclw_command_set_ready_status(struct mclw_command_image *image, uint8_t bits);
 void mclw_command_add_busy_opcode(struct mclw_command_image *image, uint8_t opcode);
 bool mclw_command_busy_opcode(const struct mclw_command_image *image, uint8_t opcode);
+// Opcodes the model takes no part in (a read whose answer is all in the
+// image and has no side effect): the engine serves and counts their
+// windows but hands them to no one, so a host polling them back to back
+// never fills the queue the windows that matter wait in.
+void mclw_command_add_quiet_opcode(struct mclw_command_image *image, uint8_t opcode);
+bool mclw_command_quiet_opcode(const struct mclw_command_image *image, uint8_t opcode);
 // The status bits the engine sets and clears at the release of a window
 // that began with `opcode`. -EINVAL for a busy opcode or no bits, -ENOSPC
 // when the image has MCLW_COMMAND_STATUS_OPCODES_MAX already. Several such

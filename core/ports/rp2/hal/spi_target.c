@@ -1645,6 +1645,9 @@ static void __not_in_flash_func(command_take)(struct mclw_spi_target *t, const s
         }
         t->stats.transactions++;
         t->stats.bytes += len;
+        if (!forced && mclw_command_quiet_opcode(t->command, q->bytes[0])) {
+            return;
+        }
     }
     q->len = len;
     q->busy = window_busy;

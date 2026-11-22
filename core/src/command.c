@@ -48,6 +48,14 @@ bool mclw_command_busy_opcode(const struct mclw_command_image *image, uint8_t op
     return (image->busy_opcodes[opcode / 8u] & (1u << (opcode % 8u))) != 0u;
 }
 
+void mclw_command_add_quiet_opcode(struct mclw_command_image *image, uint8_t opcode) {
+    image->quiet_opcodes[opcode / 8u] |= (uint8_t)(1u << (opcode % 8u));
+}
+
+bool MCLW_RAM_FUNC(mclw_command_quiet_opcode)(const struct mclw_command_image *image, uint8_t opcode) {
+    return (image->quiet_opcodes[opcode / 8u] & (1u << (opcode % 8u))) != 0u;
+}
+
 int mclw_command_add_status_opcode(struct mclw_command_image *image, uint8_t opcode, uint8_t set,
     uint8_t clear) {
     if (mclw_command_busy_opcode(image, opcode) || (set | clear) == 0u) {
