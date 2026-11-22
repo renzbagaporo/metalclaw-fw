@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "metalclaw/bus.h"
+#include "metalclaw/hal/platform.h"
 #include "metalclaw/hal/uart.h"
 #include "metalclaw/hal/usb.h"
 #include "metalclaw/model.h"
@@ -52,8 +53,15 @@ struct console_bridge_state {
     uint32_t short_writes;
     uint32_t breaks_to_host;
     uint32_t breaks_from_host;
-    // The host's SEND_BREAK, waiting for the worker, in bit times.
+    // The host's SEND_BREAK, waiting for the worker: a timed one in bit
+    // times; whether one held until further notice is wanted, and whether
+    // one ended, so that one ended before the worker held it still goes
+    // out; and when the held one began.
     volatile uint32_t break_bits;
+    volatile bool hold_wanted;
+    volatile bool hold_ended;
+    bool holding;
+    uint64_t held_since_us;
 };
 
 #define COUNTER(prop_name) \
@@ -263,6 +271,10 @@ static void bridge_deinit(struct mclw_instance *inst) {
 
     mclw_hal_uart_set_rx(state->uart, NULL, NULL);
     mclw_hal_uart_set_break(state->uart, NULL, NULL);
+    if (state->holding) {
+        mclw_trace(inst, MCLW_TRACE_STATE, 0, 0, (int16_t)mclw_hal_uart_hold_break(state->uart, false));
+        state->holding = false;
+    }
 }
 
 static int bridge_reset(struct mclw_instance *inst, bool factory) {
@@ -365,11 +377,12 @@ static size_t bridge_usb_rx(struct mclw_instance *inst, size_t binding, const ui
 
 // DTR and RTS are only reported: on this bridge they reset nothing. The
 // host's SEND_BREAK goes to the worker, which sends it after the bytes
-// queued: its length in bit times, at least a frame's 13 (a LIN break), and
-// 13 for one held until further notice.
+// queued: its length in bit times, at least a frame's 13 (a LIN break), or
+// for one held until further notice (FFFFh), until the SEND_BREAK of 0
+// that ends it, and for 13 bit times at least.
 static void bridge_usb_control(struct mclw_instance *inst, size_t binding) {
     struct console_bridge_state *state = inst->state;
-    uint16_t ms;
+    int32_t ms;
 
     if (binding != (size_t)BINDING_USB) {
         return;
@@ -378,21 +391,59 @@ static void bridge_usb_control(struct mclw_instance *inst, size_t binding) {
         apply_line_coding(state);
     }
     ms = mclw_hal_usb_serial_take_break(state->usb);
-    if (ms != 0u) {
-        uint64_t bits = ms == 0xffffu ? 0u : (uint64_t)ms * state->baud / 1000u;
+    if (ms >= 0) {
+        mclw_trace(inst, MCLW_TRACE_COMMAND, (uint32_t)ms, 0, 0);
+    }
+    if (ms == 0xffff) {
+        state->hold_wanted = true;
+    } else if (ms == 0 && state->hold_wanted) {
+        state->hold_wanted = false;
+        state->hold_ended = !state->holding;
+    } else if (ms > 0) {
+        uint64_t bits = (uint64_t)ms * state->baud / 1000u;
 
         state->break_bits = bits < CONSOLE_BRIDGE_BREAK_BITS ? CONSOLE_BRIDGE_BREAK_BITS : (uint32_t)bits;
     }
+}
+
+static uint32_t bits_us(const struct console_bridge_state *state, uint32_t bits) {
+    return (uint32_t)(((uint64_t)bits * 1000000u + state->baud - 1u) / state->baud);
 }
 
 static void bridge_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
     struct console_bridge_state *state = inst->state;
     uint32_t bits = state->break_bits;
 
-    (void)now_us;
     if (bits != 0u) {
         state->break_bits = 0;
         if (mclw_hal_uart_send_break(state->uart, bits) == 0) {
+            state->breaks_from_host++;
+        }
+    }
+    if (state->hold_wanted && !state->holding) {
+        int err = mclw_hal_uart_hold_break(state->uart, true);
+
+        mclw_trace(inst, MCLW_TRACE_STATE, 1, 0, (int16_t)err);
+        if (err == 0) {
+            state->holding = true;
+            state->held_since_us = now_us;
+            state->hold_ended = false;
+            state->breaks_from_host++;
+        }
+    } else if (!state->hold_wanted && state->holding) {
+        uint32_t least = bits_us(state, CONSOLE_BRIDGE_BREAK_BITS);
+        uint64_t held = now_us - state->held_since_us;
+
+        if (held < least) {
+            mclw_hal_delay_us(least - (uint32_t)held);
+        }
+        mclw_trace(inst, MCLW_TRACE_STATE, 0, 0, (int16_t)mclw_hal_uart_hold_break(state->uart, false));
+        state->holding = false;
+        state->hold_ended = false;
+    } else if (state->hold_ended && !state->hold_wanted) {
+        // Held and ended before the worker came round: a frame's worth.
+        state->hold_ended = false;
+        if (mclw_hal_uart_send_break(state->uart, CONSOLE_BRIDGE_BREAK_BITS) == 0) {
             state->breaks_from_host++;
         }
     }

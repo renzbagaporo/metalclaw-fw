@@ -343,12 +343,26 @@ static int pl011_send_break(struct mclw_uart *uart, uint32_t bits) {
     return 0;
 }
 
+static int pl011_hold_break(struct mclw_uart *uart, bool on) {
+    struct pl011 *u = (struct pl011 *)uart;
+    uart_hw_t *hw = uart_get_hw(u->inst);
+
+    if (on) {
+        tx_flush(u);
+        hw_set_bits(&hw->lcr_h, UART_UARTLCR_H_BRK_BITS);
+    } else {
+        hw_clear_bits(&hw->lcr_h, UART_UARTLCR_H_BRK_BITS);
+    }
+    return 0;
+}
+
 static const struct mclw_uart_engine pl011_engine = {
     .close = pl011_close,
     .set_baud = pl011_set_baud,
     .set_format = pl011_set_format,
     .send = pl011_send,
     .send_break = pl011_send_break,
+    .hold_break = pl011_hold_break,
 };
 
 static struct mclw_uart *pl011_open(uart_inst_t *inst, uint8_t tx, uint8_t rx, uint32_t baud,
@@ -500,6 +514,13 @@ int mclw_hal_uart_send_break(struct mclw_uart *u, uint32_t bits) {
         return -EINVAL;
     }
     return u->engine->send_break != NULL ? u->engine->send_break(u, bits) : -ENOTSUP;
+}
+
+int mclw_hal_uart_hold_break(struct mclw_uart *u, bool on) {
+    if (u == NULL || u->owner == NULL) {
+        return -EINVAL;
+    }
+    return u->engine->hold_break != NULL ? u->engine->hold_break(u, on) : -ENOTSUP;
 }
 
 size_t mclw_hal_uart_send(struct mclw_uart *u, const uint8_t *bytes, size_t len) {

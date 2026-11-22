@@ -4,8 +4,9 @@
 // (BSD-3-Clause).
 //
 // hal/uart.h on any pin pair: one state machine transmits and one receives,
-// eight PIO cycles per bit, 8 data bits, no parity, one or two stop bits. DMA
-// moves every byte in both directions, so nothing here runs per byte; the
+// eight PIO cycles per bit, 8 data bits, no parity, one or two stop bits,
+// and breaks both ways. DMA moves every byte in both directions, so nothing
+// here runs per byte; the
 // worker's poll delivers what arrived and starts the next transmit run. A
 // flash write that parks the worker costs nothing until the receive ring
 // fills.
@@ -20,6 +21,7 @@
 #include "hardware/gpio.h"
 #include "hardware/pio.h"
 #include "hardware/sync.h"
+#include "hardware/timer.h"
 
 #include "metalclaw/bus.h"
 #include "metalclaw/hal/pins.h"
@@ -36,6 +38,11 @@
 #define UART_PIO_RX_RING_SIZE (1u << UART_PIO_RX_RING_BITS)
 #define UART_PIO_TX_RING_SIZE (1u << UART_PIO_TX_RING_BITS)
 #define UART_PIO_RX_RING_MASK (UART_PIO_RX_RING_SIZE - 1u)
+// The receive ring holds a 16-bit entry per frame, the top half of the
+// FIFO word: the byte above, 0 below; a break is all ones. Breaks one poll
+// can hand on in their place among the bytes.
+#define UART_PIO_RX_ENTRY_BREAK 0xffffu
+#define UART_PIO_RX_BREAKS_MAX 8u
 #define UART_PIO_TX_RING_MASK (UART_PIO_TX_RING_SIZE - 1u)
 // The receive channel is re-armed by the poll once it has run this many
 // bytes. An RP2350's TRANS_COUNT is 28 bits under its mode field, whose
@@ -70,9 +77,15 @@ enum {
     RX_LOOP,
     RX_CHECK_STOP,
     RX_FRAME_ERROR,
+    RX_FRAME_DATA,
+    RX_FRAME_FLAG,
+    RX_FRAME_CLEAR,
     RX_WAIT_IDLE,
     RX_RESTART,
     RX_PUSH,
+    RX_BREAK,
+    RX_BREAK_PUSH,
+    RX_BREAK_IDLE,
     RX_LENGTH,
 };
 
@@ -89,7 +102,7 @@ struct uart_pio {
     uint8_t tx_dma;
     uint8_t rx_dma;
     uint8_t *tx_ring;
-    uint8_t *rx_ring;
+    uint16_t *rx_ring;
     // Free-running transmit indices; the DMA reads [tail, tail + inflight).
     volatile uint32_t tx_head;
     volatile uint32_t tx_tail;
@@ -101,6 +114,7 @@ struct uart_pio {
     uint32_t rx_taken;
     uint32_t rx_read;
     uint8_t rx_linear[UART_PIO_RX_RING_SIZE];
+    uint16_t rx_breaks[UART_PIO_RX_BREAKS_MAX];
 };
 
 struct pio_programs {
@@ -112,7 +126,8 @@ struct pio_programs {
 static struct uart_pio slots[UART_PIO_COUNT];
 static struct pio_programs programs[NUM_PIOS];
 static uint8_t tx_rings[UART_PIO_COUNT][UART_PIO_TX_RING_SIZE] __attribute__((aligned(UART_PIO_TX_RING_SIZE)));
-static uint8_t rx_rings[UART_PIO_COUNT][UART_PIO_RX_RING_SIZE] __attribute__((aligned(UART_PIO_RX_RING_SIZE)));
+static uint16_t rx_rings[UART_PIO_COUNT][UART_PIO_RX_RING_SIZE]
+    __attribute__((aligned(UART_PIO_RX_RING_SIZE * sizeof(uint16_t))));
 static uint16_t tx_instructions[TX_LENGTH];
 static uint16_t rx_instructions[RX_LENGTH];
 static bool poll_registered;
@@ -145,17 +160,25 @@ static void encode_programs(void) {
         pio_encode_delay(7));
 
     // The receiver samples mid-bit: the start edge, then 12 cycles to the
-    // middle of bit 0, then every 8. A low stop bit sets the frame flag and
-    // drops the byte once the line is idle again.
+    // middle of bit 0, then every 8. A low stop bit after eight low data
+    // bits is a break: it pushes an all-ones word, in its place among the
+    // bytes. Any other low stop bit sets the frame flag and drops the byte.
+    // Either way the receiver waits for the line to be idle again.
     rx_instructions[RX_WAIT_START] = (uint16_t)pio_encode_wait_pin(false, 0);
     rx_instructions[RX_START] = (uint16_t)(pio_encode_set(pio_x, 7) | pio_encode_delay(10));
     rx_instructions[RX_BIT] = (uint16_t)pio_encode_in(pio_pins, 1);
     rx_instructions[RX_LOOP] = (uint16_t)(pio_encode_jmp_x_dec(RX_BIT) | pio_encode_delay(6));
     rx_instructions[RX_CHECK_STOP] = (uint16_t)pio_encode_jmp_pin(RX_PUSH);
-    rx_instructions[RX_FRAME_ERROR] = (uint16_t)pio_encode_irq_set(true, UART_PIO_FRAME_FLAG);
+    rx_instructions[RX_FRAME_ERROR] = (uint16_t)pio_encode_mov(pio_x, pio_isr);
+    rx_instructions[RX_FRAME_DATA] = (uint16_t)pio_encode_jmp_not_x(RX_BREAK);
+    rx_instructions[RX_FRAME_FLAG] = (uint16_t)pio_encode_irq_set(true, UART_PIO_FRAME_FLAG);
+    rx_instructions[RX_FRAME_CLEAR] = (uint16_t)pio_encode_mov(pio_isr, pio_null);
     rx_instructions[RX_WAIT_IDLE] = (uint16_t)pio_encode_wait_pin(true, 0);
     rx_instructions[RX_RESTART] = (uint16_t)pio_encode_jmp(RX_WAIT_START);
     rx_instructions[RX_PUSH] = (uint16_t)pio_encode_push(false, true);
+    rx_instructions[RX_BREAK] = (uint16_t)pio_encode_mov_not(pio_isr, pio_null);
+    rx_instructions[RX_BREAK_PUSH] = (uint16_t)pio_encode_push(false, true);
+    rx_instructions[RX_BREAK_IDLE] = (uint16_t)pio_encode_jmp(RX_WAIT_IDLE);
 }
 
 static bool divider_for(uint32_t baud, uint32_t *div256, uint32_t *actual) {
@@ -237,8 +260,10 @@ static int tx_drain(struct uart_pio *u) {
 static void rx_deliver(struct uart_pio *u) {
     dma_channel_hw_t *ch = dma_channel_hw_addr(u->rx_dma);
     uint32_t remaining = ch->transfer_count & UART_PIO_RX_DMA_COUNT;
-    uint32_t pos = (ch->write_addr - (uint32_t)(uintptr_t)u->rx_ring) & UART_PIO_RX_RING_MASK;
+    uint32_t pos = ((ch->write_addr - (uint32_t)(uintptr_t)u->rx_ring) / sizeof(uint16_t)) & UART_PIO_RX_RING_MASK;
     uint32_t issued = UART_PIO_RX_DMA_COUNT - remaining;
+    uint32_t bytes = 0;
+    uint32_t breaks = 0;
 
     if (issued == u->rx_taken && pos == u->rx_read && remaining != 0u) {
         return;
@@ -255,27 +280,39 @@ static void rx_deliver(struct uart_pio *u) {
     // laps it has made. The two differ by the bytes in flight at most.
     remaining = ch->transfer_count & UART_PIO_RX_DMA_COUNT;
     issued = UART_PIO_RX_DMA_COUNT - remaining;
-    pos = (ch->write_addr - (uint32_t)(uintptr_t)u->rx_ring) & UART_PIO_RX_RING_MASK;
+    pos = ((ch->write_addr - (uint32_t)(uintptr_t)u->rx_ring) / sizeof(uint16_t)) & UART_PIO_RX_RING_MASK;
     uint32_t delta = (pos - u->rx_base - issued) & UART_PIO_RX_RING_MASK;
     uint32_t written = delta < UART_PIO_RX_RING_SIZE / 2u ? issued + delta
         : issued - (UART_PIO_RX_RING_SIZE - delta);
     uint32_t avail = written - u->rx_taken;
-    bool deliver = false;
+    bool overrun = false;
 
     if (avail != 0u) {
         uint32_t state = mclw_hal_critical_enter();
         if (avail > UART_PIO_RX_RING_SIZE - UART_PIO_RX_SLACK) {
             u->base.stats.overruns += avail;
             u->base.stats.ring_overruns += avail;
-        } else {
-            u->base.stats.bytes_rx += avail;
-            deliver = u->base.on_rx != NULL;
+            overrun = true;
         }
         mclw_hal_critical_exit(state);
-        if (deliver) {
+        if (!overrun) {
+            // The bytes, and where each break fell among them.
             for (uint32_t i = 0; i < avail; i++) {
-                u->rx_linear[i] = u->rx_ring[(u->rx_read + i) & UART_PIO_RX_RING_MASK];
+                uint16_t entry = u->rx_ring[(u->rx_read + i) & UART_PIO_RX_RING_MASK];
+
+                if (entry == UART_PIO_RX_ENTRY_BREAK) {
+                    if (breaks < UART_PIO_RX_BREAKS_MAX) {
+                        u->rx_breaks[breaks] = (uint16_t)bytes;
+                    }
+                    breaks++;
+                } else {
+                    u->rx_linear[bytes++] = (uint8_t)(entry >> 8);
+                }
             }
+            state = mclw_hal_critical_enter();
+            u->base.stats.bytes_rx += bytes;
+            u->base.stats.breaks += breaks;
+            mclw_hal_critical_exit(state);
         }
         u->rx_read = pos;
         u->rx_taken = written;
@@ -285,8 +322,21 @@ static void rx_deliver(struct uart_pio *u) {
         u->rx_taken = 0;
         dma_channel_set_trans_count(u->rx_dma, UART_PIO_RX_DMA_COUNT, true);
     }
-    if (deliver) {
-        u->base.on_rx(&u->base, u->rx_linear, avail, u->base.on_rx_ctx);
+    if (!overrun) {
+        uint32_t from = 0;
+        uint32_t marks = breaks < UART_PIO_RX_BREAKS_MAX ? breaks : UART_PIO_RX_BREAKS_MAX;
+
+        for (uint32_t b = 0; b <= marks; b++) {
+            uint32_t until = b < marks ? u->rx_breaks[b] : bytes;
+
+            if (until > from && u->base.on_rx != NULL) {
+                u->base.on_rx(&u->base, u->rx_linear + from, until - from, u->base.on_rx_ctx);
+            }
+            from = until;
+            if (b < marks && u->base.on_break != NULL) {
+                u->base.on_break(&u->base, u->base.on_break_ctx);
+            }
+        }
     }
     mclw_hal_unlock();
 }
@@ -416,15 +466,16 @@ static void start_machines(struct uart_pio *u, uint32_t div256) {
     pio->fdebug = 1u << (PIO_FDEBUG_RXSTALL_LSB + u->rx_sm);
 
     // Receive: the byte the program pushed sits in the top lane of the FIFO
-    // word; the ring wraps in hardware. Transmit: a byte write to the FIFO
+    // word, and the channel takes the top two (a break's word is all ones,
+    // a byte's has zeros below it); the ring wraps in hardware. Transmit: a byte write to the FIFO
     // is replicated across the word and the program shifts out the low 8.
     dma_channel_config rx = dma_channel_get_default_config(u->rx_dma);
-    channel_config_set_transfer_data_size(&rx, DMA_SIZE_8);
+    channel_config_set_transfer_data_size(&rx, DMA_SIZE_16);
     channel_config_set_read_increment(&rx, false);
     channel_config_set_write_increment(&rx, true);
-    channel_config_set_ring(&rx, true, UART_PIO_RX_RING_BITS);
+    channel_config_set_ring(&rx, true, UART_PIO_RX_RING_BITS + 1u);
     channel_config_set_dreq(&rx, pio_get_dreq(pio, u->rx_sm, false));
-    dma_channel_configure(u->rx_dma, &rx, u->rx_ring, (const volatile uint8_t *)&pio->rxf[u->rx_sm] + 3,
+    dma_channel_configure(u->rx_dma, &rx, u->rx_ring, (const volatile uint8_t *)&pio->rxf[u->rx_sm] + 2,
         UART_PIO_RX_DMA_COUNT, true);
 
     dma_channel_config tx = dma_channel_get_default_config(u->tx_dma);
@@ -528,11 +579,44 @@ static size_t uart_pio_send(struct mclw_uart *uart, const uint8_t *bytes, size_t
     return queued;
 }
 
+// What is queued leaves first; then TX is held low, the transmitter
+// stopped at its PULL so it resumes with the line back high.
+static int uart_pio_hold_break(struct mclw_uart *uart, bool on) {
+    struct uart_pio *u = (struct uart_pio *)uart;
+    uint32_t mask = 1u << u->tx_sm;
+
+    if (on) {
+        int err = tx_drain(u);
+
+        if (err != 0) {
+            return err;
+        }
+        pio_set_sm_mask_enabled(u->pio, mask, false);
+        pio_sm_set_pins_with_mask64(u->pio, u->tx_sm, 0, MCLW_PIO_PIN(u->tx_pin));
+    } else {
+        pio_sm_set_pins_with_mask64(u->pio, u->tx_sm, MCLW_PIO_PIN(u->tx_pin), MCLW_PIO_PIN(u->tx_pin));
+        pio_set_sm_mask_enabled(u->pio, mask, true);
+    }
+    return 0;
+}
+
+static int uart_pio_send_break(struct mclw_uart *uart, uint32_t bits) {
+    int err = uart_pio_hold_break(uart, true);
+
+    if (err != 0) {
+        return err;
+    }
+    busy_wait_us_32((uint32_t)(((uint64_t)bits * 1000000u + uart->baud - 1u) / uart->baud));
+    return uart_pio_hold_break(uart, false);
+}
+
 static const struct mclw_uart_engine uart_pio_engine = {
     .close = uart_pio_close,
     .set_baud = uart_pio_set_baud,
     .set_format = uart_pio_set_format,
     .send = uart_pio_send,
+    .send_break = uart_pio_send_break,
+    .hold_break = uart_pio_hold_break,
 };
 
 struct mclw_uart *mclw_uart_pio_open(uint8_t tx, uint8_t rx, uint32_t baud,
@@ -610,6 +694,9 @@ struct mclw_uart *mclw_uart_pio_open(uint8_t tx, uint8_t rx, uint32_t baud,
     u->base.stats.frame_errors = 0;
     u->base.stats.fifo_overruns = 0;
     u->base.stats.ring_overruns = 0;
+    u->base.stats.breaks = 0;
+    u->base.on_break = NULL;
+    u->base.on_break_ctx = NULL;
     u->tx_pin = tx;
     u->rx_pin = rx;
     u->stop_bits = format->stop_bits;

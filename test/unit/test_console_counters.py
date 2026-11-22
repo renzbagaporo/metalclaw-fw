@@ -60,7 +60,17 @@ def test_each_hand_off_the_host_queue_takes_short_is_counted_once(check):
 
 
 def test_a_dut_break_reaches_the_host_and_a_host_break_the_dut(check):
-    # 115200 baud: a 2 ms SEND_BREAK is 230 bit times; a 0 ms one asks for
-    # nothing; one held until further notice (FFFFh) is a LIN break's 13.
-    got = check("bridge", "all", "B", "S2", "S65535")
-    assert (got["breaks_to_host"], got["usb_breaks"], got["breaks_from_host"], got["break_bits"]) == (1, 1, 2, 13)
+    # 115200 baud: a 2 ms SEND_BREAK is 230 bit times.
+    got = check("bridge", "all", "B", "S2")
+    assert (got["breaks_to_host"], got["usb_breaks"], got["breaks_from_host"], got["break_bits"]) == (1, 1, 1, 230)
+
+
+def test_a_held_send_break_holds_the_line_until_the_one_that_ends_it(check):
+    # Linux's cdc-acm: FFFFh, then 0 once the tty's break time is over.
+    got = check("bridge", "S65535", "S0")
+    assert (got["holds_on"], got["holds_off"], got["breaks_from_host"], got["break_bits"]) == (1, 1, 1, 0)
+
+
+def test_a_held_break_still_holds_until_its_end_across_other_requests(check):
+    got = check("bridge", "S65535", "S65535", "S0", "S0")
+    assert (got["holds_on"], got["holds_off"], got["breaks_from_host"]) == (1, 1, 1)

@@ -82,9 +82,14 @@ header's 13 bits dominant) reaches the host after the bytes before it, as a
 CDC SERIAL_STATE notification with Break set: on Linux the tty reads it as
 a break (a NUL, or FFh 00h 00h with PARMRK). A SEND_BREAK from the host
 (`tcsendbreak`, pyserial's `send_break`) goes to the DUT once the bytes
-queued before it have, held for its length and at least 13 bit times. On
-rp2 a PL011 pin pair carries breaks both ways; the PIO engine carries none
-yet, and counts a break as a frame error. On the host port, whose serial
+queued before it have, held for its length and at least 13 bit times; one
+held until further notice (FFFFh, all Linux's cdc-acm sends, ending it with
+a SEND_BREAK of 0 once the tty's break time is over) holds the line until
+that end. The trace records each SEND_BREAK (`command`, its wValue) and
+each held break's start and end (`state` 1 and 0, the engine's result). On
+rp2 both engines carry breaks both ways: a PL011 pin pair, and the PIO
+engine on any other pins, whose receiver takes a frame with all eight data
+bits and its stop bit low as a break. On the host port, whose serial
 functions are pseudo-terminals with no break, a break toward the host is
 the NUL such a tty reads one as, and a host's SEND_BREAK cannot pass; its
 bridge carries breaks to and from the emulator (`uart` with `break`).

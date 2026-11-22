@@ -74,10 +74,12 @@ uint8_t mclw_hal_usb_control_lines(const struct mclw_usb_interface *itf);
 // A serial function's breaks. serial_break sends one toward the host after
 // the bytes already queued (a SERIAL_STATE notification with Break set);
 // -ENOSPC while several wait to go. serial_take_break returns the host's
-// last SEND_BREAK, in ms (FFFFh: until further notice), and clears it; 0
-// for none. The host's request also calls the function's control callback.
+// last SEND_BREAK and clears it: its length in ms, FFFFh for one held
+// until a SEND_BREAK of 0, which ends it (Linux's cdc-acm sends only those
+// two); -1 for none. The host's request also calls the function's control
+// callback.
 int mclw_hal_usb_serial_break(struct mclw_usb_interface *itf);
-uint16_t mclw_hal_usb_serial_take_break(struct mclw_usb_interface *itf);
+int32_t mclw_hal_usb_serial_take_break(struct mclw_usb_interface *itf);
 
 // How many serial functions the port can have open at once; `free`, when
 // not NULL, gets how many of those are not open now.
