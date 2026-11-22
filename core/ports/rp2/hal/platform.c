@@ -2,6 +2,10 @@
 
 #include "hardware/sync.h"
 #include "pico/time.h"
+#if !PICO_RP2040
+#include "hardware/structs/qmi.h"
+#include "hardware/watchdog.h"
+#endif
 #include "metalclaw/hal/platform.h"
 #include "metalclaw_port.h"
 
@@ -91,7 +95,43 @@ void mclw_hal_delay_us(uint32_t us) {
     busy_wait_us_32(us);
 }
 
+#if !PICO_RP2040
+// A watchdog scratch word marking the reboot below, so it happens once.
+#define XIP_REBOOT_SCRATCH 3u
+#define XIP_REBOOT_MARK 0x58495052u
+
+// A debugger's flash loader can leave the RP2350's QMI windows in slow
+// reads: M0 (the flash) in plain serial reads (03h), or M1 (the CS1 window,
+// a PSRAM's) in a dual read (BBh) where the boot path sets the quad EBh it
+// sets on M0. A reset-and-go then starts the image without the boot path
+// that sets them up, and everything run or kept there is many times slower
+// (the worker took 200 us a clock poll, against 20). Rebooting once through
+// the bootrom, as a watchdog reset does, sets them up.
+static uint32_t rcmd_prefix(uint32_t rcmd) {
+    return (rcmd & QMI_M0_RCMD_PREFIX_BITS) >> QMI_M0_RCMD_PREFIX_LSB;
+}
+
+static void xip_fast_or_reboot(void) {
+    uint32_t m0 = rcmd_prefix(qmi_hw->m[0].rcmd);
+    uint32_t m1 = rcmd_prefix(qmi_hw->m[1].rcmd);
+    bool slow = m0 == 0x03u || (m1 != 0u && m1 != m0);
+
+    if (!slow || watchdog_hw->scratch[XIP_REBOOT_SCRATCH] == XIP_REBOOT_MARK) {
+        watchdog_hw->scratch[XIP_REBOOT_SCRATCH] = 0u;
+        return;
+    }
+    watchdog_hw->scratch[XIP_REBOOT_SCRATCH] = XIP_REBOOT_MARK;
+    watchdog_reboot(0u, 0u, 0u);
+    for (;;) {
+        tight_loop_contents();
+    }
+}
+#endif
+
 void mclw_port_early_init(void) {
+#if !PICO_RP2040
+    xip_fast_or_reboot();
+#endif
     mclw_platform_init();
     mclw_runtime_init();
     mclw_worker_start();
