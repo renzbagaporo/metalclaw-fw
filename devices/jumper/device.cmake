@@ -15,3 +15,8 @@ metalclaw_device(jumper_open_drain_clock
     SOURCES ${CMAKE_CURRENT_LIST_DIR}/jumper.c
     INCLUDE ${CMAKE_CURRENT_LIST_DIR}
 )
+metalclaw_device(jumper_open_drain_clock_edge
+    SYMBOL mclw_model_jumper_open_drain_clock_edge ABI 1
+    SOURCES ${CMAKE_CURRENT_LIST_DIR}/jumper.c
+    INCLUDE ${CMAKE_CURRENT_LIST_DIR}
+)

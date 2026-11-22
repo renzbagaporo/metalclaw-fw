@@ -250,6 +250,10 @@ int mclw_hal_gpio_join_clock(struct mclw_gpio *a, struct mclw_gpio *b) {
     return link(a, b, LINK_JOIN, true);
 }
 
+int mclw_hal_gpio_join_clock_edge(struct mclw_gpio *a, struct mclw_gpio *b) {
+    return link(a, b, LINK_JOIN, true);
+}
+
 void mclw_hal_gpio_unlink(struct mclw_gpio *gpio) {
     uint32_t state = mclw_hal_critical_enter();
     struct mclw_gpio *peer = gpio->peer;
