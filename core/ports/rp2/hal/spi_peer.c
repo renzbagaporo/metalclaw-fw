@@ -3,15 +3,17 @@
 // channels each.
 //
 //   target      waits for chip select low, pulls the next byte, shifts it
-//               out on MISO a bit per SCK fall while sampling MOSI on every
-//               rise, and goes back to waiting for chip select high. Both
+//               out on MISO a bit at a time and samples MOSI between, on
+//               SCK's edges as the mode has them (mode 0: out on each fall
+//               and before the first rise, sampled on every rise), and goes
+//               back to waiting for chip select high. Both
 //               channels run on 256-byte rings for as long as the peer is
 //               open, so window k shifts out byte k mod 256 of the loaded
 //               ring and its MOSI byte lands at the same place.
 //   controller  pulls a byte, drops chip select, clocks eight bits with
-//               SCK on the side-set pin (MOSI set up while SCK is low, MISO
-//               sampled as it rises), raises chip select and keeps it high
-//               for a bit time before the next byte.
+//               SCK on the side-set pin (in mode 0 MOSI set up while SCK is
+//               low, MISO sampled as it rises), raises chip select and keeps
+//               it high for a bit time before the next byte.
 //
 // A byte through an 8-bit DMA write lands in every lane of the TX FIFO
 // word, as the bus fabric replicates narrow writes (pico-examples'
@@ -53,6 +55,8 @@
 struct mclw_spi_peer {
     bool open;
     bool controller;
+    uint8_t mode;
+    uint32_t hz;
     struct mclw_gpio *pins[4];
     PIO pio;
     uint8_t sm;
@@ -77,19 +81,38 @@ static struct mclw_spi_peer slots[2];
 static uint8_t tx_ring[MCLW_SPI_PEER_RING] __attribute__((aligned(MCLW_SPI_PEER_RING)));
 static uint8_t rx_ring[MCLW_SPI_PEER_RING] __attribute__((aligned(MCLW_SPI_PEER_RING)));
 
+static bool mode_cpol(uint8_t mode) {
+    return (mode & 2u) != 0u;
+}
+
+static bool mode_cpha(uint8_t mode) {
+    return (mode & 1u) != 0u;
+}
+
+// A bit: SCK's first edge takes it to the active level (!CPOL), its second
+// back to idle. CPHA 0 shifts out ahead of the first edge and samples on
+// it; CPHA 1 shifts out on the first and samples on the second.
 static void encode_target(struct mclw_spi_peer *p) {
     uint sck = p->pins[PIN_SCK]->pin % 32u;
     uint cs = p->pins[PIN_CS]->pin % 32u;
+    bool active = !mode_cpol(p->mode);
     uint16_t *w = p->words;
 
     w[0] = (uint16_t)pio_encode_wait_gpio(true, cs);
     w[1] = (uint16_t)pio_encode_wait_gpio(false, cs);
     w[2] = (uint16_t)pio_encode_pull(false, true);
     w[3] = (uint16_t)pio_encode_set(pio_x, 7u);
-    w[4] = (uint16_t)pio_encode_out(pio_pins, 1u);
-    w[5] = (uint16_t)pio_encode_wait_gpio(true, sck);
-    w[6] = (uint16_t)pio_encode_in(pio_pins, 1u);
-    w[7] = (uint16_t)pio_encode_wait_gpio(false, sck);
+    if (mode_cpha(p->mode)) {
+        w[4] = (uint16_t)pio_encode_wait_gpio(active, sck);
+        w[5] = (uint16_t)pio_encode_out(pio_pins, 1u);
+        w[6] = (uint16_t)pio_encode_wait_gpio(!active, sck);
+        w[7] = (uint16_t)pio_encode_in(pio_pins, 1u);
+    } else {
+        w[4] = (uint16_t)pio_encode_out(pio_pins, 1u);
+        w[5] = (uint16_t)pio_encode_wait_gpio(active, sck);
+        w[6] = (uint16_t)pio_encode_in(pio_pins, 1u);
+        w[7] = (uint16_t)pio_encode_wait_gpio(!active, sck);
+    }
     w[8] = (uint16_t)pio_encode_jmp_x_dec(TARGET_BIT);
     p->program.length = TARGET_LENGTH;
 }
@@ -98,16 +121,22 @@ static uint16_t sck_side(uint value) {
     return (uint16_t)pio_encode_sideset(1u, value);
 }
 
+// Each bit is the OUT's half period then the IN's and the JMP's: CPHA 0
+// holds SCK idle through the OUT and takes it active as IN samples, CPHA 1
+// takes it active with the OUT and back to idle as IN samples.
 static void encode_controller(struct mclw_spi_peer *p) {
+    uint idle = mode_cpol(p->mode) ? 1u : 0u;
+    uint out_level = mode_cpha(p->mode) ? !idle : idle;
+    uint in_level = mode_cpha(p->mode) ? idle : !idle;
     uint16_t *w = p->words;
 
-    w[0] = (uint16_t)pio_encode_pull(false, true) | sck_side(0);
-    w[1] = (uint16_t)(pio_encode_set(pio_pins, 0u) | sck_side(0) | pio_encode_delay(CONTROLLER_DELAY));
-    w[2] = (uint16_t)pio_encode_set(pio_x, 7u) | sck_side(0);
-    w[3] = (uint16_t)(pio_encode_out(pio_pins, 1u) | sck_side(0) | pio_encode_delay(CONTROLLER_DELAY));
-    w[4] = (uint16_t)(pio_encode_in(pio_pins, 1u) | sck_side(1) | pio_encode_delay(CONTROLLER_DELAY - 1u));
-    w[5] = (uint16_t)pio_encode_jmp_x_dec(CONTROLLER_BIT) | sck_side(1);
-    w[6] = (uint16_t)(pio_encode_set(pio_pins, 1u) | sck_side(0) | pio_encode_delay(CONTROLLER_GAP));
+    w[0] = (uint16_t)pio_encode_pull(false, true) | sck_side(idle);
+    w[1] = (uint16_t)(pio_encode_set(pio_pins, 0u) | sck_side(idle) | pio_encode_delay(CONTROLLER_DELAY));
+    w[2] = (uint16_t)pio_encode_set(pio_x, 7u) | sck_side(idle);
+    w[3] = (uint16_t)(pio_encode_out(pio_pins, 1u) | sck_side(out_level) | pio_encode_delay(CONTROLLER_DELAY));
+    w[4] = (uint16_t)(pio_encode_in(pio_pins, 1u) | sck_side(in_level) | pio_encode_delay(CONTROLLER_DELAY - 1u));
+    w[5] = (uint16_t)pio_encode_jmp_x_dec(CONTROLLER_BIT) | sck_side(in_level);
+    w[6] = (uint16_t)(pio_encode_set(pio_pins, 1u) | sck_side(idle) | pio_encode_delay(CONTROLLER_GAP));
     p->program.length = CONTROLLER_LENGTH;
 }
 
@@ -176,7 +205,9 @@ static void configure(struct mclw_spi_peer *p, uint32_t hz) {
         sm_config_set_out_pins(&c, mosi, 1u);
         sm_config_set_in_pins(&c, miso);
         sm_config_set_clkdiv(&c, (float)clock_get_hz(clk_sys) / (float)(2u * CONTROLLER_HALF * hz));
-        pio_sm_set_pins_with_mask64(p->pio, p->sm, MCLW_PIO_PIN(cs), outputs);
+        uint64_t high = MCLW_PIO_PIN(cs) | (mode_cpol(p->mode) ? MCLW_PIO_PIN(sck) : 0u);
+
+        pio_sm_set_pins_with_mask64(p->pio, p->sm, high, outputs);
         pio_sm_set_pindirs_with_mask64(p->pio, p->sm, outputs, outputs);
         pio_gpio_init(p->pio, sck);
         pio_gpio_init(p->pio, mosi);
@@ -251,6 +282,7 @@ static struct mclw_spi_peer *open_peer(bool controller, struct mclw_gpio *sck, s
     memset(p, 0, sizeof(*p));
     memcpy(p->pins, pins, sizeof(p->pins));
     p->controller = controller;
+    p->hz = hz;
     p->program.instructions = p->words;
     p->program.origin = -1;
     p->tx_dma = -1;
@@ -313,6 +345,40 @@ void mclw_hal_spi_peer_restart(struct mclw_spi_peer *p) {
     pio_sm_exec(p->pio, p->sm, pio_encode_jmp(p->offset));
     start_target_dma(p);
     pio_sm_set_enabled(p->pio, p->sm, true);
+}
+
+// The program is the same length in every mode, so it goes back where it
+// was.
+int mclw_hal_spi_peer_set_mode(struct mclw_spi_peer *p, uint8_t mode) {
+    if (p == NULL || !p->open || mode > 3u) {
+        return -EINVAL;
+    }
+    if (mclw_hal_spi_peer_busy(p)) {
+        return -EBUSY;
+    }
+    if (mode == p->mode) {
+        return 0;
+    }
+    pio_sm_set_enabled(p->pio, p->sm, false);
+    if (!p->controller) {
+        dma_channel_abort((uint)p->tx_dma);
+        dma_channel_abort((uint)p->rx_dma);
+    }
+    pio_remove_program(p->pio, &p->program, p->offset);
+    p->mode = mode;
+    if (p->controller) {
+        encode_controller(p);
+    } else {
+        encode_target(p);
+    }
+    pio_add_program_at_offset(p->pio, &p->program, p->offset);
+    pio_sm_clear_fifos(p->pio, p->sm);
+    configure(p, p->hz);
+    if (!p->controller) {
+        start_target_dma(p);
+    }
+    pio_sm_set_enabled(p->pio, p->sm, true);
+    return 0;
 }
 
 void mclw_hal_spi_peer_load(struct mclw_spi_peer *p, const uint8_t *bytes, size_t len) {

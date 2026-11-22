@@ -394,8 +394,8 @@ port exists.
   open-drain join, twelve, waits out a 2 µs settle after it lets a side go
   before it looks at that side again).
 - `spi_peer.h`: an SPI peer on four pins a model holds as gpio bindings,
-  mode 0, MSB first, one byte per chip-select window, the framing a PL022
-  uses in mode 0: a target that shifts out the next byte of a 256-byte
+  in any of the four SPI modes (mode 0 when it opens), MSB first, one byte
+  per chip-select window, the framing a PL022 uses in mode 0: a target that shifts out the next byte of a 256-byte
   ring per window and keeps what came in at the same place, or a controller
   that clocks a transfer at its own rate. On rp2 one PIO state machine
   (nine and seven instructions) and two DMA channels each.

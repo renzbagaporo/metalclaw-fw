@@ -153,6 +153,21 @@ void mclw_hal_spi_peer_restart(struct mclw_spi_peer *peer) {
     mclw_hal_critical_exit(state);
 }
 
+// The emulator hands over whole frames, which its SPI block clocks in the
+// mode the DUT set; the peer has no edges of its own to place.
+int mclw_hal_spi_peer_set_mode(struct mclw_spi_peer *peer, uint8_t mode) {
+    if (peer == NULL || !peer->open || mode > 3u) {
+        return -EINVAL;
+    }
+    if (mclw_hal_spi_peer_busy(peer)) {
+        return -EBUSY;
+    }
+    if (!peer->controller) {
+        mclw_hal_spi_peer_restart(peer);
+    }
+    return 0;
+}
+
 int mclw_hal_spi_peer_transfer(struct mclw_spi_peer *peer, const uint8_t *out, uint8_t *in, size_t len) {
     uint64_t at = mclw_host_event_ns();
 

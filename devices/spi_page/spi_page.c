@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 // The other end of an SPI link that moves 256-byte pages one byte per
-// chip-select window, mode 0, as two PL022s in mode 0 do: pico-examples'
-// spi_master and spi_slave, each the other's part.
+// chip-select window, as two PL022s in mode 0 do: pico-examples'
+// spi_master and spi_slave, each the other's part. Mode 0 unless the
+// `mode` property says otherwise.
 //
 // spi_page_target       for a DUT that is the controller: every window
 //                       answers the next byte of its `miso` page and keeps
@@ -39,12 +40,14 @@ enum {
 
 enum {
     TARGET_PROP_BYTES,
+    TARGET_PROP_MODE,
 };
 
 enum {
     CONTROLLER_PROP_PAGES,
     CONTROLLER_PROP_INTERVAL,
     CONTROLLER_PROP_CLOCKED,
+    CONTROLLER_PROP_MODE,
 };
 
 struct spi_page_state {
@@ -64,14 +67,21 @@ struct spi_page_state {
     uint32_t interval_ms;
     uint32_t clocked;
     uint64_t next_us;
+    uint8_t mode;
 };
 
 #define COUNTER(prop_name, prop_unit) \
     { .name = prop_name, .type = MCLW_TYPE_U32, .count = 1, .access = MCLW_ACCESS_RO, \
       .unit = prop_unit, .min = 0, .max = UINT32_MAX }
 
+// CPOL in bit 1, CPHA in bit 0.
+#define MODE_PROPERTY \
+    { .name = "mode", .type = MCLW_TYPE_U32, .count = 1, .access = MCLW_ACCESS_RW, \
+      .unit = NULL, .min = 0, .max = 3 }
+
 static const struct mclw_property_desc target_properties[] = {
     COUNTER("bytes", "bytes"),
+    MODE_PROPERTY,
 };
 
 static const struct mclw_property_desc controller_properties[] = {
@@ -94,6 +104,7 @@ static const struct mclw_property_desc controller_properties[] = {
         .max = 60000,
     },
     COUNTER("clocked", NULL),
+    MODE_PROPERTY,
 };
 
 // The target answers with `miso` and fills `mosi`; the controller sends
@@ -177,11 +188,40 @@ static uint32_t target_bytes(const struct spi_page_state *s) {
 static int target_get(struct mclw_instance *inst, size_t property, struct mclw_value *out) {
     const struct spi_page_state *s = inst->state;
 
-    if (property != TARGET_PROP_BYTES) {
+    switch (property) {
+        case TARGET_PROP_BYTES:
+            out->v[0] = target_bytes(s);
+            return 0;
+        case TARGET_PROP_MODE:
+            out->v[0] = s->mode;
+            return 0;
+        default:
+            return -EINVAL;
+    }
+}
+
+// The rings start again at byte 0 in the new mode, as after a realignment.
+static int target_set_mode(struct spi_page_state *s, uint8_t mode) {
+    uint32_t before = target_bytes(s);
+    int err = mclw_hal_spi_peer_set_mode(s->peer, mode);
+
+    if (err != 0) {
+        return err;
+    }
+    s->mode = mode;
+    s->earlier = before;
+    s->last_count = 0u;
+    s->still_polls = 0u;
+    return 0;
+}
+
+static int target_set(struct mclw_instance *inst, size_t property, const struct mclw_value *in) {
+    struct spi_page_state *s = inst->state;
+
+    if (property != TARGET_PROP_MODE) {
         return -EINVAL;
     }
-    out->v[0] = target_bytes(s);
-    return 0;
+    return target_set_mode(s, (uint8_t)in->v[0]);
 }
 
 static int target_reset(struct mclw_instance *inst, bool factory) {
@@ -189,6 +229,9 @@ static int target_reset(struct mclw_instance *inst, bool factory) {
 
     if (factory) {
         default_pages(s, false);
+        if (target_set_mode(s, 0u) != 0) {
+            return -EIO;
+        }
     }
     s->earlier = 0u;
     s->still_polls = 0u;
@@ -260,6 +303,9 @@ static int controller_get(struct mclw_instance *inst, size_t property, struct mc
         case CONTROLLER_PROP_CLOCKED:
             out->v[0] = s->clocked;
             return 0;
+        case CONTROLLER_PROP_MODE:
+            out->v[0] = s->mode;
+            return 0;
         default:
             return -EINVAL;
     }
@@ -278,6 +324,15 @@ static int controller_set(struct mclw_instance *inst, size_t property, const str
         case CONTROLLER_PROP_INTERVAL:
             s->interval_ms = (uint32_t)in->v[0];
             return 0;
+        case CONTROLLER_PROP_MODE: {
+            // Between pages: -EBUSY while one is in flight.
+            int err = mclw_hal_spi_peer_set_mode(s->peer, (uint8_t)in->v[0]);
+
+            if (err == 0) {
+                s->mode = (uint8_t)in->v[0];
+            }
+            return err;
+        }
         default:
             return -EINVAL;
     }
@@ -289,6 +344,9 @@ static int controller_reset(struct mclw_instance *inst, bool factory) {
     if (factory) {
         default_pages(s, true);
         s->interval_ms = SPI_PAGE_INTERVAL_MS;
+        if (mclw_hal_spi_peer_set_mode(s->peer, 0u) == 0) {
+            s->mode = 0u;
+        }
     }
     s->pages = 0u;
     s->clocked = 0u;
@@ -346,6 +404,7 @@ static const struct mclw_model_ops target_ops = {
     .deinit = page_deinit,
     .reset = target_reset,
     .get = target_get,
+    .set = target_set,
     .read_region = target_read_region,
     .write_region = target_write_region,
     .poll = target_poll,

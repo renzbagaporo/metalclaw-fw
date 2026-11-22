@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-// A byte-wide SPI peer on four pins a model holds as gpio bindings: SPI
-// mode 0, MSB first, one byte per chip-select window. That is how an ARM
-// PL022, the RP2040's and RP2350's SPI block, frames Motorola SPI with SPO
-// 0 and SPH 0: it raises its chip select between every two frames. A
-// register-map target, which reads the first byte of a window as a
-// command, cannot answer that.
+// A byte-wide SPI peer on four pins a model holds as gpio bindings: MSB
+// first, one byte per chip-select window, in any of the four SPI modes
+// (mode 0 when it opens). That is how an ARM PL022, the RP2040's and
+// RP2350's SPI block, frames Motorola SPI with SPH 0: it raises its chip
+// select between every two frames. A register-map target, which reads the
+// first byte of a window as a command, cannot answer that.
 //
 // target      the DUT clocks. Each window shifts out the next byte of a
 //             MCLW_SPI_PEER_RING-byte ring the model loads, and the byte
@@ -46,6 +46,13 @@ void mclw_hal_spi_peer_restart(struct mclw_spi_peer *peer);
 // both must stay valid until busy() is false. -EBUSY while one runs.
 int mclw_hal_spi_peer_transfer(struct mclw_spi_peer *peer, const uint8_t *out, uint8_t *in, size_t len);
 bool mclw_hal_spi_peer_busy(const struct mclw_spi_peer *peer);
+
+// The SPI mode, 0 to 3: CPOL in bit 1 (SCK's idle level), CPHA in bit 0
+// (0: data out before SCK's first edge and sampled on it; 1: out on the
+// first edge, sampled on the second). A target restarts as restart() does;
+// a controller takes it only between transfers. -EINVAL for any other
+// mode, -EBUSY while a controller transfer runs.
+int mclw_hal_spi_peer_set_mode(struct mclw_spi_peer *peer, uint8_t mode);
 
 // Bytes exchanged since the peer opened or restarted.
 uint32_t mclw_hal_spi_peer_count(const struct mclw_spi_peer *peer);

@@ -140,6 +140,7 @@ struct mclw_spi_peer {
     size_t len;
     bool busy;
     uint32_t restarts;
+    uint8_t mode;
 };
 
 static struct mclw_spi_peer peer;
@@ -203,6 +204,20 @@ int mclw_hal_spi_peer_transfer(struct mclw_spi_peer *p, const uint8_t *out, uint
 
 bool mclw_hal_spi_peer_busy(const struct mclw_spi_peer *p) {
     return p->busy;
+}
+
+int mclw_hal_spi_peer_set_mode(struct mclw_spi_peer *p, uint8_t mode) {
+    if (mode > 3u) {
+        return -EINVAL;
+    }
+    if (p->busy) {
+        return -EBUSY;
+    }
+    p->mode = mode;
+    if (!p->controller) {
+        mclw_hal_spi_peer_restart(p);
+    }
+    return 0;
 }
 
 uint32_t mclw_hal_spi_peer_count(const struct mclw_spi_peer *p) {
@@ -394,6 +409,14 @@ static void page_target(void) {
     dut_clocks(2, counting, miso);
     CHECK(miso[0] == 0x12 && miso[1] == 0x34);
     CHECK(get(m, "bytes") == 614);
+
+    // A new mode starts the rings again at byte 0; the count carries on.
+    CHECK(get(m, "mode") == 0 && set(m, "mode", 1) == 0);
+    CHECK(peer.mode == 1u && peer.count == 0u && get(m, "mode") == 1 && get(m, "bytes") == 614);
+    dut_clocks(1, counting, miso);
+    CHECK(miso[0] == 0x12 && get(m, "bytes") == 615);
+    CHECK(m->ops->reset(&instance, true) == 0);
+    CHECK(peer.mode == 0u && get(m, "mode") == 0);
     m->ops->deinit(&instance);
     CHECK(!peer.open);
 }
@@ -434,6 +457,16 @@ static void page_controller(void) {
     CHECK(get(m, "clocked") == 2 && get(m, "pages") == 0);
     tick(m, 3 * SPI_PAGE_INTERVAL_MS);
     CHECK(!peer.busy && get(m, "clocked") == 2);
+
+    // The mode changes between pages only.
+    CHECK(set(m, "mode", 3) == 0 && peer.mode == 3u && get(m, "mode") == 3);
+    CHECK(set(m, "pages", 1) == 0);
+    tick(m, SPI_PAGE_INTERVAL_MS);
+    CHECK(peer.busy && set(m, "mode", 1) == -EBUSY && peer.mode == 3u);
+    peer.busy = false;
+    tick(m, 1);
+    CHECK(set(m, "mode", 1) == 0 && peer.mode == 1u);
+    CHECK(m->ops->reset(&instance, true) == 0 && peer.mode == 0u && get(m, "mode") == 0);
     m->ops->deinit(&instance);
 }
 

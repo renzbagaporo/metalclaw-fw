@@ -3,7 +3,8 @@
 # spi_page
 
 The other end of an SPI link that moves 256-byte pages one byte per
-chip-select window, in mode 0, MSB first: how two ARM PL022s (the RP2040's
+chip-select window, MSB first, in mode 0 unless `mode` says otherwise: how
+two ARM PL022s (the RP2040's
 and RP2350's SPI block) talk in mode 0, since a PL022 raises its chip select
 between every two frames in Motorola SPI with SPH 0. pico-examples'
 `spi_master` and `spi_slave` are each other's part; these models stand in
@@ -50,6 +51,7 @@ master.read_region("miso", 0, 256)          # what the last one brought back
 | model | name | type | unit | range | meaning |
 | --- | --- | --- | --- | --- | --- |
 | target | `bytes` | u32 | bytes | read only | windows clocked since attach |
+| both | `mode` | u32 | | 0 .. 3 | the SPI mode, CPOL in bit 1 and CPHA in bit 0; default 0 |
 | controller | `pages` | u32 | | 0 .. 100 000 | pages left to clock |
 | controller | `interval` | u32 | ms | 1 .. 60 000 | before each page; default 500 |
 | controller | `clocked` | u32 | | read only | pages clocked since attach |
@@ -63,6 +65,14 @@ master.read_region("miso", 0, 256)          # what the last one brought back
 | controller | `mosi` | 256 | rw | the page it sends; refused while one is in flight |
 | controller | `miso` | 256 | ro | what the DUT answered in the last page |
 
-`reset(True)` restores the default pages; any `reset()` restarts the
-target's rings and clears the controller's `pages` and `clocked`. There are
-no faults.
+`mode` sets SCK's idle level (CPOL) and which edge each bit is sampled on
+(CPHA 0: data out before the first edge of each bit and sampled on it;
+CPHA 1: out on the first edge, sampled on the second), as the DUT's SPI
+block is configured (some SPI targets only do CPHA 1). A
+new mode on the target starts its rings again at byte 0, as a new `miso`
+page does; the controller takes one only between pages (`EBUSY` while one
+is in flight).
+
+`reset(True)` restores the default pages and mode 0; any `reset()`
+restarts the target's rings and clears the controller's `pages` and
+`clocked`. There are no faults.
