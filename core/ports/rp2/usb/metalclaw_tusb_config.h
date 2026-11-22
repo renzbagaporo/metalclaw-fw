@@ -18,6 +18,9 @@
 #define CFG_TUD_CDC_EP_BUFSIZE      64
 #define CFG_TUD_CDC_RX_BUFSIZE      256
 #define CFG_TUD_CDC_TX_BUFSIZE      256
+// SERIAL_STATE notifications on the CDC notify endpoints: a break the
+// DUT sent reaches the host as one.
+#define CFG_TUD_CDC_NOTIFY          1
 
 // One flash sector per transfer, so msc_disk.c never sees a partial block.
 #define CFG_TUD_MSC                 1

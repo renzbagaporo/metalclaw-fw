@@ -9,6 +9,7 @@
 #include "hardware/irq.h"
 #include "hardware/structs/uart.h"
 #include "hardware/sync.h"
+#include "hardware/timer.h"
 #include "hardware/uart.h"
 
 #include "metalclaw/bus.h"
@@ -24,6 +25,8 @@
 #define UART_RX_RING_MASK (UART_RX_RING_SIZE - 1u)
 #define UART_TX_RING_MASK (UART_TX_RING_SIZE - 1u)
 #define UART_FIFO_LEVEL_EIGHTH 0u
+// Breaks waiting for the worker, by where they fell in the receive ring.
+#define UART_BREAKS_MAX 8u
 
 struct pl011 {
     struct mclw_uart base;
@@ -35,6 +38,9 @@ struct pl011 {
     volatile uint16_t rx_tail;
     volatile uint16_t tx_head;
     volatile uint16_t tx_tail;
+    volatile uint8_t brk_head;
+    volatile uint8_t brk_tail;
+    uint16_t brk_at[UART_BREAKS_MAX];
     uint8_t rx_ring[UART_RX_RING_SIZE];
     uint8_t tx_ring[UART_TX_RING_SIZE];
     uint8_t rx_linear[UART_RX_RING_SIZE];
@@ -86,30 +92,45 @@ static bool format_valid(const struct mclw_uart_format *format) {
         format->stop_bits >= 1 && format->stop_bits <= 2 && parity_for(format->parity, &parity);
 }
 
+// What has come in, to on_rx, and each break to on_break where it fell
+// among the bytes.
 static void rx_deliver(struct mclw_work *work) {
     struct pl011 *u = work->ctx;
+    // A break the worker sees has its bytes in rx_head already.
+    uint8_t brk_head = u->brk_head;
+    __compiler_memory_barrier();
     uint16_t head = u->rx_head;
-    uint16_t tail = u->rx_tail;
-    uint16_t used = (uint16_t)((head - tail) & UART_RX_RING_MASK);
 
-    if (used == 0u) {
+    if (head == u->rx_tail && brk_head == u->brk_tail) {
         return;
     }
     if (!mclw_hal_try_lock()) {
         mclw_hal_work_post(work);
         return;
     }
-    if (u->base.owner == NULL || u->base.on_rx == NULL) {
-        u->rx_tail = head;
-        mclw_hal_unlock();
-        return;
+    while (u->rx_tail != head || u->brk_tail != brk_head) {
+        uint16_t tail = u->rx_tail;
+        bool at_break = u->brk_tail != brk_head;
+        uint16_t until = at_break ? u->brk_at[u->brk_tail % UART_BREAKS_MAX] : head;
+        uint16_t used = (uint16_t)((until - tail) & UART_RX_RING_MASK);
+
+        if (used != 0u && u->base.owner != NULL && u->base.on_rx != NULL) {
+            for (uint16_t i = 0; i < used; i++) {
+                u->rx_linear[i] = u->rx_ring[(tail + i) & UART_RX_RING_MASK];
+            }
+            __compiler_memory_barrier();
+            u->rx_tail = until;
+            u->base.on_rx(&u->base, u->rx_linear, used, u->base.on_rx_ctx);
+        } else {
+            u->rx_tail = until;
+        }
+        if (at_break) {
+            u->brk_tail++;
+            if (u->base.owner != NULL && u->base.on_break != NULL) {
+                u->base.on_break(&u->base, u->base.on_break_ctx);
+            }
+        }
     }
-    for (uint16_t i = 0; i < used; i++) {
-        u->rx_linear[i] = u->rx_ring[(tail + i) & UART_RX_RING_MASK];
-    }
-    __compiler_memory_barrier();
-    u->rx_tail = (uint16_t)((tail + used) & UART_RX_RING_MASK);
-    u->base.on_rx(&u->base, u->rx_linear, used, u->base.on_rx_ctx);
     mclw_hal_unlock();
 }
 
@@ -127,6 +148,21 @@ static void rx_service(struct pl011 *u) {
 
         if (overrun) {
             hw->rsr = 0u;
+        }
+        if ((dr & UART_UARTDR_BE_BITS) != 0u) {
+            // A break, not a byte: where it fell among the bytes.
+            // The bytes before it are published first, so the worker never
+            // sees a break ahead of the bytes it follows.
+            u->base.stats.breaks++;
+            if ((uint8_t)(u->brk_head - u->brk_tail) < UART_BREAKS_MAX) {
+                __compiler_memory_barrier();
+                u->rx_head = head;
+                u->brk_at[u->brk_head % UART_BREAKS_MAX] = head;
+                __compiler_memory_barrier();
+                u->brk_head++;
+                pushed = true;
+            }
+            continue;
         }
         if (!mclw_uart_rx_count(&u->base.stats, overrun,
                 (dr & (UART_UARTDR_FE_BITS | UART_UARTDR_PE_BITS | UART_UARTDR_BE_BITS)) != 0u,
@@ -234,6 +270,10 @@ static void pl011_close(struct mclw_uart *uart) {
     u->base.on_rx_ctx = NULL;
     u->rx_head = 0;
     u->rx_tail = 0;
+    u->brk_head = 0;
+    u->brk_tail = 0;
+    u->base.on_break = NULL;
+    u->base.on_break_ctx = NULL;
     u->tx_head = 0;
     u->tx_tail = 0;
 }
@@ -291,11 +331,24 @@ static size_t pl011_send(struct mclw_uart *uart, const uint8_t *bytes, size_t le
     return queued;
 }
 
+// What is queued leaves first; then the PL011's BRK holds TX low.
+static int pl011_send_break(struct mclw_uart *uart, uint32_t bits) {
+    struct pl011 *u = (struct pl011 *)uart;
+    uart_hw_t *hw = uart_get_hw(u->inst);
+
+    tx_flush(u);
+    hw_set_bits(&hw->lcr_h, UART_UARTLCR_H_BRK_BITS);
+    busy_wait_us_32((uint32_t)(((uint64_t)bits * 1000000u + u->base.baud - 1u) / u->base.baud));
+    hw_clear_bits(&hw->lcr_h, UART_UARTLCR_H_BRK_BITS);
+    return 0;
+}
+
 static const struct mclw_uart_engine pl011_engine = {
     .close = pl011_close,
     .set_baud = pl011_set_baud,
     .set_format = pl011_set_format,
     .send = pl011_send,
+    .send_break = pl011_send_break,
 };
 
 static struct mclw_uart *pl011_open(uart_inst_t *inst, uint8_t tx, uint8_t rx, uint32_t baud,
@@ -430,6 +483,23 @@ void mclw_hal_uart_set_rx(struct mclw_uart *u, mclw_uart_rx_t fn, void *ctx) {
     u->on_rx = fn;
     u->on_rx_ctx = ctx;
     mclw_hal_critical_exit(state);
+}
+
+void mclw_hal_uart_set_break(struct mclw_uart *u, mclw_uart_break_t fn, void *ctx) {
+    if (u == NULL) {
+        return;
+    }
+    uint32_t state = mclw_hal_critical_enter();
+    u->on_break = fn;
+    u->on_break_ctx = ctx;
+    mclw_hal_critical_exit(state);
+}
+
+int mclw_hal_uart_send_break(struct mclw_uart *u, uint32_t bits) {
+    if (u == NULL || u->owner == NULL || bits == 0u) {
+        return -EINVAL;
+    }
+    return u->engine->send_break != NULL ? u->engine->send_break(u, bits) : -ENOTSUP;
 }
 
 size_t mclw_hal_uart_send(struct mclw_uart *u, const uint8_t *bytes, size_t len) {

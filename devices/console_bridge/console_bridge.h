@@ -10,6 +10,8 @@
 #define CONSOLE_BRIDGE_DEFAULT_BAUD 115200u
 #define CONSOLE_BRIDGE_BAUD_MIN 300
 #define CONSOLE_BRIDGE_BAUD_MAX 3000000
+// The shortest break the bridge sends for the host: a LIN header's 13 bits.
+#define CONSOLE_BRIDGE_BREAK_BITS 13u
 
 // The interface string; hosts that list USB interfaces see it, Linux's
 // by-id name does not carry it.

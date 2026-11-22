@@ -18,6 +18,13 @@
 // Neither data the worker queued nor bytes a model left unconsumed raise a
 // USB event, so while a serial function is open core 0 looks this often.
 #define SERIAL_TICK_US 1000
+#define SERIAL_BREAKS_MAX 8u
+// A break's notification waits this long after the bulk transfer before it
+// completes, and the bytes after it this long after the notification does:
+// Linux's cdc-acm puts the break into the tty when it processes that
+// notification, and processes it apart from the bulk transfers around it
+// (a break was read after three later bytes).
+#define SERIAL_BREAK_HOLD_US 5000u
 
 struct serial_state {
     // Free-running. Producers are model contexts, serialised by the runtime
@@ -31,6 +38,20 @@ struct serial_state {
     volatile uint16_t stage_at;
     volatile uint8_t lines;
     cdc_line_coding_t coding;
+    // Breaks toward the host, by the queue position they follow; and the
+    // host's last SEND_BREAK not yet taken, in ms (0: none).
+    volatile uint8_t brk_head;
+    volatile uint8_t brk_tail;
+    uint32_t brk_at[SERIAL_BREAKS_MAX];
+    volatile uint16_t break_ms;
+    // A bulk IN transfer of the bytes is out, and a break's SERIAL_STATE
+    // the host has yet to take: the host polls the notify endpoint only
+    // every bInterval, so the bytes on either side of a break wait for
+    // both, or it would read them out of order.
+    volatile bool tx_inflight;
+    volatile bool notify_busy;
+    volatile uint32_t notify_done_us;
+    volatile uint32_t tx_done_us;
 };
 
 struct mclw_usb_interface {
@@ -92,7 +113,8 @@ void mclw_usb_layout_take(struct mclw_usb_layout *out) {
 static bool serial_pending(void) {
     for (size_t i = 0; i < MCLW_USB_SERIAL_MAX; i++) {
         const struct serial_state *st = &serial_states[i];
-        if (serial_slots[i].open && (st->head != st->tail || st->stage_at != st->stage_len)) {
+        if (serial_slots[i].open && (st->head != st->tail || st->stage_at != st->stage_len ||
+                st->brk_head != st->brk_tail)) {
             return true;
         }
     }
@@ -308,6 +330,29 @@ int mclw_hal_usb_line_coding(const struct mclw_usb_interface *s, struct mclw_usb
     return 0;
 }
 
+int mclw_hal_usb_serial_break(struct mclw_usb_interface *s) {
+    if (s == NULL || !s->open || s->serial == NULL) {
+        return -EINVAL;
+    }
+    struct serial_state *st = s->serial;
+    if ((uint8_t)(st->brk_head - st->brk_tail) >= SERIAL_BREAKS_MAX) {
+        return -ENOSPC;
+    }
+    st->brk_at[st->brk_head % SERIAL_BREAKS_MAX] = st->head;
+    __dmb();
+    st->brk_head = (uint8_t)(st->brk_head + 1u);
+    return 0;
+}
+
+uint16_t mclw_hal_usb_serial_take_break(struct mclw_usb_interface *s) {
+    if (s == NULL || !s->open || s->serial == NULL) {
+        return 0;
+    }
+    uint16_t ms = s->serial->break_ms;
+    s->serial->break_ms = 0;
+    return ms;
+}
+
 uint8_t mclw_hal_usb_control_lines(const struct mclw_usb_interface *s) {
     if (s == NULL || !s->open || s->serial == NULL) {
         return 0;
@@ -315,14 +360,13 @@ uint8_t mclw_hal_usb_control_lines(const struct mclw_usb_interface *s) {
     return s->serial->lines;
 }
 
-static void serial_to_host(struct serial_state *st, uint8_t cdc) {
+// The queue up to `until`; whether all of it went.
+static bool serial_drain(struct serial_state *st, uint8_t cdc, uint32_t until) {
     uint32_t tail = st->tail;
-    uint32_t head = st->head;
 
-    __dmb();
-    while (tail != head) {
+    while (tail != until) {
         uint32_t space = tud_cdc_n_write_available(cdc);
-        uint32_t chunk = head - tail;
+        uint32_t chunk = until - tail;
         uint32_t contiguous = SERIAL_QUEUE_SIZE - (tail & SERIAL_QUEUE_MASK);
 
         if (space == 0u) {
@@ -341,7 +385,63 @@ static void serial_to_host(struct serial_state *st, uint8_t cdc) {
         tail += n;
     }
     st->tail = tail;
-    tud_cdc_n_write_flush(cdc);
+    if (tud_cdc_n_write_flush(cdc) != 0u) {
+        st->tx_inflight = true;
+    }
+    return tail == until;
+}
+
+// The bytes, and each break once the bytes before it have gone, as a
+// SERIAL_STATE notification with Break set (PSTN 1.2 6.5.4).
+static void serial_to_host(struct serial_state *st, uint8_t cdc) {
+    for (;;) {
+        if (st->notify_busy || time_us_32() - st->notify_done_us < SERIAL_BREAK_HOLD_US) {
+            return;
+        }
+        uint8_t brk_tail = st->brk_tail;
+        bool at_break = brk_tail != st->brk_head;
+        __dmb();
+        uint32_t until = at_break ? st->brk_at[brk_tail % SERIAL_BREAKS_MAX] : st->head;
+
+        if (!serial_drain(st, cdc, until) || !at_break) {
+            return;
+        }
+        // The bytes before the break have reached the host.
+        if (st->tx_inflight || tud_cdc_n_write_available(cdc) < CFG_TUD_CDC_TX_BUFSIZE ||
+            time_us_32() - st->tx_done_us < SERIAL_BREAK_HOLD_US) {
+            return;
+        }
+        cdc_notify_uart_state_t state = { 0 };
+        state.bBreak = 1;
+        st->notify_busy = true;
+        if (!tud_cdc_n_notify_uart_state(cdc, &state)) {
+            st->notify_busy = false;
+            return;
+        }
+        st->brk_tail = (uint8_t)(brk_tail + 1u);
+    }
+}
+
+static struct mclw_usb_interface *serial_for_cdc(uint8_t cdc);
+
+// Called once a bulk IN transfer is done, before TinyUSB starts the next
+// from what the FIFO holds: the transfer still counts as out while it does.
+void tud_cdc_tx_complete_cb(uint8_t itf) {
+    struct mclw_usb_interface *s = serial_for_cdc(itf);
+
+    if (s != NULL) {
+        s->serial->tx_done_us = time_us_32();
+        s->serial->tx_inflight = tud_cdc_n_write_available(itf) < CFG_TUD_CDC_TX_BUFSIZE;
+    }
+}
+
+void tud_cdc_notify_complete_cb(uint8_t itf) {
+    struct mclw_usb_interface *s = serial_for_cdc(itf);
+
+    if (s != NULL) {
+        s->serial->notify_done_us = time_us_32();
+        s->serial->notify_busy = false;
+    }
 }
 
 // TinyUSB re-arms the OUT endpoint only while its FIFO has room for a
@@ -409,9 +509,25 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
     struct serial_state *st = s->serial;
     if (dtr && (st->lines & MCLW_USB_LINE_DTR) == 0u) {
         st->tail = st->head;
+        st->brk_tail = st->brk_head;
+        st->tx_inflight = false;
         tud_cdc_n_write_clear(itf);
     }
     st->lines = (uint8_t)((dtr ? MCLW_USB_LINE_DTR : 0u) | (rts ? MCLW_USB_LINE_RTS : 0u));
+    if (s->control != NULL) {
+        s->control(s, s->ctx);
+    }
+}
+
+// SEND_BREAK (PSTN 1.2 6.3.13): wValue is the break's length in ms, FFFFh
+// until a SEND_BREAK of 0 ends it; the model takes it with
+// mclw_hal_usb_serial_take_break.
+void tud_cdc_send_break_cb(uint8_t itf, uint16_t duration_ms) {
+    struct mclw_usb_interface *s = serial_for_cdc(itf);
+    if (s == NULL || duration_ms == 0u) {
+        return;
+    }
+    s->serial->break_ms = duration_ms;
     if (s->control != NULL) {
         s->control(s, s->ctx);
     }

@@ -25,9 +25,16 @@ struct mclw_uart_stats {
     uint32_t frame_errors;
     uint32_t fifo_overruns;
     uint32_t ring_overruns;
+    // Breaks received: the line at its space level for a whole frame or
+    // longer, counted apart from frame_errors.
+    uint32_t breaks;
 };
 
 typedef void (*mclw_uart_rx_t)(struct mclw_uart *uart, const uint8_t *bytes, size_t len, void *ctx);
+// A break received (a LIN header's 13 bits dominant), on the worker under
+// the runtime lock as on_rx is, in order with the bytes around it: on_rx
+// has had every byte before it, and gets the ones after.
+typedef void (*mclw_uart_break_t)(struct mclw_uart *uart, void *ctx);
 
 // Claims tx and rx for `owner`. NULL with *err set when the pins are taken,
 // the port has no engine left for them, or cannot frame `format` on them.
@@ -41,6 +48,11 @@ int mclw_hal_uart_set_baud(struct mclw_uart *uart, uint32_t baud);
 uint32_t mclw_hal_uart_baud(const struct mclw_uart *uart);
 int mclw_hal_uart_set_format(struct mclw_uart *uart, const struct mclw_uart_format *format);
 void mclw_hal_uart_set_rx(struct mclw_uart *uart, mclw_uart_rx_t fn, void *ctx);
+void mclw_hal_uart_set_break(struct mclw_uart *uart, mclw_uart_break_t fn, void *ctx);
+// Holds TX at its space level for `bits` bit times once what is queued has
+// left, then lets it go; returns once it has. -ENOTSUP where the engine
+// cannot.
+int mclw_hal_uart_send_break(struct mclw_uart *uart, uint32_t bits);
 
 // Returns how many bytes were queued; fewer than `len` when the queue is full.
 size_t mclw_hal_uart_send(struct mclw_uart *uart, const uint8_t *bytes, size_t len);

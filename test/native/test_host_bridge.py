@@ -729,6 +729,54 @@ def test_a_console_bridge_drops_what_came_before_its_port_opened(tmp_path):
         harness.close()
 
 
+def test_a_dut_break_reaches_the_console_s_tty_as_a_nul_in_order(tmp_path):
+    # "A", the line low for 14 bit times (a break: zeros through the stop
+    # bit), "B": the pseudo-terminal reads A, the NUL a tty reads a break
+    # as, then B.
+    import os
+    path, usb = tmp_path / "native.sock", tmp_path / "usb"
+    harness = HostHarness(PROGRAM, path, usb_dir=usb)
+    bridge = Bridge(path)
+    bit = 1_000_000_000 // 115200
+
+    def frame(byte, t):
+        level = 1
+        for i, v in enumerate([0, *((byte >> k) & 1 for k in range(8)), 1]):
+            if v != level:
+                bridge.request(op="gpio", pin=0, level=v, t_ns=t + i * bit)
+                level = v
+        return t + 10 * bit
+    try:
+        bridge.hello()
+        harness.run("import metalclaw\nc = metalclaw.attach('console_bridge', 'c', uart=(1, 0))")
+        bridge.advance(2_000_000)
+        fd = os.open(os.path.realpath(usb / "Metalclaw DUT console"), os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        try:
+            for _ in range(3):
+                bridge.advance(1_000_000)
+            t = frame(ord("A"), bridge.t_ns + 50_000)
+            bridge.request(op="gpio", pin=0, level=0, t_ns=t + bit)
+            bridge.request(op="gpio", pin=0, level=1, t_ns=t + 15 * bit)
+            t = frame(ord("B"), t + 20 * bit)
+            bridge.t_ns = t + 1_000_000
+            got = b""
+            for _ in range(50):
+                bridge.advance(1_000_000)
+                try:
+                    got += os.read(fd, 100)
+                except BlockingIOError:
+                    pass
+                if got.endswith(b"B"):
+                    break
+            assert got == b"A\x00B"
+            assert harness.run("print(c.breaks_to_host, c.stats('uart')['breaks'])") == "1 1"
+        finally:
+            os.close(fd)
+    finally:
+        bridge.close()
+        harness.close()
+
+
 def test_two_console_bridges_get_a_link_each(tmp_path):
     # Two bridges, one interface string: the second link is "<string> 2",
     # and detaching the first leaves the second's link in place.

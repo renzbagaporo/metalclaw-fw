@@ -40,7 +40,7 @@ quiet.
 | | `ev`: `write` (`data`) | `ack` |
 | | `ev`: `read` | `data` |
 | | `ev`: `stop` | |
-| `uart` | `port`, `data` (a byte or a list of bytes the DUT sent) | |
+| `uart` | `port`, `data` (a byte or a list of bytes the DUT sent), `break` (true: a break after them, the line held at space for a frame or longer) | |
 | `spi` | `bus`, `mosi`, `bits` (8, or 16 for an SPI peer); `pins` naming no `miso` for a frame with none | `miso`; `miso_next` while a target is selected |
 | `gpio` | `pin`, `level` (0, 1, or `"z"` for not driven) | `miso_next` when the level is 0 and the pin is a target's chip select |
 | `latched` | `clock`, `samples` (at most 512 words), `enabled_ns`, `overflow` (true when more samples came) | |
@@ -76,7 +76,7 @@ applies each at its time.
 | op | fields |
 | --- | --- |
 | `gpio` | `pin`, `level` (0, 1, or `"z"` to release) |
-| `uart` | `port`, `data` (one byte; the harness paces bytes at the baud rate) |
+| `uart` | `port`, `data` (one byte; the harness paces bytes at the baud rate), or `break` (true) for a break ending at `t_ns` |
 | `watch` | `pin`: from now on, report every level the DUT drives on it as a `gpio` request |
 | `spi_clock` | `bus`, `mosi`, `bits`, and `cs_hold` (true) for a frame its window goes on after, chip select staying low: clock one frame into the DUT's SPI block, a slave, at `t_ns`; answered by an `spi_clocked` request |
 | `i2c_drive` | `bus`, `ev`: `start` (`addr`, `read`: a START, or a repeated START while a transfer is open, and the address), `write` (`data`), `read` (`ack`: whether the harness acknowledges the byte), `stop`; one event toward the DUT's I2C block as a target, answered by an `i2c_driven` request when the target has taken it (a clock-stretching target's answer comes when its firmware serviced the stall) |

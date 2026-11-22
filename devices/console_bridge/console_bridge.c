@@ -26,6 +26,8 @@ enum {
     PROP_DISCARDED,
     PROP_CODINGS_REFUSED,
     PROP_SHORT_WRITES,
+    PROP_BREAKS_TO_HOST,
+    PROP_BREAKS_FROM_HOST,
 };
 
 enum {
@@ -48,6 +50,10 @@ struct console_bridge_state {
     uint32_t discarded;
     uint32_t codings_refused;
     uint32_t short_writes;
+    uint32_t breaks_to_host;
+    uint32_t breaks_from_host;
+    // The host's SEND_BREAK, waiting for the worker, in bit times.
+    volatile uint32_t break_bits;
 };
 
 #define COUNTER(prop_name) \
@@ -106,6 +112,24 @@ static const struct mclw_property_desc bridge_properties[] = {
     },
     {
         .name = "short_writes",
+        .type = MCLW_TYPE_U32,
+        .count = 1,
+        .access = MCLW_ACCESS_RO,
+        .unit = NULL,
+        .min = 0,
+        .max = UINT32_MAX,
+    },
+    {
+        .name = "breaks_to_host",
+        .type = MCLW_TYPE_U32,
+        .count = 1,
+        .access = MCLW_ACCESS_RO,
+        .unit = NULL,
+        .min = 0,
+        .max = UINT32_MAX,
+    },
+    {
+        .name = "breaks_from_host",
         .type = MCLW_TYPE_U32,
         .count = 1,
         .access = MCLW_ACCESS_RO,
@@ -197,6 +221,17 @@ static void on_rx(struct mclw_uart *uart, const uint8_t *bytes, size_t len, void
     }
 }
 
+// A break the DUT sent (a LIN header's) reaches the host after the bytes
+// before it, as a SERIAL_STATE Break.
+static void on_break(struct mclw_uart *uart, void *ctx) {
+    struct console_bridge_state *state = ctx;
+
+    (void)uart;
+    if (mclw_hal_usb_serial_break(state->usb) == 0) {
+        state->breaks_to_host++;
+    }
+}
+
 static void restore_defaults(struct console_bridge_state *state) {
     const struct mclw_uart_facts *facts = &bridge_bindings[BINDING_UART].uart;
 
@@ -219,6 +254,7 @@ static int bridge_init(struct mclw_instance *inst, const struct mclw_binding *bi
     state->baud = bridge_bindings[BINDING_UART].uart.default_baud;
     state->format = bridge_bindings[BINDING_UART].uart.format;
     mclw_hal_uart_set_rx(state->uart, on_rx, state);
+    mclw_hal_uart_set_break(state->uart, on_break, state);
     return 0;
 }
 
@@ -226,6 +262,7 @@ static void bridge_deinit(struct mclw_instance *inst) {
     struct console_bridge_state *state = inst->state;
 
     mclw_hal_uart_set_rx(state->uart, NULL, NULL);
+    mclw_hal_uart_set_break(state->uart, NULL, NULL);
 }
 
 static int bridge_reset(struct mclw_instance *inst, bool factory) {
@@ -240,6 +277,8 @@ static int bridge_reset(struct mclw_instance *inst, bool factory) {
     state->discarded = 0;
     state->codings_refused = 0;
     state->short_writes = 0;
+    state->breaks_to_host = 0;
+    state->breaks_from_host = 0;
     return 0;
 }
 
@@ -277,6 +316,12 @@ static int bridge_get(struct mclw_instance *inst, size_t property, struct mclw_v
             return 0;
         case PROP_SHORT_WRITES:
             out->v[0] = state->short_writes;
+            return 0;
+        case PROP_BREAKS_TO_HOST:
+            out->v[0] = state->breaks_to_host;
+            return 0;
+        case PROP_BREAKS_FROM_HOST:
+            out->v[0] = state->breaks_from_host;
             return 0;
         default:
             return -EINVAL;
@@ -318,12 +363,38 @@ static size_t bridge_usb_rx(struct mclw_instance *inst, size_t binding, const ui
     return sent;
 }
 
-// DTR and RTS are only reported: on this bridge they reset nothing.
+// DTR and RTS are only reported: on this bridge they reset nothing. The
+// host's SEND_BREAK goes to the worker, which sends it after the bytes
+// queued: its length in bit times, at least a frame's 13 (a LIN break), and
+// 13 for one held until further notice.
 static void bridge_usb_control(struct mclw_instance *inst, size_t binding) {
     struct console_bridge_state *state = inst->state;
+    uint16_t ms;
 
-    if (binding == (size_t)BINDING_USB && state->follow_line_coding) {
+    if (binding != (size_t)BINDING_USB) {
+        return;
+    }
+    if (state->follow_line_coding) {
         apply_line_coding(state);
+    }
+    ms = mclw_hal_usb_serial_take_break(state->usb);
+    if (ms != 0u) {
+        uint64_t bits = ms == 0xffffu ? 0u : (uint64_t)ms * state->baud / 1000u;
+
+        state->break_bits = bits < CONSOLE_BRIDGE_BREAK_BITS ? CONSOLE_BRIDGE_BREAK_BITS : (uint32_t)bits;
+    }
+}
+
+static void bridge_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
+    struct console_bridge_state *state = inst->state;
+    uint32_t bits = state->break_bits;
+
+    (void)now_us;
+    if (bits != 0u) {
+        state->break_bits = 0;
+        if (mclw_hal_uart_send_break(state->uart, bits) == 0) {
+            state->breaks_from_host++;
+        }
     }
 }
 
@@ -337,7 +408,7 @@ static const struct mclw_model_ops bridge_ops = {
     .clear_faults = NULL,
     .read_region = NULL,
     .write_region = NULL,
-    .time_advanced = NULL,
+    .time_advanced = bridge_time_advanced,
     .usb_rx = bridge_usb_rx,
     .usb_control = bridge_usb_control,
 };

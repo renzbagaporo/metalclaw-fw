@@ -212,6 +212,19 @@ void mclw_host_event_uart(uint8_t rx_pin, uint8_t byte, uint64_t t_ns) {
     add_action(t_ns, ACTION_UART, rx_pin, byte);
 }
 
+// A break toward the DUT's UART, ending at `t_ns`.
+void mclw_host_event_uart_break(uint8_t rx_pin, uint64_t t_ns) {
+    uint32_t state = mclw_hal_critical_enter();
+
+    if (action_count < ACTIONS_MAX) {
+        actions[action_count++] = (struct action){ .t_ns = t_ns, .kind = ACTION_UART, .pin = rx_pin, .value = 0,
+            .extra = 1u, .pins = 0 };
+    } else {
+        actions_dropped++;
+    }
+    mclw_hal_critical_exit(state);
+}
+
 bool mclw_host_pin_is_uart_tx(uint8_t pin) {
     for (size_t i = 0; i < UART_PORTS_MAX; i++) {
         if (uart_ports[i].bridged && uart_ports[i].routed && uart_ports[i].tx == pin) {
@@ -306,6 +319,10 @@ static size_t put_actions(size_t at) {
             } else if (a->kind == ACTION_WATCH) {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"watch\",\"pin\":%u}", i ? "," : "", a->t_ns, a->pin);
+            } else if (a->extra != 0u) {
+                at += (size_t)snprintf(reply + at, REPLY_MAX - at,
+                    "%s{\"t_ns\":%" PRIu64 ",\"op\":\"uart\",\"port\":%d,\"break\":true}", i ? "," : "", a->t_ns,
+                    uart_port_for_rx(a->pin));
             } else {
                 at += (size_t)snprintf(reply + at, REPLY_MAX - at,
                     "%s{\"t_ns\":%" PRIu64 ",\"op\":\"uart\",\"port\":%d,\"data\":%u}", i ? "," : "", a->t_ns,
@@ -496,6 +513,9 @@ static size_t handle(const char *text, size_t len) {
             uart_ports[port].tx = pin_or(root, "tx", uart_ports[port].tx);
             uart_ports[port].rx = pin_or(root, "rx", uart_ports[port].rx);
             mclw_host_uart_receive(uart_ports[port].tx, bytes, n);
+            if (json_bool(&doc, root, "break", false)) {
+                mclw_host_uart_receive_break(uart_ports[port].tx);
+            }
             at = (size_t)snprintf(reply, REPLY_MAX, "{");
         } else {
             at = (size_t)snprintf(reply, REPLY_MAX, "{\"error\":\"unknown uart port\"");
