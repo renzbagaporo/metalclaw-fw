@@ -439,6 +439,9 @@ struct mclw_spi_target {
     uint8_t *status;
     int8_t busy_pin;
     volatile bool busy;
+    // The model lowered BUSY while a release's record was still on its way
+    // or windows were queued: BUSY stays high until none is.
+    volatile bool busy_lower_pending;
     volatile bool shadow_pending;
     bool busy_image;
     uint8_t busy_windows;
@@ -1796,6 +1799,47 @@ static void __not_in_flash_func(count_faults)(struct mclw_spi_target *t) {
 
 // Takes every window the reset program has recorded. Called in the
 // critical section, from the DMA interrupt or the worker's poll.
+// Whether the engine holds a window the model has yet to take: one queued,
+// one open, or one whose release the reset program is still recording or
+// has recorded since the last intake. reset_idle comes before the record
+// check: the reset program publishes a record before it parks again.
+static bool __not_in_flash_func(window_pending)(const struct mclw_spi_target *t) {
+    if (t->queue_count != 0u || !pin_high(t->cs)) {
+        return true;
+    }
+    if (!t->running) {
+        return false;
+    }
+    if (!reset_idle(t)) {
+        return true;
+    }
+    return t->engine->head < SPI_RECORDS && t->tail != t->engine->head;
+}
+
+// Lowers BUSY for the model once the engine holds no window it has yet to
+// take. A host may begin a window without waiting for BUSY (a driver that
+// pulses chip select with no clocks right after each command, before it
+// polls BUSY). Lowered before that window is taken, BUSY reads low while the
+// engine counts the target busy from that window's release, and the command
+// the host then sends is taken as one the part ignored. Deferred, BUSY is
+// lowered when that window has been delivered, or by the next intake that
+// finds nothing pending. A release between the check and the lowering is
+// caught after it, and BUSY raised again. Called in the critical section.
+static void __not_in_flash_func(busy_lower)(struct mclw_spi_target *t) {
+    if (window_pending(t)) {
+        t->busy_lower_pending = true;
+        return;
+    }
+    pio_sm_exec(SPI_PIO, t->monitor_sm, pio_encode_set(pio_pins, 0u));
+    if (window_pending(t)) {
+        pio_sm_exec(SPI_PIO, t->monitor_sm, pio_encode_set(pio_pins, 1u));
+        t->busy_lower_pending = true;
+        return;
+    }
+    t->busy_lower_pending = false;
+    t->busy = false;
+}
+
 static void __not_in_flash_func(intake)(struct mclw_spi_target *t) {
     struct spi_engine *e = t->engine;
     uint32_t head;
@@ -1838,6 +1882,9 @@ static void __not_in_flash_func(intake)(struct mclw_spi_target *t) {
     count_faults(t);
     if (t->image == SPI_IMAGE_REGMAP) {
         regmap_bank_sync(t);
+    }
+    if (t->busy_lower_pending) {
+        busy_lower(t);
     }
 }
 
@@ -2381,6 +2428,7 @@ struct mclw_spi_target *mclw_hal_spi_target_open(uint8_t sck, uint8_t mosi, uint
     t->status = status_pages[t - targets];
     t->busy_pin = -1;
     t->busy = false;
+    t->busy_lower_pending = false;
     t->running = false;
     t->queue_first = 0;
     t->queue_count = 0;
@@ -2461,6 +2509,7 @@ void mclw_hal_spi_target_disarm(struct mclw_spi_target *t) {
         t->queue_count = 0;
         t->busy_windows = 0;
         t->busy_orphaned = false;
+        t->busy_lower_pending = false;
         t->shadow_pending = false;
     }
     mclw_hal_critical_exit(state);
@@ -2634,6 +2683,7 @@ int mclw_hal_spi_target_arm_command(struct mclw_spi_target *t, struct mclw_comma
     t->queue_count = 0;
     t->busy_windows = 0;
     t->busy_orphaned = false;
+    t->busy_lower_pending = false;
     t->shadow_pending = false;
     memset(&t->stats, 0, sizeof(t->stats));
     command_build(t);
@@ -2671,8 +2721,13 @@ void mclw_hal_spi_target_set_busy(struct mclw_spi_target *t, bool busy) {
         // Windows the reset program recorded before this were taken while
         // BUSY was still high.
         intake(t);
-        pio_sm_exec(SPI_PIO, t->monitor_sm, pio_encode_set(pio_pins, busy ? 1u : 0u));
-        t->busy = busy;
+        if (busy) {
+            t->busy_lower_pending = false;
+            pio_sm_exec(SPI_PIO, t->monitor_sm, pio_encode_set(pio_pins, 1u));
+            t->busy = true;
+        } else {
+            busy_lower(t);
+        }
     }
     mclw_hal_critical_exit(state);
 }
