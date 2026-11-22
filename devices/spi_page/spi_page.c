@@ -374,9 +374,12 @@ static void target_poll(struct mclw_instance *inst) {
     }
 }
 
-static int controller_get(struct mclw_instance *inst, size_t property, struct mclw_value *out) {
-    const struct spi_page_state *s = inst->state;
+static void controller_settle(struct spi_page_state *s, uint64_t now_us);
 
+static int controller_get(struct mclw_instance *inst, size_t property, struct mclw_value *out) {
+    struct spi_page_state *s = inst->state;
+
+    controller_settle(s, mclw_now_us());
     switch (property) {
         case CONTROLLER_PROP_PAGES:
             out->v[0] = s->pages;
@@ -461,8 +464,9 @@ static int controller_reset(struct mclw_instance *inst, bool factory) {
 
 static int controller_read_region(struct mclw_instance *inst, size_t region, uint32_t offset, void *buf,
     size_t len) {
-    const struct spi_page_state *s = inst->state;
+    struct spi_page_state *s = inst->state;
 
+    controller_settle(s, mclw_now_us());
     if (region == REGION_MISO) {
         memcpy(buf, &s->miso[offset], len);
         return 0;
@@ -493,26 +497,37 @@ static uint32_t page_frames(const struct spi_page_state *s) {
 }
 
 // What has come back so far reaches `miso` as it comes, frame by frame;
-// with no MISO, nothing comes back and `miso` reads FFh.
+// with no MISO, nothing comes back and `miso` reads FFh. A page counts as
+// clocked as soon as its last frame is answered, whoever looks first: a
+// read of `clocked`, `pages` or `miso` does not wait for the next tick.
+static void controller_settle(struct spi_page_state *s, uint64_t now_us) {
+    bool busy;
+
+    if (!s->in_flight) {
+        return;
+    }
+    busy = mclw_hal_spi_peer_busy(s->peer);
+    if (s->half_duplex) {
+        memset(s->miso, 0xff, page_frames(s) * frame_bytes(s));
+    } else {
+        memcpy(s->miso, s->incoming, page_frames(s) * frame_bytes(s));
+    }
+    if (busy) {
+        return;
+    }
+    s->in_flight = false;
+    s->clocked++;
+    s->pages--;
+    s->next_us = now_us + (uint64_t)s->interval_ms * 1000u;
+    mclw_trace(s->inst, MCLW_TRACE_SPI, s->clocked, (uint16_t)(page_frames(s) * frame_bytes(s)), 0);
+}
+
 static void controller_time_advanced(struct mclw_instance *inst, uint64_t now_us) {
     struct spi_page_state *s = inst->state;
 
+    controller_settle(s, now_us);
     if (s->in_flight) {
-        bool busy = mclw_hal_spi_peer_busy(s->peer);
-
-        if (s->half_duplex) {
-            memset(s->miso, 0xff, page_frames(s) * frame_bytes(s));
-        } else {
-            memcpy(s->miso, s->incoming, page_frames(s) * frame_bytes(s));
-        }
-        if (busy) {
-            return;
-        }
-        s->in_flight = false;
-        s->clocked++;
-        s->pages--;
-        s->next_us = now_us + (uint64_t)s->interval_ms * 1000u;
-        mclw_trace(inst, MCLW_TRACE_SPI, s->clocked, (uint16_t)(page_frames(s) * frame_bytes(s)), 0);
+        return;
     }
     if (s->pages != 0u && now_us >= s->next_us) {
         uint32_t frames = page_frames(s);
