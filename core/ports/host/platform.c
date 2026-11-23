@@ -20,6 +20,11 @@
 #include "host.h"
 
 #define WORKER_TICK_US 1000u
+// Bridged, how long a round that missed the runtime lock waits for it
+// between tries, and how many tries it makes before the DUT's time goes on
+// regardless (about a second).
+#define SETTLE_WAIT_NS 50000L
+#define SETTLE_TRIES 20000u
 
 struct poll_entry {
     mclw_hal_poll_t fn;
@@ -47,6 +52,10 @@ static uint64_t start_ns;
 // request start it from zero.
 static _Atomic uint64_t virtual_ns;
 static uint64_t delay_ns;
+
+// The worker's failed tries of the runtime lock, never reset: a bridged
+// round runs again until it makes none.
+static uint32_t worker_misses;
 
 static struct {
     uint32_t rounds;
@@ -100,11 +109,13 @@ void mclw_hal_lock(void) {
 bool mclw_hal_try_lock(void) {
     if (mclw_hal_in_worker() && atomic_load(&lock_waiters) != 0) {
         stats.lock_misses++;
+        worker_misses++;
         return false;
     }
     if (pthread_mutex_trylock(&runtime_mutex) != 0) {
         if (mclw_hal_in_worker()) {
             stats.lock_misses++;
+            worker_misses++;
         }
         return false;
     }
@@ -219,6 +230,25 @@ static void round_run(void) {
     }
 }
 
+// A round whose polls missed the runtime lock, because a script thread
+// held it or waited for it, runs again before the DUT's time goes on: the
+// runtime's tick would otherwise reach the models late in the DUT's time,
+// later the busier the host. The posted work runs between tries, so a
+// script waiting on the worker while it holds the lock gets its answer.
+static void round_settled(void) {
+    uint32_t misses = worker_misses;
+
+    round_run();
+    for (uint32_t tries = 0; worker_misses != misses && tries < SETTLE_TRIES; tries++) {
+        struct timespec wait = { .tv_sec = 0, .tv_nsec = SETTLE_WAIT_NS };
+
+        misses = worker_misses;
+        nanosleep(&wait, NULL);
+        delay_ns = 0;
+        round_run();
+    }
+}
+
 // The runtime's tick runs the models' time_advanced once per millisecond
 // it sees go by, so a long step in virtual time is walked in ticks: a
 // model with a timed operation finishes it at the tick it would have.
@@ -231,7 +261,7 @@ void mclw_host_advance(uint64_t ns) {
 
         now += step;
         atomic_store(&virtual_ns, now);
-        round_run();
+        round_settled();
         delay_ns = 0;
     }
     mclw_host_drain_work();
