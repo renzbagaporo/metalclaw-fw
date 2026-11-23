@@ -2,152 +2,214 @@
 
 # metalclaw-fw
 
-**Firmware for Metalclaw, a scriptable hardware harness for embedded
-development.**
+**Firmware for Metalclaw, a scriptable hardware harness for embedded development and hardware-in-the-loop testing.**
 
-Metalclaw is a small board that sits between a host PC and a target board. It
-debugs the target, feeds it stimulus, simulates the peripherals the target
-expects to find on its buses, and observes what the target does back.
+Metalclaw sits between a host PC and a device under test (**DUT**). It exposes a CMSIS-DAP v2 debug probe and console UART bridge over a single USB cable, stimulates the DUT's pins, simulates real off-chip peripherals on its buses so unmodified firmware drivers talk to them as real hardware, and captures what the DUT drives back.
 
-The harness is a Raspberry Pi Pico 1 (RP2040) running MicroPython on one
-core. Native C owns everything with a deadline: USB, the bus engines, the
-debug probe; the engines' interrupts and their worker run on the other
-core. MicroPython owns what changes between fixtures: which devices exist,
-which pins they use, what state they start in.
+- **Scriptable in MicroPython** — attach devices, assign pins, change sensor values, inject radio frames or faults, and control a deterministic simulation clock interactively from the REPL or from host test scripts.
+- **Zero-CPU bus serving** — native C and PIO/DMA engines handle protocol timing (I²C, SPI, UART, SWD, 1-Wire, custom wire protocols), while MicroPython manages fixture configuration.
+- **86 device models across 64 packages** — debug probe, console bridge, sensors, IMUs, GNSS receivers, LoRa transceivers, cellular modems, CAN, displays, LED drivers, memories, and signal/bus utilities.
+- **Hardware and emulated targets** — targets the [metalclaw-pico-rp2](https://github.com/renzbagaporo/metalclaw-pico-rp2) carrier (RP2354B) as the reference hardware platform, also runs on plain Raspberry Pi Pico (RP2040) and Pico 2 (RP2350) boards, and builds as a Linux host process (`core/ports/host`) that bridges to an emulated DUT in Renode.
 
-## Firmware
+## Quickstart
 
-A MicroPython v1.28.0 image for the Pico 1 that owns its USB device. It
-enumerates as `2FE3:0204 Metalclaw` with a CDC REPL and an MSC volume, is
-brought up once at boot, and stays enumerated across MicroPython soft resets.
-
-The `metalclaw` module is the generic device API: a model registry, a runtime
-with instances, a simulation clock that runs with real time unless paused,
-faults and trace, and one `Instance` type whose attributes come from each
-model's own descriptors.
-
-## Devices
-
-Thirty-five device packages exist; `bmx280`, `icm4268x`, `ssd130x`,
-`jumper` and `spi_page` define two models each and `sx126x`, `cellular` and
-`ina2xx` four each, so `models()` lists forty-nine. The SWD debug probe: attaching it adds a CMSIS-DAP v2
-interface to the USB device, and `probe-rs` then drives the board under
-test through the harness. The console bridge: attaching it adds a serial port to the USB device that carries the board
-under test's console UART. And six simulated parts the board under test's
-own Zephyr drivers read as the real thing: a BMP388 barometer on I²C or SPI,
-an ADS7883 ADC on SPI, ICM-42688/42686 IMUs on SPI, a NEO-M8N GNSS receiver
-on UART, SX1262-family LoRa transceivers on SPI, whose transmissions the
-harness captures and whose receptions it injects, and SIMCom and Sequans
-cellular modems on UART with a small fake network behind them. And parts
-unmodified pico-examples programs talk to: BMP280 and BME280 environmental
-sensors on I²C or SPI; on I²C an MCP9808 temperature sensor, a PCF8523
-real-time clock, INA219, INA228, INA237 and INA260 current and power
-monitors, an MPU-6050 IMU, LIS3DH and MMA8451Q accelerometers, an
-MPL3115A2 pressure and altitude sensor and a PA1010D GNSS module; an
-MPU-9250 IMU and a W25Q16JV NOR flash on SPI; on UART an Adafruit serial
-LCD backpack, and the NEO-M8N again as a GPS-only NMEA receiver; the
-displays they drive: SSD1306 and SSD1309 OLED controllers on I²C or SPI, an
-HT16K33 LED matrix driver and an HD44780 character LCD behind a PCF8574
-backpack on I²C, MAX7219 LED drivers on SPI, and an ST7789V TFT controller
-on SPI, whose memories and settings the host reads; and, on wires whose
-timing they define, WS2812B and APA102 LED strips, a HUB75 LED panel, a
-DS18B20 thermometer on 1-Wire, a DHT22 humidity sensor, a quadrature
-encoder the harness turns, and an IR receiver module that reads NEC frames.
-And what such a program finds on its pins beyond a part: a square wave on
-one pin, a jumper between two of its pins, and the other end of an SPI link
-that moves pages a byte per chip-select window. A device is written from its
-datasheet with no bus code; the SPI, I²C, UART and wire engines live in the
-port and serve every transfer with no CPU in the byte path.
+Plug in a flashed harness and open its USB CDC REPL (on Linux, `/dev/serial/by-id/usb-Metalclaw_<product>_<serial>-if00`). Everything is driven through the built-in `metalclaw` module:
 
 ```python
 >>> import metalclaw
->>> metalclaw.models()
-('ads7883', 'apa102', 'bmp388', 'bmp280', 'bme280', 'sim7080g', 'sim7000', 'a7672x', 'sequans_monarch', 'console_bridge', 'dht22', 'ds18b20', 'hd44780_pcf8574', 'ht16k33', 'hub75', 'icm42688', 'icm42686', 'ina219', 'ina228', 'ina237', 'ina260', 'i2c_page_controller', 'jumper', 'jumper_open_drain', 'lcd_backpack', 'lis3dh', 'max7219', 'mcp9808', 'mma8451q', 'mpl3115a2', 'mpu6050', 'mpu9250', 'neo_m8n', 'pa1010d', 'pcf8523', 'quadrature_encoder', 'spi_page_target', 'spi_page_controller', 'square_wave', 'ssd1306', 'ssd1309', 'st7789v', 'swd_probe', 'sx1262', 'sx1261', 'sx1268', 'llcc68', 'tsop38238', 'w25q16jv', 'ws2812b')
+>>> metalclaw.board()
+{'line_pullups': False, 'serial_functions': 4, 'serial_functions_free': 4}
+>>> len(metalclaw.models())
+86
+>>> metalclaw.schema("bmp388")          # inspect bindings, properties, regions, faults
+
+# Attach a CMSIS-DAP v2 SWD probe and a USB-to-UART bridge for the DUT's console.
+# Each adds its interface to the harness's composite USB device automatically.
 >>> probe = metalclaw.attach("swd_probe", "dut", swd=(2, 3, 28))
+>>> console = metalclaw.attach("console_bridge", "dut_console", uart=(0, 1))
+
+# Attach simulated peripherals on the DUT's buses (fixture 1 Pico pinout shown)
 >>> baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
->>> baro.pressure = 101325
+>>> baro.pressure = 101325              # pascals
+>>> baro.temperature = 21500            # millidegrees C
+
 >>> imu = metalclaw.attach("icm42688", "imu", spi=(18, 19, 16, 17))
->>> imu.accel = (2048, 0, 0)
+>>> imu.set(accel=(2048, -2048, 1024), gyro=(164, 0, 0))
+
 >>> gnss = metalclaw.attach("neo_m8n", "gnss", uart=(0, 1))
->>> gnss.set(latitude=473977420, longitude=-1223321500, fix=3)   # in its NMEA every second from here on
->>> radio = metalclaw.attach("sx1262", "radio", spi=(18, 19, 16, 21), busy=7, dio1=20, nreset=6)
->>> radio.write_region("rx", 0, b"hello")                # a frame on the air for the DUT
->>> metalclaw.pause(); metalclaw.advance_us(1000000)   # or step the clock by hand
+>>> gnss.set(latitude=473977420, longitude=-1223321500, fix=3)
+
+>>> radio = metalclaw.attach("sx1262", "radio", spi=(18, 19, 16, 21), busy=10, dio1=20, nreset=6)
+>>> radio.write_region("rx", 0, b"hello")   # put a frame on the air for the DUT
+
+# Control the simulation clock (runs in real time by default)
+>>> metalclaw.pause()
+>>> metalclaw.advance_us(1_000_000)     # step deterministically by 1 s
+>>> metalclaw.resume()
+
+# Inspect bus counters, trace ring, or tear down
+>>> imu.stats("spi")
+>>> baro.trace()
+>>> baro.detach()
 ```
+
+> **Note:** On a Pico 1, UART0 on `(0, 1)` cannot be bound to both `console_bridge` and `neo_m8n` at the same time—bind them on separate pin pairs (any GPIO pair works; non-PL011 pairs fall back to the PIO UART engine).
+
+### Using the attached SWD probe and console bridge
+
+The harness enumerates as `2FE3:0204 Metalclaw` with a CDC REPL (`-if00`) and an MSC flash volume. Attaching `swd_probe` exposes a `CMSIS-DAP v2` bulk interface that works directly with `probe-rs`:
 
 ```sh
 $ probe-rs list
 [0]: Metalclaw -- 2fe3:0204:E6612483CB313225 (CMSIS-DAP)
+
 $ probe-rs info --probe 2fe3:0204:E6612483CB313225 --protocol swd
+$ probe-rs download --verify --probe 2fe3:0204:E6612483CB313225 firmware.elf
 ```
 
-See [docs/devices.md](docs/devices.md) for the model contract and
-[devices/swd_probe](devices/swd_probe/README.md) for the probe.
+Attaching `console_bridge` adds a CDC ACM port (`Metalclaw DUT console`) starting at `-if03` (`/dev/serial/by-id/usb-Metalclaw_<product>_<serial>-if03`). The USB device stays enumerated across MicroPython soft resets; if `main.py` re-attaches the same USB-facing devices, the harness does not re-enumerate. See [docs/usb.md](docs/usb.md) for interface layout and host notes.
 
-## Testing on hardware
+## Supported devices
 
-The board under test is a Raspberry Pi Pico 2 running Zephyr, wired to the
-harness as [docs/testing.md](docs/testing.md) describes. The rig in
-`test/rig/` flashes a Zephyr fixture image onto it through that probe, talks
-to it over a RAM mailbox, and runs every case in the tree on real hardware.
-Each device has an image with Zephyr's driver for that part; the cases
-compare what the driver read with what was injected:
+All **64 device packages** (**86 models**) are written strictly from part datasheets with no bus or port code; every model registers itself via `device.cmake` and is exposed automatically through `metalclaw.models()` and `metalclaw.schema()`.
+
+| Category | Models | Buses / Interfaces |
+| --- | --- | --- |
+| **Debug & Console** | `swd_probe`, `console_bridge` | SWD + USB vendor (CMSIS-DAP v2), UART + USB CDC ACM |
+| **Environmental & Temperature** | `bmp388`, `bmp280`, `bme280`, `lps22hb`, `mpl3115a2`, `hts221`, `mcp9808`, `sht3x`, `sht4x`, `tmp108`, `tmp112`, `tmp116`, `max6675`, `ds18b20`, `dht22` | I²C, SPI, 1-Wire, single-wire |
+| **Motion & IMU** | `icm42688`, `icm42686`, `mpu6050`, `mpu9250`, `lis3dh`, `lsm6dso`, `lsm6dsl`, `lsm303dlhc_magn`, `mma8451q` | SPI, I²C |
+| **Optical, Touch & Biometrics** | `veml6031`, `veml6046`, `vl53l0x`, `ft5336`, `tsop38238`, `zfm20` | I²C, UART, IR wire |
+| **Power, ADC, DAC, RTC & Haptics** | `ina219`, `ina228`, `ina237`, `ina260`, `ads7883`, `ad5693r`, `mcp4728`, `ds3231`, `pcf8523`, `drv2605l` | I²C, SPI |
+| **Wireless, GNSS & CAN** | `sx1262`, `sx1261`, `sx1268`, `llcc68`, `sim7080g`, `sim7000`, `a7672x`, `sequans_monarch`, `neo_m8n`, `pa1010d`, `mcp2515` | SPI, UART, I²C |
+| **Displays & LED Drivers** | `ssd1306`, `ssd1309`, `st7789v`, `hd44780_pcf8574`, `aip31068`, `lcd_backpack`, `ht16k33`, `max7219`, `ws2812b`, `apa102`, `hub75`, `is31fl3194`, `is31fl3216a`, `is31fl3733`, `lp3943`, `lp5012`, `lp5562`, `lp5569`, `pca9633`, `sct2024`, `sx1509b` | I²C, SPI, UART, shift-register & custom wires |
+| **Storage & Memory** | `at24c02`, `at45db041e`, `w25q16jv` | I²C, SPI |
+| **Signals, Jumpers & Bus Peers** | `square_wave`, `quadrature_encoder`, `jumper`, `jumper_open_drain`, `jumper_open_drain_clock`, `jumper_open_drain_clock_edge`, `spi_page_target`, `spi_page_controller`, `i2c_page_controller` | GPIO, PWM, PIO link, SPI peer, I²C controller |
+
+See [docs/devices.md](docs/devices.md) for the model contract, response images, HAL engines, and full Python API, and each package's `README.md` under [`devices/`](devices/) for part-specific bindings, properties, and datasheet references.
+
+## Supported boards, building, and flashing
+
+### Boards
+
+The reference hardware platform is the **[metalclaw-pico-rp2](https://github.com/renzbagaporo/metalclaw-pico-rp2)** carrier board (RP2354B), though the firmware also runs on plain Raspberry Pi Pico (RP2040) and Pico 2 (RP2350) boards—or any RP2040/RP2350 board directory whose `mpconfigboard.h` includes `metalclaw_port.h` via `METALCLAW_BOARD_DIR`:
+
+| Board | Chip | Directory | Notes |
+| --- | --- | --- | --- |
+| **[MetalClaw Pico RP2](https://github.com/renzbagaporo/metalclaw-pico-rp2)** *(reference)* | RP2354B | [`core/ports/rp2/boards/metalclaw_pico_rp2`](core/ports/rp2/boards/metalclaw_pico_rp2) | Reference carrier for a Pico or Pico 2 DUT (v1.r1); 2 MB flash, GPIO47 reserved for PSRAM CS, 5.1 kΩ line pull-ups (`METALCLAW_LINE_PULLUPS`, on by default) |
+| **Raspberry Pi Pico** *(default build)* | RP2040 | [`core/ports/rp2/boards/rpi_pi_pico`](core/ports/rp2/boards/rpi_pi_pico) | Plain Pico 1 harness |
+| **Raspberry Pi Pico 2 / custom RP2 boards** | RP2350 / RP2040 | Custom via `METALCLAW_BOARD_DIR` | Any MicroPython RP2 board directory whose `mpconfigboard.h` includes `metalclaw_port.h` |
+
+### Requirements
+
+- **Harness firmware:** `just`, `git`, `curl`, `make`, `cmake`, Python 3, and a host C compiler. `just setup` fetches the pinned submodules (MicroPython v1.28.0, pico-sdk 2.2.0) and ARM GNU toolchain into `../.arm-none-eabi`.
+- **Flashing:** optional J-Link for SWD flashing (`tools/flash_rp2.sh`), or none via the RP2 USB bootloader.
+- **Hardware & emulated test suites:** `probe-rs` 0.30, Ninja, and Zephyr SDK 1.0.1 at `ZEPHYR_SDK_INSTALL_DIR` (default `~/zephyr-sdk-1.0.1`, installed by `just setup-zephyr-sdk`). Emulated runs also use `just setup-emulator`.
+
+### Building
 
 ```sh
-just setup-rig                                    # .venv with pytest and pyserial
-just setup-dut                                    # Zephyr workspace in ../.zephyr-workspace
-just build-dut icm4268x
+# 1. Fetch pinned submodules and ARM toolchain
+just setup
+
+# 2. Build for the default Raspberry Pi Pico (RP2040)
+#    Output: build/rp2/rpi_pi_pico/firmware.uf2 and firmware.elf
+just build
+
+# Or build for the MetalClaw Pico RP2 v1.r1 carrier (RP2354B)
+METALCLAW_BOARD_DIR=$PWD/core/ports/rp2/boards/metalclaw_pico_rp2 just build
+
+# For a carrier revision without the 5.1 kΩ line pull-ups:
+METALCLAW_LINE_PULLUPS=OFF \
+    METALCLAW_BOARD_DIR=$PWD/core/ports/rp2/boards/metalclaw_pico_rp2 \
+    just build
+```
+
+You can also build the Linux host harness (MicroPython's unix port with the `metalclaw` module, core, and all 86 models over `core/ports/host`) or compile `metalclaw_core` standalone on the host:
+
+```sh
+just build-host                                                     # build/host/mpy/metalclaw-host
+cmake -S core -B build/core_host -G Ninja && cmake --build build/core_host
+```
+
+### Flashing
+
+- **Bootloader (no J-Link needed):** hold BOOTSEL while powering the board—or run `import machine; machine.bootloader()` from the harness REPL—then copy `build/rp2/<board>/firmware.uf2` onto the `RPI-RP2` mass-storage drive.
+- **J-Link over SWD:**
+  ```sh
+  tools/flash_rp2.sh build/rp2/<board>/firmware.elf
+  ```
+
+See [docs/building.md](docs/building.md) for environment overrides (`METALCLAW_ARM_TOOLCHAIN_DIR`, `METALCLAW_BUILD_DIR`, `METALCLAW_JOBS`, `METALCLAW_JLINK_SERIAL`) and compiler warning policy.
+
+## Architecture overview
+
+Metalclaw separates portable device logic from chip-specific bus engines and MicroPython glue:
+
+- **Strict core/port boundary:** [`core/CMakeLists.txt`](core/CMakeLists.txt) builds the runtime, image helpers (`regmap`, `stream`, `command`, `sink`, `onewire`), generated device registry, and all devices as one static library (`metalclaw_core`) whose only include directory is `core/include/`. Neither core nor device code can include SDK, port, or MicroPython headers.
+- **HAL & ports:** ports under `core/ports/` implement `core/include/metalclaw/hal/`:
+  - [`core/ports/rp2/`](core/ports/rp2/) builds upstream MicroPython v1.28.0 unpatched via `BOARD_DIR` and `USER_C_MODULES`. **Core 0** runs bare-metal MicroPython (`_thread` disabled) and TinyUSB (owning the composite USB device: REPL, MSC, up to 4 serial functions, up to 2 vendor interfaces). **Core 1** runs the engine worker and handles all engine interrupts (PIO, DMA, UART, I²C) so VM atomic sections never stall bus timing.
+  - [`core/ports/host/`](core/ports/host/) implements the same HAL on Linux, speaking lockstep newline-delimited JSON over a Unix socket ([`BRIDGE.md`](core/ports/host/BRIDGE.md)) to serve bus events and pin timing for an emulated DUT in Renode—or running standalone on the host clock.
+
+## Testing
+
+The test rig in [`test/rig/`](test/rig/) runs platform-agnostic pytest suites across three platforms—against Zephyr DUT fixture images (real in-tree drivers communicating via a RAM mailbox over SWD), unmodified `pico-examples` binaries ([`test/pico_examples/`](test/pico_examples/)), and upstream Zephyr samples ([`test/zephyr_samples/`](test/zephyr_samples/)):
+
+| Platform / Suite | Command | What it exercises |
+| --- | --- | --- |
+| **Hardware bench** | `METALCLAW_DUT_DEVICE=icm4268x METALCLAW_HARNESS_SERIAL=<serial> just test hardware` | Real harness wired to a real Pico 2 (default) or Pico 1 DUT |
+| **Full emulator** | `just test emulator` | Both harness and DUT chips emulated together in Renode, with harness USB exported over USB/IP |
+| **Native mode** | `just test native` | Linux host harness (`just build-host`) bridged in lockstep to an emulated DUT in Renode |
+| **Engine tests** | `just test-engine` | RP2 harness alone in Renode driven bit-by-bit by a native stimulus ([`test/engine/`](test/engine/)) |
+| **Unit & host tests** | `.venv/bin/pytest test/unit test/native` | Host-compiled C model checks, PIO simulator tests, rig unit tests, and host bridge tests |
+
+Example workflow for building a Zephyr DUT image and running hardware tests:
+
+```sh
+just setup-rig                                    # .venv with pytest, pyserial, pyusb
+just setup-dut                                    # Zephyr v4.4.0 workspace in ../.zephyr-workspace
+just build-dut icm4268x                           # build/dut/icm4268x/zephyr/zephyr.elf
 METALCLAW_DUT_DEVICE=icm4268x METALCLAW_HARNESS_SERIAL=<serial> just test hardware
 ```
 
-## Layout
+See [docs/testing.md](docs/testing.md) for bench wiring, emulator setup, native mode, probe telemetry, and soak tools (`test/rig/probe_soak.py`, `test/rig/probe_report.py`).
+
+## Repository layout
 
 ```text
-core/                         the harness firmware
-  include/metalclaw/          the ABI devices are written against, and the HAL
-  src/                        runtime, regmap, stream, command, onewire
-  cmake/                      warning sets, device registry generation
-  CMakeLists.txt              the core as one static library, `metalclaw_core`
-  micropython/                the `metalclaw` module and Instance type
-  ports/rp2/                  port config, USB device, REPL stream, HAL, board definitions
-  third_party/micropython/    MicroPython v1.28.0, pinned, never patched in place
-devices/                      one directory per device model: swd_probe, console_bridge, bmp388, ads7883, icm4268x, neo_m8n, sx126x, cellular, bmx280, mcp9808, pcf8523, ina2xx, mpu6050, lis3dh, mma8451q, mpl3115a2, pa1010d, mpu9250, w25q, lcd_backpack, ssd130x, ht16k33, hd44780, max7219, st7789, ws2812b, apa102, hub75, ds18b20, dht22, quadrature_encoder, tsop382, square_wave, jumper, spi_page, i2c_page
+core/                         harness firmware core, MicroPython module, and ports
+  include/metalclaw/          device model ABI, response images, and HAL headers (hal/)
+  src/                        runtime, regmap, stream, command, sink, onewire
+  cmake/                      strict warning flags and device registry generation
+  CMakeLists.txt              builds `metalclaw_core` with `core/include` only
+  micropython/                the `metalclaw` module and generic Instance type
+  ports/rp2/                  RP2040/RP2350 port: TinyUSB owner, REPL, HAL engines, boards
+  ports/host/                 Linux host port and Renode bridge (BRIDGE.md)
+  third_party/micropython/    MicroPython v1.28.0 (pinned, never patched in place)
+devices/                      64 self-contained device packages (86 models)
 test/
-  rig/                        run.py, the hardware platform, the Zephyr DUT fixture
-  cases/                      cases for the harness as a whole
-tools/                        flash_rp2.sh: J-Link flash and recovery
-docs/                         devices.md, testing.md, usb.md, building.md
-justfile                      setup and build recipes
+  rig/                        pytest runner, hardware/emulator/native platforms, Zephyr DUT fixture
+  cases/                      harness-wide test cases
+  engine/                     bit-level engine stimulus tests against emulated harness
+  native/                     host harness bridge tests (no Renode required)
+  unit/                       host C model checks and rig unit tests
+  pico_examples/              specs and cases for unmodified pico-examples programs
+  zephyr_samples/             build staging and cases for upstream Zephyr samples
+tools/                        flash_rp2.sh (J-Link flash and recovery)
+docs/                         devices.md, building.md, usb.md, testing.md
+justfile                      setup, build, and test recipes
 ```
-
-## Requirements
-
-- `just`, `git`, `curl`, `make`, `cmake`, Python 3 and a host C compiler.
-  `just setup` fetches the pinned submodules and ARM toolchain.
-- A J-Link to flash over SWD, optional: the bootloader route needs none.
-- For the hardware tests: probe-rs 0.30, Ninja, and the Zephyr SDK 1.0.1
-  at `ZEPHYR_SDK_INSTALL_DIR` (default `~/zephyr-sdk-1.0.1`), which
-  `just setup-zephyr-sdk` installs.
-
-## Building and flashing
-
-```sh
-just setup
-just build                                        # build/rp2/<board>/firmware.uf2
-tools/flash_rp2.sh build/rp2/<board>/firmware.elf # over J-Link
-```
-
-See [docs/building.md](docs/building.md) for boards, flags, and the
-bootloader route without a J-Link.
 
 ## Documentation
 
-[docs/](docs/README.md) covers the device model and runtime, testing, the USB
-device, and building. Each device's README covers that part.
+- [docs/devices.md](docs/devices.md) — device model ABI, runtime, response images, HAL engines, and Python API
+- [docs/building.md](docs/building.md) — boards, build flags, warning rules, and flashing
+- [docs/usb.md](docs/usb.md) — composite USB device identity, interfaces, serial functions, and re-enumeration
+- [docs/testing.md](docs/testing.md) — test rig, hardware/emulator/native platforms, DUT fixture, and probe telemetry
+- [core/ports/host/BRIDGE.md](core/ports/host/BRIDGE.md) — lockstep Unix-socket bridge protocol for the host harness
+- [`devices/<name>/README.md`](devices/) — per-device bindings, properties, and datasheet notes
 
 ## License
 
-metalclaw-fw is dual-licensed under your choice of either the
-[Apache License 2.0](LICENSE-APACHE) or the [MIT License](LICENSE-MIT).
+metalclaw-fw is dual-licensed under your choice of either the [Apache License 2.0](LICENSE-APACHE) or the [MIT License](LICENSE-MIT).
 
 SPDX-License-Identifier: `Apache-2.0 OR MIT`
