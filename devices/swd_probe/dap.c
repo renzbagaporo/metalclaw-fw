@@ -113,7 +113,7 @@ static const char *info_string(uint8_t info) {
         case DAP_INFO_SERIAL:
             return mclw_hal_usb_serial();
         case DAP_INFO_FIRMWARE:
-            return MCLW_VERSION_STRING;
+            return mclw_version_string();
         default:
             return NULL;
     }

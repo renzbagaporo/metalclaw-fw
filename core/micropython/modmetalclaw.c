@@ -100,7 +100,7 @@ mp_obj_t mclw_model_schema(const struct mclw_model *model) {
 }
 
 static mp_obj_t mclw_version(void) {
-    return mp_obj_new_str_from_cstr(MCLW_VERSION_STRING);
+    return mp_obj_new_str_from_cstr(mclw_version_string());
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mclw_version_obj, mclw_version);
 

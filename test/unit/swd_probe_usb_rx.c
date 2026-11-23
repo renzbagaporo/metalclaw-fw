@@ -13,6 +13,7 @@
 #include "metalclaw/hal/usb.h"
 #include "metalclaw/model.h"
 #include "metalclaw/runtime.h"
+#include "metalclaw/version.h"
 
 #define PROP_SHORT_REPLIES 5u
 
@@ -31,6 +32,10 @@ size_t mclw_hal_usb_write(struct mclw_usb_interface *itf, const uint8_t *data, s
     write_taken = n;
     memcpy(written, data, n);
     return n;
+}
+
+const char *mclw_version_string(void) {
+    return "0.0.0-test";
 }
 
 const char *mclw_hal_usb_serial(void) {
