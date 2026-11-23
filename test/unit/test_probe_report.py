@@ -92,7 +92,7 @@ def test_filters(tmp_path, capsys):
     probe_report.main(["--since", "2027-01-01", str(tmp_path / "a.jsonl")])
     out = capsys.readouterr().out
     assert "[soak flash]" in out and "[rig]" not in out
-    probe_report.main(["--platform", "emulator", str(tmp_path / "a.jsonl")])
+    probe_report.main(["--platform", "sim", str(tmp_path / "a.jsonl")])
     assert capsys.readouterr().out.strip() == "no probe telemetry sessions"
 
 

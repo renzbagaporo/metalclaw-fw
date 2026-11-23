@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# The upstream Zephyr samples the rig builds and judges, and how each is
-# built: unmodified from the pinned Zephyr tree, with the sample.yaml (or
+# The upstream Zephyr samples that drive Metalclaw's own device models, which
+# the rig builds and judges, and how each is built: unmodified from the pinned Zephyr tree, with the sample.yaml (or
 # testcase.yaml) test's own extra_args and extra_configs, plus only what a
 # Metalclaw bench needs, as overlays and Kconfig fragments added on top
 # (EXTRA_DTC_OVERLAY_FILE, EXTRA_CONF_FILE), never in place of the sample's
@@ -9,19 +9,11 @@
 from dataclasses import dataclass
 
 # The Zephyr board each bench's DUT is, by the board name example.json uses
-# for it (as pico-examples builds name theirs), and its chip.
+# for it, and its chip.
 BOARDS = {
     "pico": ("rpi_pico", "rp2040"),
     "pico2": ("rpi_pico2/rp2350a/m33", "rp2350"),
 }
-
-# The storage partition test/zephyr_samples/overlays/storage_<board>.overlay
-# makes, as the flash address and size the image's erased block covers.
-STORAGE = {
-    "pico": (0x101F0000, 0x10000),
-    "pico2": (0x103F0000, 0x10000),
-}
-
 
 @dataclass(frozen=True)
 class Build:
@@ -40,9 +32,6 @@ class Build:
     # the parts' nodes and the aliases the sample looks them up by.
     overlays: tuple[str, ...] = ()
     confs: tuple[str, ...] = ()
-    # A storage partition (overlays/storage_<board>.overlay), erased by
-    # each flash of the image.
-    storage: bool = False
     # A second test of the same sample, as its own target:
     # zephyr/<sample>@<variant>.
     variant: str = ""
@@ -51,115 +40,7 @@ class Build:
     other_boards: str = ""
 
 
-def _console(*samples: str) -> dict[str, Build]:
-    return {f"zephyr/{s}": Build(s) for s in samples}
-
-
 BUILDS: dict[str, Build] = {
-    # Wave 1a: console-only samples, judged by their own sample.yaml.
-    **_console(
-        "hello_world",
-        "basic/hash_map",
-        "basic/sys_heap",
-        "synchronization",
-        "kernel/condition_variables/condvar",
-        "kernel/condition_variables/simple",
-        "kernel/metairq_dispatch",
-        "kernel/msg_queue",
-        "cpp/hello_world",
-        "cpp/cpp_synchronization",
-        "data_structures/min-heap",
-        "data_structures/rbtree",
-        "application_development/external_lib",
-        "posix/env",
-        "posix/eventfd",
-        "posix/philosophers",
-        "posix/uname",
-        "subsys/portability/cmsis_rtos_v1/philosophers",
-        "subsys/portability/cmsis_rtos_v1/timer_synchronization",
-        "subsys/portability/cmsis_rtos_v2/philosophers",
-        "subsys/portability/cmsis_rtos_v2/timer_synchronization",
-        "subsys/bindesc/hello_bindesc",
-        "subsys/crc",
-        "subsys/logging/logger",
-        "subsys/pm/device_pm",
-        "subsys/rtio/producer_consumer",
-        "subsys/rtio/sensor_batch_processing",
-        "subsys/smf/hsm_psicc2",
-        "subsys/task_wdt",
-        "subsys/tracing",
-        "subsys/zbus/async_listeners",
-        "subsys/zbus/benchmark",
-        "subsys/zbus/confirmed_channel",
-        "subsys/zbus/dyn_channel",
-        "subsys/zbus/hello_world",
-        "subsys/zbus/msg_subscriber",
-        "subsys/zbus/priority_boost",
-        "subsys/zbus/runtime_obs_registration",
-        "subsys/zbus/work_queue",
-        "sensor/die_temp_polling",
-        "drivers/counter/alarm",
-        "drivers/watchdog",
-        "drivers/led/pwm",
-    ),
-    # Wave 1a samples that need modules of the samples workspace
-    # (test/zephyr_samples/west.yml): mipi-sys-t, mbedtls and
-    # tf-psa-crypto, cmsis-dsp, nanopb, and the optional group's
-    # tflite-micro and chre.
-    **_console("subsys/logging/syst", "modules/cmsis_dsp/moving_average", "modules/nanopb",
-               "modules/tflite-micro/hello_world", "modules/chre"),
-    # subsys/uuid runs upstream only on native_sim and qemu_x86. On the
-    # Picos its PSA SHA-1 and base64 overrun the boards' 1 KiB main stack
-    # (CONFIG_STACK_SENTINEL reports it), and the thread switched to next
-    # faults at PC 0: built with 4 KiB.
-    "zephyr/subsys/uuid": Build("subsys/uuid", args=("CONFIG_MAIN_STACK_SIZE=4096",)),
-    # samples/kernel/bootargs: the tokenization test is the one that runs
-    # outside QEMU (its extra_configs set the boot arguments).
-    "zephyr/kernel/bootargs": Build("kernel/bootargs", test="sample.kernel.bootargs.tokenization"),
-    # samples/philosophers prints its states only with DEBUG_PRINTF=1, as
-    # its first test sets in extra_args.
-    "zephyr/philosophers": Build("philosophers", test="sample.kernel.philosopher"),
-    # samples/sensor/clock: its system-clock test, which twister builds only
-    # where CONFIG_SENSOR_CLOCK_SYSTEM is on; the RP2 boards leave it off,
-    # and the counter and RTC tests are for nRF52 boards.
-    "zephyr/sensor/clock": Build("sensor/clock", test="sample.sensor.clock.system",
-                                 args=("CONFIG_SENSOR_CLOCK_SYSTEM=y",)),
-    # samples/basic/blinky: its one test, on an LED harness (judged by our
-    # own criterion, test/zephyr_samples/targets.py OWN).
-    "zephyr/basic/blinky": Build("basic/blinky", test="sample.basic.blinky"),
-    # samples/subsys/bindesc/read_bindesc: build_only upstream (judged by our
-    # own criterion).
-    "zephyr/subsys/bindesc/read_bindesc": Build("subsys/bindesc/read_bindesc", test="sample.bindesc.read_bindesc"),
-    # samples/subsys/llext/modules: the module build, which loads the hello
-    # world extension at run time; its platform_allow lists QEMU and MPS2
-    # boards only.
-    "zephyr/subsys/llext/modules": Build("subsys/llext/modules", test="sample.llext.modules.module_build"),
-    # Wave 1b: typed console. The shell samples' own commands
-    # (test_shell.yml) go in at the prompt; the keyboard samples are judged
-    # by our own criteria.
-    **_console("subsys/shell/shell_module", "drivers/flash_shell", "arch/mpu/mpu_test"),
-    # shell_module's minimal, getopt, robot and login tests (judged by
-    # commands of ours: their yamls' harnesses are keyboard and robot).
-    **{f"zephyr/subsys/shell/shell_module@{v}": Build("subsys/shell/shell_module",
-                                                      test=f"sample.shell.shell_module.{v}", variant=v)
-       for v in ("minimal", "getopt", "robot", "login")},
-    "zephyr/subsys/testsuite/pytest/shell": Build("subsys/testsuite/pytest/shell", test="sample.harness.shell"),
-    "zephyr/subsys/console/echo": Build("subsys/console/echo", test="sample.console.echo"),
-    "zephyr/subsys/console/getchar": Build("subsys/console/getchar", test="sample.console.getchar"),
-    "zephyr/subsys/console/getline": Build("subsys/console/getline", test="sample.console.getline"),
-    "zephyr/drivers/uart/echo_bot": Build("drivers/uart/echo_bot", test="sample.drivers.uart"),
-    "zephyr/subsys/shell/devmem_load": Build("subsys/shell/devmem_load", test="sample.devmem_load.uart.interrupt"),
-    # Wave 1c: overlays of ours, no part.
-    "zephyr/basic/threads": Build("basic/threads", overlays=("test/zephyr_samples/overlays/threads_led1.overlay",)),
-    "zephyr/basic/custom_dts_binding": Build(
-        "basic/custom_dts_binding", overlays=("test/zephyr_samples/overlays/load_switch_gp25.overlay",)),
-    # basic/rgb_led (harness led) and servo_motor (harness motor): PWM
-    # outputs of ours on GP13-15; nothing on the bench reads PWM yet, so the
-    # console judges them.
-    "zephyr/basic/rgb_led": Build("basic/rgb_led", test="sample.basic.rgb_led",
-                                  overlays=("test/zephyr_samples/overlays/rgb_pwm_gp13_15.overlay",)),
-    "zephyr/basic/servo_motor": Build("basic/servo_motor", test="sample.basic.servo_motor",
-                                      overlays=("test/zephyr_samples/overlays/servo_pwm_gp15.overlay",)),
     # Wave 1d: parts whose models a Zephyr driver already runs against (the
     # rig's device images), on the nodes those images use
     # (devices/<part>/test/dut/rp2.overlay), with the sample's alias.
@@ -412,51 +293,6 @@ BUILDS: dict[str, Build] = {
     "zephyr/drivers/i2c/rtio_loopback": Build("drivers/i2c/rtio_loopback", test="sample.drivers.i2c.rtio_loopback",
                                               overlays=("test/zephyr_samples/overlays/i2c0.overlay",
                                                         "test/zephyr_samples/overlays/i2c_loopback.overlay")),
-    # Storage samples: a storage partition of ours, empty at each flash.
-    # kvss/nvs's reboot counter and littlefs's boot count then start from 0
-    # in every session, not from wherever the last one left them.
-    "zephyr/subsys/kvss/nvs": Build("subsys/kvss/nvs", test="sample.nvs.basic", storage=True),
-    # littlefs's prj.conf turns on CONFIG_DEBUG (-Og), and so built the
-    # RP2040 hangs in littlefs's first format of the partition, where the
-    # same build without it formats, mounts and counts (and fs/format,
-    # built without it, formats the same partition): built without it.
-    "zephyr/subsys/fs/littlefs": Build("subsys/fs/littlefs", test="sample.filesystem.littlefs", storage=True,
-                                       args=("CONFIG_DEBUG=n",)),
-    "zephyr/subsys/settings": Build("subsys/settings", test="sample.subsys.settings.nvs", storage=True),
-    "zephyr/subsys/kvss/zms": Build("subsys/kvss/zms", test="sample.zms.basic", storage=True),
-    # samples/subsys/fs/format: both its tests, build-only upstream (judged
-    # by our own criterion): littlefs on the storage partition, and FAT on a
-    # RAM disk (prj_ram.conf, ramdisk.overlay).
-    "zephyr/subsys/fs/format": Build("subsys/fs/format", test="sample.filesystem.format.littlefs", storage=True),
-    "zephyr/subsys/fs/format@fat_fs": Build("subsys/fs/format", test="sample.filesystem.format.fat_fs",
-                                            variant="fat_fs"),
-    # samples/subsys/shell/fs: the file-system shell over littlefs on the
-    # storage partition (judged by commands of ours).
-    "zephyr/subsys/shell/fs": Build("subsys/shell/fs", test="sample.filesystem.shell", storage=True),
-    # samples/drivers/auxdisplay_digits: build-only upstream (native_sim);
-    # one digit of ours, judged by its pins.
-    "zephyr/drivers/auxdisplay_digits": Build("drivers/auxdisplay_digits", test="sample.drivers.auxdisplay_digits",
-                                              overlays=("test/zephyr_samples/overlays/"
-                                                        "auxdisplay_digits_gp2_10.overlay",)),
-    # Userspace: the three userspace samples and the logger's user-mode
-    # test, with the MPU on (the Picos' board configs leave it off).
-    # gperf on the build host generates their kernel-object hash table.
-    **{f"zephyr/userspace/{s}": Build(f"userspace/{s}", args=("CONFIG_ARM_MPU=y",))
-       for s in ("hello_world_user", "prod_consumer", "shared_mem")},
-    # Not built: the logger's user-mode test (sample.logger.usermode). The
-    # Pico boards leave the MPU off; with CONFIG_ARM_MPU=y forced, it runs
-    # its kernel-thread demo and then HardFaults in its user thread, which
-    # touches kernel data (__aeabi_read_tp's load of z_arm_tls_ptr, then
-    # log_set_tag's copy into the logger's kernel buffer), on silicon as in
-    # the emulator. Upstream never runs it (harness keyboard).
-    # samples/basic/minimal: its runtime test, which upstream runs on ARC
-    # (common-runtime.conf, no-timers.conf): no kernel timers, one printk.
-    "zephyr/basic/minimal": Build("basic/minimal", test="sample.minimal.arc.runtime"),
-    # samples/psa/{its,persistent_key}: PSA secure storage on the storage
-    # partition. Zephyr has no entropy driver for the RP2 chips, so their
-    # entropy_not_secure tests.
-    **{f"zephyr/psa/{s}": Build(f"psa/{s}", test=f"sample.psa.{s}.secure_storage.entropy_not_secure", storage=True)
-       for s in ("its", "persistent_key")},
     # samples/subsys/display/cfb and cfb_custom_font: the character
     # framebuffer on the SSD1306 of drivers/display; their tests (harness
     # display) name other boards' panels, so the ssd16xx test, which adds
@@ -476,9 +312,6 @@ BUILDS: dict[str, Build] = {
     # that the harness opens and closes.
     "zephyr/sensor/sm351lt": Build("sensor/sm351lt", test="sample.sensor.sm351lt",
                                    overlays=("test/zephyr_samples/overlays/sm351lt_gp15.overlay",)),
-    # samples/sensor/soc_voltage: the Picos' own VSYS divider on ADC input 3.
-    "zephyr/sensor/soc_voltage": Build("sensor/soc_voltage",
-                                       overlays=("test/zephyr_samples/overlays/vsys_divider.overlay",)),
     # samples/sensor/dht_polling: a BME280 on I2C0 as dht0.
     "zephyr/sensor/dht_polling": Build("sensor/dht_polling", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/dht0_bme280_76.overlay")),
@@ -506,10 +339,6 @@ BUILDS: dict[str, Build] = {
     "zephyr/sensor/light_polling": Build(
         "sensor/light_polling", test="sample.sensor.light_polling.grove",
         overlays=("test/zephyr_samples/overlays/grove_light_adc0.overlay",)),
-    # samples/subsys/zbus/uart_bridge: zbus messages bridged out of uart1
-    # (GP8/GP9), as its nrf52840dk overlay enables that board's uart1.
-    "zephyr/subsys/zbus/uart_bridge": Build("subsys/zbus/uart_bridge",
-                                            overlays=("test/zephyr_samples/overlays/uart1_gp8_gp9.overlay",)),
     # samples/drivers/fuel_gauge: a composite gauge over an INA219.
     "zephyr/drivers/fuel_gauge": Build("drivers/fuel_gauge", test="sample.sensor.fuel_gauge", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ina219_40.overlay",
@@ -525,11 +354,6 @@ BUILDS: dict[str, Build] = {
         "test/zephyr_samples/overlays/i2c0.overlay", "devices/icm4268x/test/dut/rp2.overlay",
         "test/zephyr_samples/overlays/sensing_mpu6050_icm42688.overlay"),
         confs=("devices/icm4268x/test/dut/rp2.conf", "test/zephyr_samples/overlays/sensing_simple.conf")),
-    # samples/boards/raspberrypi/rpi_pico/uart_pio: no sample.yaml; its own
-    # rpi_pico overlay's PIO UARTs (judged by our own criterion).
-    "zephyr/boards/raspberrypi/rpi_pico/uart_pio": Build("boards/raspberrypi/rpi_pico/uart_pio", test="",
-                                                         boards=("pico",),
-                                                         other_boards="its Pico 2 overlay's pins need checking"),
     # samples/subsys/display/lvgl: its gui test (harness none) on the SSD1306
     # of drivers/display, monochrome.
     "zephyr/subsys/display/lvgl": Build("subsys/display/lvgl", test="sample.display.lvgl.gui", overlays=(
@@ -573,28 +397,6 @@ BUILDS: dict[str, Build] = {
     "zephyr/modules/lvgl/demos": Build("modules/lvgl/demos", test="sample.modules.lvgl.demo_widgets", overlays=(
         "test/zephyr_samples/overlays/i2c0.overlay", "test/zephyr_samples/overlays/ssd1306_3c.overlay"),
                                        confs=("test/zephyr_samples/overlays/lvgl_ssd1306.conf",)),
-    # samples/subsys/testsuite: ztest images that upstream builds only for
-    # native_sim (integration, build_only) and qemu_x86 (benchmark).
-    "zephyr/subsys/testsuite/integration": Build("subsys/testsuite/integration", test="sample.testing.ztest"),
-    "zephyr/subsys/testsuite/pytest/basic": Build("subsys/testsuite/pytest/basic", test="sample.twister.pytest"),
-    "zephyr/subsys/testsuite/benchmark": Build("subsys/testsuite/benchmark", test="sample.testing.ztest.benchmark"),
-    # samples/net/sockets/socketpair: its first test, on a "net" harness with
-    # no patterns (judged by our own criterion).
-    "zephyr/net/sockets/socketpair": Build("net/sockets/socketpair", test="sample.net.sockets.socketpair"),
-    # The Pico 1 builds take the samples' own boards/rpi_pico.overlay (PWM on
-    # the LED); the Pico 2 builds need an overlay of ours.
-    **{f"zephyr/{s}": Build(s, boards=("pico",), other_boards="the sample has no rpi_pico2 overlay yet")
-       for s in ("basic/blinky_pwm", "basic/fade_led")},
-    # samples/drivers/rtc: the RP2040's on-chip RTC, the rpi_pico board's rtc
-    # alias (boards/raspberrypi/rpi_pico/rpi_pico-common.dtsi); upstream's
-    # platform_allow runs the sample on RP2040 boards only with an external
-    # RTC shield. The RP2350 has no RTC: its build needs a pcf8523 part.
-    # On the Pico 1 its yaml's second line (04:19:01, a second after it sets
-    # 04:19:00) does not come: read over SWD without halting, the on-chip
-    # RTC reaches :01 within 68 ms of boot, after a RUN reset too, and then
-    # ticks every second, so the read a second later finds :02.
-    "zephyr/drivers/rtc": Build("drivers/rtc", test="sample.drivers.rtc", boards=("pico",),
-                                other_boards="the RP2350 has no RTC; its build takes a pcf8523 part (wave 1e)"),
     # samples/drivers/adc/adc_dt: its rpi_pico overlay's ADC channels;
     # upstream's platform_allow leaves the RP2 boards out.
     # The sample reads into an uninitialised uint32_t (src/main.c:37) that

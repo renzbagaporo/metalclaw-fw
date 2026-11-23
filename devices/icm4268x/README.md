@@ -135,7 +135,7 @@ FIFO at 12.5 Hz, switch the sensors off, and check every packet byte for
 byte, the 80 ms timestamp step, the count falling by a packet per read,
 `0xFF` once empty, and eight reads in a row each taking the next packet.
 
-`test/native/test_icm4268x_fifo.py` checks the FIFO over the host
+`test/host/test_icm4268x_fifo.py` checks the FIFO over the host
 harness's bridge: packets 1, 3 and 4 byte for byte, the timestamp step, the
 count in bytes and records and either byte order, pops whole and partial, a
 flush, bypass mode, the watermark, and the packets lost once full.

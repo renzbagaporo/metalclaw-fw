@@ -14,7 +14,7 @@ def metadata(harness="console", config=None, target="zephyr/x"):
             "harness_config": config or {}}
 
 
-def test_a_pico_examples_program_has_no_zephyr_spec():
+def test_an_image_that_is_no_zephyr_sample_has_no_zephyr_spec():
     assert zephyr_spec({"target": "blink", "kind": "bare_board"}) is None
     assert zephyr_spec(None) is None
 
@@ -144,9 +144,9 @@ def test_our_overlays_and_confs_follow_the_tests_own(tmp_path):
 
 
 def test_a_zephyr_samples_parts_come_from_its_own_table():
-    from test.pico_examples.parts import parts_for
+    from test.zephyr_samples.parts import parts_for
     assert [p.model for p in parts_for("zephyr/sensor/pressure_polling", "pico")] == ["bmp388"]
-    assert parts_for("zephyr/hello_world", "pico") == ()
+    assert parts_for("zephyr/none", "pico") == ()
 
 
 def test_every_overlay_and_conf_a_build_names_exists():
@@ -188,15 +188,6 @@ def test_every_zephyr_part_finds_its_pins_on_both_benches():
                 part.code(fixture)
 
 
-def test_the_erased_storage_block_is_valid_intel_hex():
-    from test.zephyr_samples.build import ihex_records
-    lines = ihex_records(0x101FFFF0, b"\xff" * 32)
-    assert lines[0] == ":02000004101FCB"
-    assert lines[1].startswith(":10FFF000") and lines[2] == ":020000041020CA"
-    for line in lines:
-        assert sum(bytes.fromhex(line[1:])) & 0xFF == 0
-
-
 def test_no_zephyr_pattern_asks_for_a_literal_backslash():
     from test.zephyr_samples.targets import OVERRIDES
     patterns = [p for spec in OWN.values() for p in spec.console]
@@ -214,7 +205,7 @@ def test_a_quoted_list_entry_loses_its_quotes_as_in_twister(tmp_path):
 def test_a_shell_command_waits_for_the_last_ones_reply_not_a_redrawn_prompt():
     # fs mount formats littlefs, and the log lines it prints between erases
     # redraw the prompt: the next command waits for "Successfully mounted".
-    from test.pico_examples.cases import Typist
+    from test.zephyr_samples.cases import Typist
     m = {**metadata(harness="shell"), "shell_commands": [
         {"command": "fs mount littlefs /lfs", "expected": "Successfully mounted littlefs at /lfs"},
         {"command": "fs ls /lfs", "expected": ".*mc.txt"}]}

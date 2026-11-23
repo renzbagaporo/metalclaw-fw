@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# The DUT fixture's Zephyr workspace. `just setup-dut` initialises it outside
-# the repository at METALCLAW_ZEPHYR_WORKSPACE (default ../.zephyr-workspace).
+# The Zephyr workspace the DUT images and the upstream samples
+# (test/zephyr_samples) build in. `just setup-dut` initialises it outside the
+# repository at METALCLAW_ZEPHYR_WORKSPACE (default ../.zephyr-workspace).
 manifest:
   remotes:
     - name: zephyrproject
@@ -17,3 +18,8 @@ manifest:
           - picolibc
           - littlefs
           - loramac-node
+          # The samples' display drivers' LVGL samples.
+          - lvgl
+          # ST's sensor register library (stmemsc), which its drivers such
+          # as the LSM6DSO's and LPS22HB's build on.
+          - hal_st

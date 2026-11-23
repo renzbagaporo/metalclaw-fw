@@ -6,6 +6,7 @@
 #include "pico/unique_id.h"
 #include "tusb.h"
 #include "metalclaw/hal/usb.h"
+#include "metalclaw/version.h"
 #include "usb_internal.h"
 
 enum {
@@ -52,7 +53,7 @@ static const tusb_desc_device_t device_descriptor = {
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor = MICROPY_HW_USB_VID,
     .idProduct = MICROPY_HW_USB_PID,
-    .bcdDevice = 0x0100,
+    .bcdDevice = MCLW_VERSION_BCD,
     .iManufacturer = STR_MANUFACTURER,
     .iProduct = STR_PRODUCT,
     .iSerialNumber = STR_SERIAL,

@@ -456,9 +456,19 @@ int mclw_hal_uart_send_break(struct mclw_uart *u, uint32_t bits) {
     return 0;
 }
 
+// Bridged, bytes_tx counts a byte once its frame has started on the DUT's
+// clock, as the rp2 engine counts one as it enters the PL011's FIFO: a model
+// that meters its output by what is still to go sees what is.
 void mclw_hal_uart_stats(const struct mclw_uart *u, struct mclw_uart_stats *out) {
     uint32_t state = mclw_hal_critical_enter();
+    uint64_t now = mclw_host_event_ns();
+    uint64_t frame = frame_ns(u);
 
     *out = u->stats;
+    if (mclw_host_bridged() && frame != 0u && u->tx_busy_until_ns > now) {
+        uint64_t left = (u->tx_busy_until_ns - now) / frame;
+
+        out->bytes_tx -= left < out->bytes_tx ? (uint32_t)left : out->bytes_tx;
+    }
     mclw_hal_critical_exit(state);
 }

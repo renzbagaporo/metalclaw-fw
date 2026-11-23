@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from test.pico_examples import lights
+from test.unit.programs import lights
 from test.unit.pio_sim import NS, US, Sim, StateMachine, assemble
 from test.unit.test_part_models import strict_options
 from test.unit.test_wire_models import dht_read

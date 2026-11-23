@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # Spec's per-line matching, as Zephyr's twister console harness matches.
 
-from test.pico_examples.targets import Spec
+from test.zephyr_samples.spec import Spec
 
 
 def test_a_line_pattern_anchors_to_its_line():

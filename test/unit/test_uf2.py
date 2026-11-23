@@ -4,7 +4,7 @@ import struct
 
 import pytest
 
-from test.rig.platforms.emulator import uf2
+from test.rig.renode import uf2
 
 RP2040 = 0xE48BFF56
 RP2350_ARM_S = 0xE48BFF59

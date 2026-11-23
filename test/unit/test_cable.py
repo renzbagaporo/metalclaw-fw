@@ -5,7 +5,7 @@ import itertools
 import sys
 import time
 
-from test.rig.platforms.emulator import bench
+from test.rig.renode import bench
 
 
 OURS = "usbip://127.0.0.1:3240/1-0"

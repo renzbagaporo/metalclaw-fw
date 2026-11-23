@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# A release tag, v<major>.<minor>.<patch>: the whole suite on the tagged
+# commit, then the release, once the tag matches the version the tree builds
+# (core/include/metalclaw/version.h) and the commit carries every status
+# test/rig/platforms.toml's release.required lists (a private bench runner's)
+# as passed. The release holds the harness firmware as UF2 and as a raw
+# binary, their SHA-256 sums, and the notes CHANGELOG.md has for the version.
+
+name: release
+run-name: release/${{ github.ref_name }}
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag names the version the tree builds
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          header=core/include/metalclaw/version.h
+          version=$(for part in MAJOR MINOR PATCH; do
+            sed -n "s/^#define MCLW_VERSION_${part} \([0-9]*\)$/\1/p" "$header"
+          done | paste -sd.)
+          echo "tag ${TAG}, version.h ${version}"
+          test "${TAG}" = "v${version}"
+          grep -q "^## ${version}\b" CHANGELOG.md || { echo "CHANGELOG.md has no '## ${version}' section"; exit 1; }
+
+  ci:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: ci
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      statuses: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The statuses a release needs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          required=$(python3 -c 'import tomllib; print(" ".join(tomllib.load(open("test/rig/platforms.toml", "rb"))["release"]["required"]))')
+          for context in $required; do
+            state=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/status" \
+              --jq ".statuses[] | select(.context == \"${context}\") | .state" | head -1)
+            echo "${context}: ${state:-missing}"
+            test "${state}" = success
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          name: harness
+          path: build
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version=${TAG#v}
+          mkdir -p dist
+          cp build/rp2/rpi_pi_pico/firmware.uf2 "dist/metalclaw-${version}-rpi_pi_pico.uf2"
+          cp build/rp2/rpi_pi_pico/firmware.bin "dist/metalclaw-${version}-rpi_pi_pico.bin"
+          (cd dist && sha256sum -- * > SHA256SUMS)
+          cat dist/SHA256SUMS
+          # The version's section of CHANGELOG.md, without its heading.
+          awk -v v="$version" '$0 ~ "^## " v "( |$)" {on=1; next} /^## / {on=0} on' CHANGELOG.md > dist/notes.md
+          gh release create "$TAG" --verify-tag --title "Metalclaw $version" --notes-file dist/notes.md \
+            dist/*.uf2 dist/*.bin dist/SHA256SUMS

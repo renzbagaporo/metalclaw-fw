@@ -27,10 +27,6 @@ zephyr_base := zephyr_workspace / "zephyr"
 # A fix to Zephyr that the workspace carries on top of the pinned release
 # until upstream has it; see test/rig/dut/README.md.
 zephyr_patch := project_dir / "test/rig/dut/zephyr_modem_cellular_registered_race.patch"
-# Upstream Zephyr samples (test/zephyr_samples) build in a workspace of their
-# own: the same release and patch, with the modules the samples need.
-zephyr_samples_workspace := env_var_or_default("METALCLAW_ZEPHYR_SAMPLES_WORKSPACE", project_dir / "../.zephyr-samples-workspace")
-zephyr_samples_base := zephyr_samples_workspace / "zephyr"
 zephyr_sdk := env_var_or_default("ZEPHYR_SDK_INSTALL_DIR", env_var("HOME") / "zephyr-sdk-1.0.1")
 zephyr_sdk_url := "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v1.0.1/zephyr-sdk-1.0.1_linux-x86_64_minimal.tar.xz"
 zephyr_sdk_sha256 := "ca9bc0ff66fafca1dac9d592a36d953cf16d096a9d09b1c0357f021cf9f6a7eb"
@@ -44,12 +40,12 @@ arm_toolchain_bin := arm_toolchain_dir / arm_toolchain_name / "bin"
 arm_toolchain_url := "https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz"
 arm_toolchain_sha256 := "62a63b981fe391a9cbad7ef51b17e49aeaa3e7b0d029b36ca1e9c3b2a9b78823"
 
-# The emulator platform: Renode's portable package, released from the fork
-# that carries the RP2040 and RP2350 models and the bench script, the two
-# boot ROMs, and probe-rs with host timeouts that stretch for emulated SWD.
-renode_commit := "ea634040120821a339a4a907214539daac24290c"
+# Renode for the sim platform and the engine tests: the package pinned in
+# test/rig/renode.toml, and the two boot ROMs.
+renode_pin := read(project_dir / "test/rig/renode.toml")
+renode_commit := replace_regex(renode_pin, '(?s).*\ncommit = "([0-9a-f]+)".*', "$1")
+renode_package_sha256 := replace_regex(renode_pin, '(?s).*\nsha256 = "([0-9a-f]+)".*', "$1")
 renode_package_url := "https://github.com/renzbagaporo/renode/releases/download/rp2-portable-" + replace_regex(renode_commit, "^(.{12}).*", "$1") + "/renode-1.17.0.linux-portable-headless.tar.gz"
-renode_package_sha256 := "3efeb15bfd4960634a76e4444ced661a7c8788d9bf5dacafbd9bce780bada173"
 renode_home := env_var_or_default("METALCLAW_RENODE_HOME", project_dir / "../.renode")
 renode_dir := env_var_or_default("METALCLAW_RENODE_DIR", renode_home / renode_commit)
 renode_roms := env_var_or_default("METALCLAW_RENODE_ROMS", renode_home / "roms")
@@ -57,9 +53,6 @@ rp2040_rom_url := "https://raw.githubusercontent.com/matgla/Renode_RP2040/5aca84
 rp2040_rom_sha256 := "3a3c4c617d83bc9b910a6fa7bfdffa11ce26ff89370271d861507be821cc49aa"
 rp2350_rom_url := "https://github.com/raspberrypi/pico-bootrom-rp2350/releases/download/A2/bootrom-combined.bin"
 rp2350_rom_sha256 := "196c503fbb17b2ad21a1f496574786af698f9376af9a5f79e5e75293c9e12191"
-probe_rs_commit := "eab9c5e0ecb0eb7875050070719cf5370ac62d32"   # v0.30.0
-probe_rs_patch := project_dir / "test/rig/platforms/emulator/probe_rs_0.30.0_emulation_timeouts.patch"
-probe_rs_emulation_dir := env_var_or_default("METALCLAW_PROBE_RS_EMULATION_DIR", project_dir / "../.probe-rs-emulation")
 
 default:
     @just --list
@@ -147,6 +140,16 @@ setup-rig:
     "{{rig_python}}" -m pip install --quiet -r "{{project_dir}}/test/rig/requirements.txt"
     "{{rig_python}}" -c "import pytest, serial; print('rig python ok:', pytest.__version__, serial.__version__)"
 
+# The unit tests: the rig's own code, and the models and engines built for
+# this host (test/unit). Extra arguments go to pytest.
+test-unit *ARGS: setup-rig
+    cd "{{project_dir}}" && "{{rig_python}}" -m pytest test/unit {{ARGS}}
+
+# The host harness's own tests (test/host), against `just build-host`'s
+# build. Extra arguments go to pytest.
+test-host *ARGS: setup-rig
+    cd "{{project_dir}}" && "{{rig_python}}" -m pytest test/host {{ARGS}}
+
 # The harness's engines against a native stimulus: the harness alone in
 # Renode, its pins bridged to test/engine's stimulus, its REPL over USB/IP.
 # Extra arguments go to pytest.
@@ -155,27 +158,31 @@ test-engine *ARGS: setup-rig
         METALCLAW_HARNESS_BOARD="{{board}}" METALCLAW_HARNESS_IMAGE="{{build_dir}}/rp2/{{board}}/firmware.uf2" \
         "{{rig_python}}" -m pytest test/engine {{ARGS}}
 
-# Run the cases on a platform. Extra arguments go to pytest.
+# Run the cases on a platform: `hardware` (a bench, named by its serials) or
+# `sim` (the host harness, the DUT in Renode). Extra arguments go to pytest.
 test PLATFORM="hardware" *ARGS: setup-rig
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ "{{PLATFORM}}" == native ]]; then
+    if [[ "{{PLATFORM}}" == sim ]]; then
         export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
-    fi
-    if [[ "{{PLATFORM}}" == emulator ]]; then
-        export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
-        # The board `just build` builds picks the bench.
-        export METALCLAW_HARNESS_BOARD="{{board}}"
-        export METALCLAW_PROBE_RS="${METALCLAW_PROBE_RS:-{{probe_rs_emulation_dir}}/bin/probe-rs}"
-        echo "probe-rs: $("$METALCLAW_PROBE_RS" --version | head -1), patched with $(basename "{{probe_rs_patch}}")"
     fi
     cd "{{project_dir}}" && METALCLAW_ARM_TOOLCHAIN_DIR="{{arm_toolchain_dir}}" \
         "{{rig_python}}" test/rig/run.py --platform {{PLATFORM}} {{ARGS}}
 
-# The emulator platform's tools: the boot ROMs, patched probe-rs and Renode.
-setup-emulator: setup-emulator-roms setup-emulator-probe-rs setup-renode
+# Build and run rig units (test/rig/select.py's output, or a file holding
+# it) on a platform: each unit's DUT images and upstream samples, for each of
+# the platform's DUT boards (test/rig/platforms.toml), into OUT.
+run-units PLATFORM OUT UNITS: setup-rig
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "{{PLATFORM}}" == sim ]]; then
+        export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
+    fi
+    cd "{{project_dir}}" && METALCLAW_ARM_TOOLCHAIN_DIR="{{arm_toolchain_dir}}" \
+        "{{rig_python}}" test/rig/run_units.py --platform {{PLATFORM}} --out "{{OUT}}" '{{UNITS}}'
 
-setup-emulator-roms:
+# The boot ROMs of both chips, for Renode.
+setup-renode-roms:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{renode_roms}}"
@@ -191,28 +198,9 @@ setup-emulator-roms:
     fetch "{{rp2350_rom_url}}" "{{rp2350_rom_sha256}}"
     ls -l "{{renode_roms}}"
 
-# probe-rs 0.30.0 with three host-side timeouts made configurable; unset,
-# they keep upstream's defaults. Needs cargo.
-setup-emulator-probe-rs:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    stamp="{{probe_rs_emulation_dir}}/built-from"
-    want="{{probe_rs_commit}} $(sha256sum "{{probe_rs_patch}}" | cut -d' ' -f1)"
-    if [[ -x "{{probe_rs_emulation_dir}}/bin/probe-rs" && "$(cat "$stamp" 2>/dev/null)" == "$want" ]]; then
-        "{{probe_rs_emulation_dir}}/bin/probe-rs" --version; exit 0
-    fi
-    src="{{probe_rs_emulation_dir}}/src"
-    rm -rf "$src"
-    git init --quiet "$src"
-    git -C "$src" fetch --quiet --depth 1 https://github.com/probe-rs/probe-rs.git "{{probe_rs_commit}}"
-    git -C "$src" checkout --quiet FETCH_HEAD
-    git -C "$src" -c user.name=metalclaw -c user.email=metalclaw@localhost am --quiet "{{probe_rs_patch}}"
-    cargo install --quiet --locked --path "$src/probe-rs-tools" --bin probe-rs --root "{{probe_rs_emulation_dir}}"
-    echo "$want" > "$stamp"
-    "{{probe_rs_emulation_dir}}/bin/probe-rs" --version
-
-# Renode's portable package for the pinned commit, which bundles .NET.
-setup-renode:
+# Renode's portable package for the pinned commit, which bundles .NET, and
+# the boot ROMs.
+setup-renode: setup-renode-roms
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ -x "{{renode_dir}}/renode" ]]; then "{{renode_dir}}/renode" --version; exit 0; fi
@@ -226,7 +214,8 @@ setup-renode:
     mv "{{renode_dir}}.part" "{{renode_dir}}"
     "{{renode_dir}}/renode" --version
 
-# Create the Zephyr workspace for the DUT fixture from test/rig/dut/west.yml.
+# Create the Zephyr workspace for the DUT images and the upstream samples
+# from test/rig/dut/west.yml.
 # METALCLAW_ZEPHYR_REFERENCE may name a directory holding local clones
 # (zephyr/, modules/...) to borrow objects from instead of downloading.
 setup-dut: setup-rig
@@ -250,6 +239,9 @@ setup-dut: setup-rig
         git -C "{{zephyr_base}}" -c user.name=metalclaw -c user.email=metalclaw@localhost am --quiet "{{zephyr_patch}}"
     fi
     "{{rig_python}}" -m pip install --quiet -r "{{zephyr_base}}/scripts/requirements-base.txt"
+    # Pillow for subsys/display/cfb_custom_font's font header
+    # (scripts/build/gen_cfb_font_header.py).
+    "{{rig_python}}" -m pip install --quiet Pillow
     "{{venv}}/bin/west" -v list
     echo "Zephyr $(git -C "{{zephyr_base}}" describe --tags), with $(git -C "{{zephyr_base}}" log -1 --format=%s)"
 
@@ -301,43 +293,15 @@ build-dut DEVICE="": setup-rig
     cmake --build "$build"
     ls -l "$build/zephyr/zephyr.elf"
 
-# Create the Zephyr workspace for upstream samples from
-# test/zephyr_samples/west.yml, with the rig's Zephyr patch.
-# METALCLAW_ZEPHYR_REFERENCE works as for setup-dut.
-setup-zephyr-samples: setup-rig
-    #!/usr/bin/env bash
-    set -euo pipefail
-    "{{rig_python}}" -m pip install --quiet west
-    mkdir -p "{{zephyr_samples_workspace}}/manifest"
-    cp "{{project_dir}}/test/zephyr_samples/west.yml" "{{zephyr_samples_workspace}}/manifest/west.yml"
-    if [[ ! -f "{{zephyr_samples_workspace}}/.west/config" ]]; then
-        "{{venv}}/bin/west" init -l "{{zephyr_samples_workspace}}/manifest"
-    fi
-    ref="${METALCLAW_ZEPHYR_REFERENCE:-}"
-    if [[ -n "$ref" && ! -d "{{zephyr_samples_base}}/.git" ]]; then
-        git clone --quiet --reference-if-able "$ref/zephyr" https://github.com/zephyrproject-rtos/zephyr.git "{{zephyr_samples_base}}"
-    fi
-    cd "{{zephyr_samples_workspace}}" && "{{venv}}/bin/west" update --narrow --fetch-opt=--filter=blob:none
-    want=$(git patch-id --stable < "{{zephyr_patch}}" | cut -d' ' -f1)
-    if [[ "$(git -C "{{zephyr_samples_base}}" show HEAD | git patch-id --stable | cut -d' ' -f1)" != "$want" ]]; then
-        git -C "{{zephyr_samples_base}}" -c user.name=metalclaw -c user.email=metalclaw@localhost am --quiet "{{zephyr_patch}}"
-    fi
-    "{{rig_python}}" -m pip install --quiet -r "{{zephyr_samples_base}}/scripts/requirements-base.txt"
-    # Host tools some samples' builds run: nanopb's generator (protobuf and
-    # grpcio-tools' protoc) and Pillow for subsys/display/cfb_custom_font's
-    # font header (scripts/build/gen_cfb_font_header.py).
-    "{{rig_python}}" -m pip install --quiet -r "{{zephyr_samples_workspace}}/modules/lib/nanopb/requirements.txt" Pillow
-    "{{venv}}/bin/west" -v list
-
 # Build upstream Zephyr samples (test/zephyr_samples/builds.py, "all" for
 # every one) for a bench BOARD (pico or pico2) into OUT, staged for the rig:
 # OUT/images/<board>/<target>/{zephyr.elf,example.json}.
 build-zephyr-samples BOARD OUT +TARGETS: setup-rig
     #!/usr/bin/env bash
     set -euo pipefail
-    test -f "{{zephyr_samples_base}}/VERSION" || { echo "no Zephyr workspace at {{zephyr_samples_workspace}}; run 'just setup-zephyr-samples'" >&2; exit 2; }
+    test -f "{{zephyr_base}}/VERSION" || { echo "no Zephyr workspace at {{zephyr_workspace}}; run 'just setup-dut'" >&2; exit 2; }
     test -d "{{zephyr_sdk}}" || { echo "no Zephyr SDK at {{zephyr_sdk}}; set ZEPHYR_SDK_INSTALL_DIR" >&2; exit 2; }
-    export ZEPHYR_BASE="{{zephyr_samples_base}}" ZEPHYR_SDK_INSTALL_DIR="{{zephyr_sdk}}" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
+    export ZEPHYR_BASE="{{zephyr_base}}" ZEPHYR_SDK_INSTALL_DIR="{{zephyr_sdk}}" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
     export PATH="{{venv}}/bin:$PATH"
     cd "{{project_dir}}" && "{{rig_python}}" -m test.zephyr_samples.build --board "{{BOARD}}" --out "{{OUT}}" {{TARGETS}}
 

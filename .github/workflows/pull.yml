@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# Every push to a pull request: the suite, with the rig units the change
+# reaches since the branch left its base (test/rig/select.py). A newer push
+# cancels the run it replaces. Its ci-ok is the check branch protection
+# requires.
+
+name: pull
+run-name: pull/${{ github.event.pull_request.number }}
+
+on:
+  pull_request:
+
+concurrency:
+  group: pull-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      base: ${{ github.event.pull_request.base.sha }}

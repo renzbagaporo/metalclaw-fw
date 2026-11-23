@@ -4,7 +4,7 @@ import struct
 
 import pytest
 
-from test.rig.platforms.emulator import dut_flash
+from test.rig import dut_flash
 
 FLASH = dut_flash.FLASH_BASE
 RAM = 0x20000000

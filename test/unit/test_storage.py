@@ -4,7 +4,7 @@ import struct
 
 import pytest
 
-from test.rig.platforms.emulator import storage
+from test.rig.renode import storage
 
 STORAGE_BASE = 0x10000
 STORAGE_BYTES = 0x10000

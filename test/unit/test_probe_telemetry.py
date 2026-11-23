@@ -440,7 +440,7 @@ def test_uses_the_probe(pytestconfig):
 
 def test_the_session_line_goes_beside_the_junit_xml(pytester, monkeypatch):
     monkeypatch.delenv(probe_telemetry.LOG_ENV, raising=False)
-    monkeypatch.setenv("METALCLAW_PLATFORM", "emulator")
+    monkeypatch.setenv("METALCLAW_PLATFORM", "hardware")
     pytester.makepyfile(USES_THE_PROBE)
     result = pytester.runpytest("-p", "test.rig.probe_telemetry", "--junitxml=results/junit.xml")
     log = pytester.path / "results" / probe_telemetry.LOG_NAME
@@ -448,7 +448,7 @@ def test_the_session_line_goes_beside_the_junit_xml(pytester, monkeypatch):
                                  "the session never set up the probe; logged to *results/probe_telemetry.jsonl"])
     lines = [json.loads(text) for text in log.read_text().splitlines()]
     assert len(lines) == 1
-    assert lines[0]["platform"] == "emulator" and lines[0]["bench"] == {"serial": "SER1"}
+    assert lines[0]["platform"] == "hardware" and lines[0]["bench"] == {"serial": "SER1"}
     assert lines[0]["exitstatus"] == 0
     assert lines[0]["operations"][0]["errors"] == {"usb_timeout": 1}
 

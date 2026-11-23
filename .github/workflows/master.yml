@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# Every push to master: the whole suite, every rig unit, so each commit on
+# master has a full result. No concurrency group: a group keeps one pending
+# run and cancels the one it replaces, which would leave a commit unrun.
+
+name: master
+run-name: master
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml

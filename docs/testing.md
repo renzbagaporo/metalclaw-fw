@@ -31,36 +31,25 @@ names the probe-rs executable when it is not on `PATH`.
 - `devices/<name>/test/cases.py`, or a `cases/` directory of `test_*.py`
   files, for one device; `devices/cellular/test/cases/` has one per model
   and a `common.py` they import relatively (`from .common import ...`).
-- `test/pico_examples/cases.py` for an unmodified pico-examples program on
-  the DUT, judged by what its source says it does: the lines it prints
-  (`targets.py`, `part_targets.py`), what its parts saw (`parts.py`), its
-  pins and registers read over SWD (`pin_specs.py`), and the device on its
-  own USB (`usb_devices.py`). A program whose source prints a line a set
-  time apart has that interval bounded on the harness's clock (a Spec's
-  `intervals`), judged within what the clock readings around each line's
-  arrival can tell. A program that prints nothing skips its console case,
-  since an empty read shows nothing, and a build a Spec cannot judge skips
-  with the reason the Spec gives (`other_boards`).
-- `test/zephyr_samples/` for an unmodified upstream Zephyr sample, which the
-  same cases judge. `builds.py` lists the samples and how each builds: the
-  sample.yaml test's own `extra_args` and `extra_configs`, as twister builds
-  it, plus devicetree overlays and Kconfig fragments of ours
-  (`overlays/`) for the parts on the bench and the aliases the sample looks
-  them up by. `just setup-zephyr-samples` makes the samples' Zephyr
-  workspace (`west.yml`: the rig's release with the samples' modules), and
-  `just build-zephyr-samples BOARD OUT TARGETS` (`build.py`) builds them
-  for a bench board and stages each as `OUT/images/<board>/zephyr/<sample>/`
-  with an `example.json` that carries the test's harness and criteria.
-  `targets.py` turns those into a Spec: the yaml's console patterns
-  matched line by line as twister matches them, after the boot banner, a
-  shell test's commands typed at the prompt, a ztest suite's summary, and
-  Zephyr's fault reports forbidden; a sample whose yaml judges it some
-  other way has criteria of ours read from its source (`OWN`), and
+- `test/zephyr_samples/cases.py` for an unmodified upstream Zephyr sample
+  that drives Metalclaw's own device models, judged by what its sample.yaml
+  test says it prints and by what its parts saw of it. `builds.py` lists
+  the samples and how each builds: the sample.yaml test's own `extra_args`
+  and `extra_configs`, as twister builds it, plus devicetree overlays and
+  Kconfig fragments of ours (`overlays/`) for the parts on the bench and
+  the aliases the sample looks them up by. `just build-zephyr-samples BOARD
+  OUT TARGETS` (`build.py`) builds them in the DUT's Zephyr workspace for a
+  bench board and stages each as `OUT/images/<board>/zephyr/<sample>/` with
+  an `example.json` that carries the test's harness and criteria.
+  `targets.py` turns those into a Spec (`spec.py`): the yaml's console
+  patterns matched line by line as twister matches them, after the boot
+  banner, a shell test's commands typed at the prompt, a ztest suite's
+  summary, and Zephyr's fault reports forbidden; a sample whose yaml judges
+  it some other way has criteria of ours read from its source (`OWN`), and
   `OVERRIDES` holds what a sample needs beyond its yaml, each with its
-  reason. `parts.py` names the Metalclaw parts each sample talks to. A
-  sample that keeps data in flash builds with a storage partition, and
-  its image is downloaded again at each restart as Intel HEX with that
-  partition erased, so it starts from empty storage.
+  reason. `parts.py` names the Metalclaw parts each sample talks to
+  (`attach.py`). Only samples that attach a part of ours are here: the
+  rig judges Metalclaw, not Zephyr.
 
 A case is a pytest function taking `harness`, `dut`, `probe` or `fixture`:
 
@@ -71,15 +60,14 @@ def test_dut_answers_ping(dut):
 
 A case that lets the bench act for a while, or times what it did, uses the
 harness's clock: `harness.sleep(seconds)` and `harness.clock()`. That clock
-is real time on the bench and emulated time in Renode, so the case means the
-same on both; host time does not.
+is real time on the bench and the DUT's virtual time on the sim platform, so
+the case means the same on both; host time does not.
 
 ## Platforms
 
-Three platforms exist: `hardware`, the bench; `emulator`, the same bench
-in Renode (see [The emulator](#the-emulator)); and `native`, the DUT alone
-in Renode with its parts served by Metalclaw running as a Linux process
-(see [Native mode](#native-mode)). `hardware` refuses to run
+Two platforms exist: `hardware`, a bench, and `sim`, the DUT alone in
+Renode with its parts served by Metalclaw running as a Linux process (see
+[The sim platform](#the-sim-platform)). `hardware` refuses to run
 without `METALCLAW_HARNESS_SERIAL` and never scans for ports. Bringing it up means: wait for the harness to
 enumerate, attach the `swd_probe` device from the REPL if the CMSIS-DAP
 interface is not already present, flash the DUT image through that probe with
@@ -89,8 +77,8 @@ PING. If any of that fails, no case runs.
 On both platforms the session header shows the host's load average and CPU
 count, and every failure carries a `host load` section with the same and,
 where the host has `/proc/stat`, how busy its CPUs were during that test and
-how much time the hypervisor stole from them. A failure on a loaded host,
-above all in the emulator, is weaker evidence than one on an idle host.
+how much time the hypervisor stole from them. A failure on a loaded host is
+weaker evidence than one on an idle host.
 Every session also records how the SWD probe behaved (see
 [Probe telemetry](#probe-telemetry)).
 
@@ -165,13 +153,10 @@ pulls every Pico GPIO net up with 5.1 kOhm) a line nothing drives reads
 high, even through the DUT's reset. There the harness holds the `idle`
 levels before it flashes the DUT, so that a part not yet attached does not
 look active (an unattached sx126x would read busy and hold the DUT's driver
-in its boot); elsewhere `idle` is empty. For a pico-examples program a
-level yields to every net the program's parts take, which the program may
-drive itself from its first instruction (`pio_hub75` drives GP10, GPIO22's
-net, as its E line), and to every pin a program drives with no part on it
-(`PROGRAM_OUTPUTS` in `test/pico_examples/parts.py`: `adc_dma_capture`'s
-resistor DAC on GP6-GP10). A case reads `fixture["line_pullups"]`
-where a line's undriven level matters.
+in its boot); elsewhere `idle` is empty. For a Zephyr sample a level yields
+to every net the sample's parts take, which the sample may drive itself
+from its first instruction. A case reads `fixture["line_pullups"]` where a
+line's undriven level matters.
 
 `METALCLAW_DUT_DEVICE` picks which device's DUT image to flash, default
 `smoke`; `METALCLAW_DUT_IMAGE` names an image path outright. Every image
@@ -186,162 +171,34 @@ re-enumerates and the fixture waits it out. The simulation clock runs by default
 what a part sends per interval pauses it and steps it with `advance_us()`,
 as `neo_m8n`'s do.
 
-## The emulator
+## The sim platform
 
-`just test emulator` runs the same cases against the bench emulated in
-Renode, from the [RP2 Renode fork](https://github.com/renzbagaporo/renode)
-that carries the RP2040 and RP2350 models. The
-justfile pins a commit of that fork and the portable package its release
-workflow published for it, which bundles .NET.
-Each bench's script in that fork
-(`scripts/multi-node/metalclaw_fixture_one_machine.resc`,
-`scripts/multi-node/metalclaw_carrier_one_machine.resc`) puts both chips in
-one Renode machine, `bench`, on one clock: each chip's cores and bus
-registrations in a cluster of its own, the DUT's peripherals named with a
-`d_` prefix and the harness's with `h_`, and their pins joined by wires with
-no latency, so a harness part answers at the DUT's own edges. The harness's
-USB is exported over
-USB/IP and imported into this host's kernel, so the harness, its CMSIS-DAP
-probe and the DUT are driven exactly as on the bench. Every re-enumeration
-unplugs it; the platform imports it again, as a cable that stays in would.
-The kernel's descriptor timeouts run in host time, so it can give up on a
-harness that is busy in emulated time; an import whose harness has not
-enumerated, or whose REPL tty is gone, for 120 s is replugged. The harness's
-mass-storage volume is unused by the rig, and probing it is what stalls a busy
-harness into a reset, so the host tells usb-storage to ignore it (below). The harness flash boots with its filesystem
-already formatted, as a bench harness's is after its first boot, at the
-range the UF2 declares for it; formatting erases sectors with interrupts
-off while USB is coming up. The platform takes the flash from the UF2's
-blocks for the harness chip's family, so an RP2350 UF2's E10 workaround
-block, which is for another family, is left out.
-
-The harness's board picks the bench, as it picks the board `just build`
-builds (`METALCLAW_BOARD_DIR`; the platform reads it as
-`METALCLAW_HARNESS_BOARD`):
-
-| Harness board | Bench script | Harness | DUT | DUT image |
-| --- | --- | --- | --- | --- |
-| `rpi_pi_pico` (default) | `metalclaw_fixture_one_machine.resc` | RP2040 | RP2350 | `rpi_pico2/rp2350a/m33` |
-| `metalclaw_pico_rp2` | `metalclaw_carrier_one_machine.resc` | RP2354B | RP2040 | `rpi_pico` |
-
-The fixture's pins come from the harness's board as on the bench, and the
-DUT image has to be built for the bench's DUT chip, or the run stops before
-the bench starts. On a board with line pull-ups the harness holds the
-`idle` levels and then resets the DUT, which booted with the emulation
-before the harness could.
-
-The DUT's flash boots with the DUT image already in it, as a probe download
-leaves it: the platform places each loadable segment of `zephyr.elf` whose
-load address is in flash at that address, erased between segments, and
-loads the result through the DUT's XIP window (`d_xipMemory LoadBinary`)
-before the emulation starts. A download through the emulated probe takes
-20-30 minutes of host time, so the emulator's `dut` fixture only resets the
-DUT through the probe and waits for PING. SWD flashing is covered by
-`swd_probe`'s `test_the_probe_flashes_and_verifies_the_image`, which on the
-`smoke` image downloads it with `probe-rs download --verify`, resets the DUT
-and waits for PING, on either platform; other images skip it.
-
-```sh
-just setup-emulator      # boot ROMs, patched probe-rs and Renode, next to the repository
-just build               # build/rp2/rpi_pi_pico/firmware.uf2, the harness image
-just build-dut           # the DUT image, as for the bench
-just test emulator
-```
-
-For the carrier, with its DUT a Pico:
-
-```sh
-export METALCLAW_BOARD_DIR=$PWD/core/ports/rp2/boards/metalclaw_pico_rp2
-export METALCLAW_DUT_BOARD=rpi_pico
-just build
-just build-dut
-just test emulator
-```
-
-The host needs `vhci_hcd` loaded, `usbip` runnable with `sudo -n`, and
-usb-storage told to ignore the harness (`echo 2fe3:0204:i | sudo tee
-/sys/module/usb_storage/parameters/quirks` after `sudo modprobe usb-storage`),
-which changes the running kernel: run it in a disposable VM or CI runner, not
-on a workstation. `METALCLAW_RENODE_DIR`,
-`METALCLAW_RENODE_ROMS` and `METALCLAW_HARNESS_IMAGE` override the Renode
-package, the boot ROM directory and the harness UF2; point
-`METALCLAW_RENODE_DIR` at a package built from a local checkout
-(`./build.sh --no-gui -t`, then unpack `output/packages/`) to try a Renode
-change. `METALCLAW_RENODE_QUANTUM` overrides the bench's synchronisation quantum
-in seconds, 10 µs by default. The Pico harness's serial is the emulated flash's unique ID,
-`0123456789ABCDEF`. The RP2354B harness's is its OTP chip ID, which the
-carrier's bench script sets: `00000000C0FFEE01`.
-
-A pico-examples program can need more of the bench than the bench script's
-defaults; `test/pico_examples/emulation.py` says what, per program, and the
-platform sets it when the bench starts, as the script's per-session
-variable `$i2c0_wiring`: the byte-level bus, the scripts' default, or
-pin-level wires on GP4 and GP5, each a script beside the bench script
-(`<script>_i2c0_bus.resc`, `<script>_i2c0_wires.resc`). Renode's RP2 I2C
-peripheral talks to a byte-level bus when one is connected, and otherwise
-drives and follows SDA and SCL itself. A program whose I2C reaches the
-harness at pin level (`slave_mem_i2c`, `slave_mem_i2c_burst`,
-`pio_i2c_bus_scan`) takes the wires, and so does a program that takes DUT
-GP4 or GP5 as GPIO, PIO, UART or SPI, the only wiring that reaches the
-carrier's two harness branches of each. A variable the package's bench
-script does not declare, or a wiring script it does not ship, is left out
-and named in `renode.log`, and the program's cases skip.
-
-The emulator keeps Metalclaw in the loop: the harness runs its firmware on
-its own emulated chip, joined to the emulated DUT only by the bench
-script's wires, and no Renode model inside the DUT takes the place of a
-harness part. A program the emulator cannot judge is listed in
-`EMULATOR_LIMITS` in `test/pico_examples/emulation.py` with the reason, and
-the emulator platform's `bench` fixture skips its cases with that reason
-before Renode starts; the hardware platform does not read the list.
-`UNPROVISIONED` holds the encrypted programs (below). `SPEED_LIMITS` holds
-the programs that run the bench too far behind real time for the harness
-to finish setting up: `hstx_spi_lcd` (about six million HSTX register
-accesses per virtual second, about 100 times slower), `hello_pwm` (a PWM
-slice at clk_sys / 4 on GP0 and GP1, about 1,600 times slower) and
-`pio_hub75` (the PIO's changes on the panel's 14 pins, about 1,100 times
-slower). The emulator pays for each compare match, wrap and pin change
-whether or not anything is wired to the pin. `CORE_ORDER_LIMITS` holds
-`multicore_doorbell`: core 1 reads its non-volatile exit flag once before
-spinning, and only silicon's back-to-back doorbell interrupts hold it off
-until the flag is set; the emulated cores, on separate host threads, do not
-interleave that tightly.
-
-## Engine tests
-
-`just test-engine` runs `test/engine` against the harness's engines
-themselves: the harness alone in Renode (`scripts/multi-node/
-metalclaw_harness_native.resc`), its REPL over USB/IP as on the emulator
-platform, and its GPIO bridged (`core/ports/host/BRIDGE.md`, with the
-harness in the DUT's place) to a native stimulus, `test/engine/
-stimulus.py`. The stimulus drives the harness's pins bit by bit as a DUT
-would, an I2C or SPI controller, a UART, raw pulses, at exact virtual times,
-and reads what the harness drives back, so a case can try the edges a DUT
-image never makes: a pulse just outside a window, a frame cut short. The
-`emulator` workflow runs them as its `engine` job. Hardware runs still judge
-the engines on silicon; the emulated PIO's timing is the limit here.
-
-## Native mode
-
-`just test native` runs the cases against the DUT emulated in Renode on its
+`just test sim` runs the cases against the DUT emulated in Renode on its
 own, with its parts served by the host harness: Metalclaw built for Linux
 (`just build-host`), MicroPython's unix port with the `metalclaw` module,
 the runtime and every device, over a software HAL in `core/ports/host`.
 The models, the runtime and the REPL the cases drive are the firmware's
 own; what differs from hardware is the HAL under them, which serves the
 DUT's buses from the emulator instead of from PIO and DMA. The rp2 port's
-engines are not exercised here; hardware and full-emulator runs are where
-they are judged.
+engines are not exercised here; the engine tests and the two benches are
+where they are judged.
 
-The emulator holds only the DUT, a Pico or a Pico 2 (`scripts/multi-node/
-metalclaw_pico_native.resc`, `metalclaw_pico2_native.resc`), chosen by the
-image's chip. A bridge in it hands every I2C event, SPI frame and bridged
-UART's byte of the DUT's blocks, and every level it drives on a pin the
-harness watches, to the host harness over a Unix socket, in lockstep with
-the DUT's virtual time: each request carries that time and waits for its
-answer, so a run is the same at any host load
-(`core/ports/host/BRIDGE.md`). The harness's clock, `metalclaw.now_us()`,
-is the DUT's virtual time, and so are the cases' bench seconds.
+Renode comes from the [RP2 Renode fork](https://github.com/renzbagaporo/renode)
+that carries the RP2040 and RP2350 models, as
+the portable package its release workflow published for the commit
+`test/rig/renode.toml` pins, which bundles .NET; `just setup-renode` fetches
+and checks it, with both chips' boot ROMs. The emulator holds only the DUT,
+a Pico or a Pico 2 (`scripts/multi-node/metalclaw_pico_native.resc`,
+`metalclaw_pico2_native.resc`), chosen by the image's chip. A bridge in it
+hands every I2C event, SPI frame and bridged UART's byte of the DUT's
+blocks, and every level it drives on a pin the harness watches, to the host
+harness over a Unix socket, in lockstep with the DUT's virtual time: each
+request carries that time and waits for its answer, so a run is the same
+at any host load (`core/ports/host/BRIDGE.md`). The harness's clock,
+`metalclaw.time_us()`, is the DUT's virtual time, and so are the cases'
+bench seconds, the DUT mailbox's deadlines included: the DUT runs slower
+than the host, so a deadline counts its time, and one whose clock stands
+still for 120 s of wall time fails.
 
 The platform starts the host harness on a pseudo-terminal, which the rig
 opens as it opens a harness's USB serial port, and Renode with the DUT's
@@ -351,56 +208,63 @@ the DUT's console comes through `console_bridge` as on a bench: a UART on
 pins no bridged block has, the console's UART0 or a PIO program's, goes
 bit by bit. A jumper between two DUT pins is a join inside Renode, so
 blocks on joined pins talk to each other directly. The DUT's memory, for
-the rig's mailbox and the pin and register cases, comes from Renode's
-monitor; a reset and a halt are monitor commands. DUT pins are the
-harness's pins one to one. The cases of the harness's own USB functions
-(the SWD probe, the console bridge's) skip.
+the rig's mailbox, comes from Renode's monitor; a reset and a halt are
+monitor commands. DUT pins are the harness's pins one to one. The cases of
+the harness's own USB functions (the SWD probe, the console bridge's) skip.
 
 ```sh
 just build-host
 just build-dut
-just setup-emulator-roms setup-renode
-just test native
+just setup-renode
+just test sim
 ```
 
-The `emulator` workflow runs the same, as its `native` job, for each image
-it tests.
+`METALCLAW_RENODE_DIR` and `METALCLAW_RENODE_ROMS` override the Renode
+package and the boot ROM directory; point `METALCLAW_RENODE_DIR` at a
+package built from a local checkout (`./build.sh --no-gui -t`, then unpack
+`output/packages/`) to try a Renode change. `METALCLAW_RENODE_INSTANCE`
+lets several sessions run on one host: instance N's Renode takes monitor
+port 1334 + N and console port 1434 + N. `METALCLAW_SIM_WORK` names the
+directory for the bridge's socket and the session's logs, default
+`build/sim`. `METALCLAW_CONSOLE_LOG` names a file a sample case appends the
+DUT's console to as it arrives, which keeps what a sample printed when its
+session is killed before the report.
 
 The host harness runs on its own too, with its REPL on stdin and its clock
-the host's monotonic clock, and `test/native` drives it as the emulator
-would, without Renode.
+the host's monotonic clock, and `just test-host` (`test/host`) drives it as
+the emulator would, without Renode.
 
-The hardware platform never runs the programs in `HARDWARE_HAZARDS`
-(`test/pico_examples/hazards.py`): `hello_otp` writes OTP for good, and
-the encrypted programs need a signing key and secure boot burnt into it.
-The emulator judges `hello_otp`. Its bench boots the DUT before any case
-listens, and that first run writes rows 0x400 and 0x410 of the blank OTP,
-so every run a case sees finds them programmed, prints so and returns
-(`hello_otp.c:23-40`); `test_the_example_sets_its_registers` reads the rows
-over SWD and compares them with what one complete run leaves. The
-encrypted programs (`hello_encrypted`, `hello_encrypted_mbedtls`,
-`enc_bootloader`, `hello_serial_enc`) decrypt themselves, or each other,
-with an AES key `picotool otp load` puts in OTP, and the bootloader pair
-needs both images in flash; the emulated DUT's OTP is blank and a session
-flashes one image, so they are in `EMULATOR_LIMITS` with that reason.
+## Engine tests
 
-The bench script exports the DUT's own USB too, as USB/IP bus `1-1` on a
-server of its own at `$dut_usbip_port`: Renode's server takes one
-connection at a time, and the harness's import holds its server's for the
-whole session. The hardware platform does not assume the DUT's USB is cabled to the rig host, so only
-the emulator imports it, for the cases that ask for it (`dut_usb`, which
-the hardware platform skips): once the program has turned its USB
-controller on with its pull-up, read over SWD, a second cable imports
-`1-1`, finds the program's device on its own vhci port by the VID:PID its
-descriptors give (`test/pico_examples/usb_devices.py`), waits for this
-host's drivers to bind its ttys and hidraw nodes, and detaches it after
-the module's cases. `test_the_example_presents_its_usb_device` judges what
-the device presents; a Spec's `usb_console` patterns are matched on its
-first CDC ACM function (`hello_usb`, `hello_anything`, `dev_multi_cdc`), and
-its `usb_input` writes to the CDC function it names, and its `usb_replies`
-are matched on what a named CDC function answers on its own tty
-(`dev_multi_cdc`'s "OK" on CDC 1). A Renode package whose
-bench script lacks `$dut_usbip_port` leaves those cases skipped as unmet.
+`just test-engine` runs `test/engine` against the harness's engines
+themselves: the harness firmware alone in Renode (`scripts/multi-node/
+metalclaw_harness_native.resc`, or `metalclaw_harness_rp2_native.resc` for
+the carrier's RP2354B), its GPIO bridged (`core/ports/host/BRIDGE.md`, with
+the harness in the DUT's place) to a native stimulus,
+`test/engine/stimulus.py`. The stimulus drives the harness's pins bit by bit
+as a DUT would, an I2C or SPI controller, a UART, raw pulses, at exact
+virtual times, and reads what the harness drives back, so a case can try
+the edges a DUT image never makes: a pulse just outside a window, a frame
+cut short. The benches still judge the engines on silicon; the emulated
+PIO's timing is the limit here.
+
+The harness's USB is exported over USB/IP and imported into this host's
+kernel (`test/rig/renode`), so the cases reach its REPL as on a bench. Every
+re-enumeration unplugs it; the bench imports it again, as a cable that
+stays in would. The kernel's descriptor timeouts run in host time, so it
+can give up on a harness that is busy in emulated time; an import whose
+harness has not enumerated, or whose REPL tty is gone, for 120 s is
+replugged. The harness flash boots with its filesystem already formatted,
+as a bench harness's is after its first boot: formatting erases sectors
+with interrupts off while USB is coming up. REPL deadlines are stretched by
+`METALCLAW_RENODE_TIME_SCALE`, default 150.
+
+The host needs `vhci_hcd` loaded, `usbip` runnable with `sudo -n`, and
+usb-storage told to ignore the harness (`echo 2fe3:0204:i | sudo tee
+/sys/module/usb_storage/parameters/quirks` after `sudo modprobe usb-storage`),
+which changes the running kernel: run it in a disposable VM or CI runner, not
+on a workstation. `METALCLAW_RENODE_INSTANCE` takes the bench's monitor
+port to 1234 + N and its USB/IP port to 3240 + N.
 
 A session that ends early still stops its Renode: an interrupt or
 `pytest.exit` while the bench starts or stops, SIGINT, SIGTERM and SIGHUP
@@ -411,52 +275,55 @@ and SIGKILL 10 s later, as it can ignore SIGTERM. Started through
 util-linux's `setpriv --pdeathsig KILL` where that exists, Renode also dies
 with a rig killed outright.
 
-`METALCLAW_CONSOLE_LOG` names a file a pico-examples case appends the DUT's
-console to as it arrives, which keeps what a program printed when its
-session is killed before the report.
+## Unit tests
 
-`METALCLAW_RENODE_INSTANCE` (0 to 7, default 0) lets several benches run on
-one host. Instance N's Renode takes monitor port 1234 + N and USB/IP ports
-3240 + N for the harness and 3250 + N for the DUT, and its cables attach,
-replug and detach only their own vhci ports. On the carrier, instance N's harness reports chip ID
-`00000000C0FFEE01` + N, and that is its serial. The Pico harness's serial is
-fixed by the emulated flash, so `rpi_pi_pico` runs only instance 0.
+`just test-unit` runs `test/unit`: the rig's own code, and models and
+engines built for this host with the firmware's warnings, behind stand-ins
+for the engines they use. Some drive a model with a transcription of the
+pico-examples program that uses it and judge what the program would print
+(`test/unit/programs/`, from pico-examples 0d62f75); the wire engines' PIO
+programs run in a PIO emulator (`pio_sim.py`) against the DUT programs'
+own.
 
-Emulated SWD runs about 30 times slower than the bench in host time while
-the target's own timing is unchanged. The platform stretches only host-side
-waits: the probe-rs download, reset and memory access deadlines, every DUT
-mailbox deadline (a case's or the default, multiplied by
-`METALCLAW_EMULATOR_TIME_SCALE`, default 150, since cases give them in bench
-seconds), and three timeouts the
-probe-rs patch in `test/rig/platforms/emulator/` makes configurable
-(`CMSIS_DAP_USB_TIMEOUT_MS`, `FLASH_ALGORITHM_TIMEOUT_MULTIPLIER`,
-`ARM_DEBUG_TIMEOUT_MULTIPLIER`; unset, probe-rs keeps its defaults). The
-rig's own CMSIS-DAP client, which carries the mailbox, reads
-`CMSIS_DAP_USB_TIMEOUT_MS` too, defaulting to 1000.
-`just test emulator` uses that build, from `just setup-emulator-probe-rs`.
+## CI
 
-The pinned Renode models both chips' cores, PIO, DMA, USB device and debug
-port, whichever side of the bench each is on, with the DUT's debug port
-behind the wired SWD pins, and the UART, SPI and I2C controllers of both
-chips at pin level across the bench's wiring. The whole bench advances
-about 100 times slower than real time, so the platform's host-side waits on
-emulated USB are long: 600 s for a CMSIS-DAP transfer
-(`CMSIS_DAP_USB_TIMEOUT_MS`), and for the DUT's own USB 1,200 s for its
-USB/IP import to be answered, 6,000 s for it to enumerate and 1,200 s for
-this host's drivers to bind.
+Three workflows run on GitHub's hosted runners, all through the suite in
+`.github/workflows/ci.yml`: the harness firmware and the host harness
+built, the unit, host and engine tests, and the rig units on the sim
+platform, each in at most eight jobs named for the units they hold. `ci-ok`
+stands for the whole run.
 
-`.github/workflows/emulator.yml` runs the emulator platform when started
-by hand from the Actions tab or with `gh workflow run emulator.yml`. It
-runs only the images the change since the last passing scheduled run can
-reach, or every image when there is none, as
-`test/rig/select.py` decides from the diff: a device's own files select its
-images, a harness engine (`spi_target`, `i2c_target`, `uart`, `gpio`)
-selects every device that declares a binding of that kind, documentation
-selects nothing, and anything else selects every image. `EMULATED_IMAGES`
-in the workflow limits that to the images the pinned Renode can run. A run
-takes the images, or the commit to diff against, as inputs. The workflow
-has no schedule; with one, a scheduled run skips itself when master has not
-moved since the last scheduled run.
+| Workflow | Runs on | Units |
+| --- | --- | --- |
+| `pull` (`pull/<number>`) | every push to a pull request; a newer push cancels the older run | those the change reaches |
+| `master` | every push to master, and by hand | every unit |
+| `release` (`release/<tag>`) | a `v<major>.<minor>.<patch>` tag | every unit, then the release |
+
+A unit is a device package's DUT images and the upstream samples whose main
+part is one of its models, or the smoke image; each is built and run for
+both DUT boards (`test/rig/platforms.toml`) by `just run-units`. A
+session that fails runs once more; one that passes then is listed as flaky
+in the shard's summary and does not fail the job. The sim platform's
+`SIM_KNOWN_FAILURES` (`test/rig/platforms/sim/platform.py`) lists the cases
+it cannot pass yet, each run and expected to fail, with the reason.
+`test/rig/select.py` picks the units a change reaches: a device's files
+select the units that run its images or attach one of its models
+(`console_bridge` carries every sample's console, so it reaches them all),
+a core library (`regmap`, `stream`, `sink`, `onewire`, `command`) the
+devices that include it, an engine the devices that declare a binding of
+its kind, on the platform's own port only (`core/ports/host` for sim), an
+overlay the samples built with it, documentation and the unit, host and
+engine tests nothing, and anything else every unit. The Renode package
+pinned in `test/rig/renode.toml` is one of those.
+
+The release workflow checks that the tag names the version
+`core/include/metalclaw/version.h` gives and that `CHANGELOG.md` has a
+section for it, runs the suite, checks that the commit carries every status
+`release.required` in `test/rig/platforms.toml` lists as passed, and
+publishes the harness firmware as UF2 and as a raw binary with their
+SHA-256 sums. The benches are not on GitHub: a bench runner posts its
+result as a `rig/hardware/<bench>` status, and listing that status in
+`release.required` makes it a release gate.
 
 ## The DUT fixture
 
@@ -594,7 +461,7 @@ their difference, and pytest's exit status. The line goes to the file
 `--junitxml` report, else nowhere; the terminal summary says which:
 
 ```text
-probe: 3 probe-rs runs, 0 failed; 1514 DAP accesses, 1 failed (usb_timeout 1), 1 retried; probe counted transfers +41230, errors +0, short_replies +0; logged to build/emulator/probe_telemetry.jsonl
+probe: 3 probe-rs runs, 0 failed; 1514 DAP accesses, 1 failed (usb_timeout 1), 1 retried; probe counted transfers +41230, errors +0, short_replies +0; logged to build/probe/probe_telemetry.jsonl
 ```
 
 

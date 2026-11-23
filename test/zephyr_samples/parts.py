@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 # The Metalclaw parts an upstream Zephyr sample talks to, attached before it
-# starts, as for a pico-examples program (test/pico_examples/parts.py): each
-# binding names DUT pins, here the pins of the devicetree nodes the sample
-# is built with (test/zephyr_samples/builds.py). Property values are chosen
-# unlike the models' defaults, so what the sample prints shows it came from
-# the part.
+# starts (attach.py): each binding names DUT pins, here the pins of the
+# devicetree nodes the sample is built with (builds.py). Property values are
+# chosen unlike the models' defaults, so what the sample prints shows it came
+# from the part.
 
-from test.pico_examples.parts import Attach, Check, _i2c_jumpers, _ws2812_frames
+from test.zephyr_samples.attach import Attach, Check, i2c_jumpers, ws2812_frames
 
 
 # The sx1262 node of devices/sx126x/test/dut/rp2.overlay: SPI0 SCK GP18, MOSI
@@ -112,8 +111,8 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("sim7000", "modem", {"uart": (9, 8)}, {}, {"powered": True}),
     ),
     # Wave 1e, on I2C0 at GP4/GP5 (overlays/i2c0.overlay), with the values
-    # test/pico_examples/parts.py gives the same models. MPU-6050:
-    # acceleration in mg, angular rate in mdps, temperature in m°C.
+    # the model checks give the same models (test/unit/programs/parts.py).
+    # MPU-6050: acceleration in mg, angular rate in mdps, temperature in m°C.
     "zephyr/sensor/mpu6050": (
         Attach("mpu6050", "imu", {"i2c": (4, 5, 0x68)}, {"i2c": 2},
                {"acceleration": (250, -500, 1125), "angular_rate": (10000, -2000, 3000), "temperature": 26530}),
@@ -406,12 +405,12 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     # CONFIG_SAMPLE_LED_UPDATE_DELAY (50 ms by default); 16 x 3 bytes a frame.
     "zephyr/drivers/led/led_strip": (
         Attach("ws2812b", "strip", {"din": (6,)}, properties={"count": 16}, checks=(
-            _ws2812_frames("strip", 48, "frames of 48 bytes, none with a pulse out of the datasheet's windows"),
+            ws2812_frames("strip", 48, "frames of 48 bytes, none with a pulse out of the datasheet's windows"),
         )),
     ),
     # rtio_loopback's bus: open-drain jumpers GP4 <-> GP6 (SDA) and GP5 <->
     # GP7 (SCL), as pico-examples' slave_mem_i2c is wired.
-    "zephyr/drivers/i2c/rtio_loopback": _i2c_jumpers(),
+    "zephyr/drivers/i2c/rtio_loopback": i2c_jumpers(),
     # The cfb and LVGL samples draw on the same SSD1306.
     **{f"zephyr/{s}": (
         Attach("ssd1306", "oled", {"i2c": (4, 5, 0x3C)}, {"i2c": 2}, checks=(
@@ -499,7 +498,7 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     ) for sample in ("thermometer", "jc42")},
     # The neo_m8n node of devices/neo_m8n/test/dut/uart1/rp2.overlay: uart1,
     # DUT TX GP8 and RX GP9, so the part's TX (the binding's first pin) is
-    # GP9. A 3D fix (fix=3) with 8 satellites, as test/pico_examples/parts.py
+    # GP9. A 3D fix (fix=3) with 8 satellites, as test/unit/programs/parts.py
     # gives gps_uart.
     "zephyr/drivers/gnss": (
         Attach("neo_m8n", "gps", {"uart": (9, 8)}, {},
@@ -507,3 +506,13 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
                 "satellites": 8, "fix": 3, "time": (2026, 11, 17, 12, 34, 56)}),
     ),
 }
+
+
+# The parts a sample's build on `board` (example.json "board") uses.
+def parts_for(target: str, board: str | None) -> tuple[Attach, ...]:
+    return tuple(p for p in ZEPHYR_PARTS.get(target, ()) if not p.boards or board in p.boards)
+
+
+# The DUT pins they take, which no idle level may hold.
+def parts_dut_pins(target: str, board: str | None) -> set[int]:
+    return {pin for part in parts_for(target, board) for pin in part.dut_pins()}

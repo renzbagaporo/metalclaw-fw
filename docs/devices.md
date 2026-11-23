@@ -569,6 +569,7 @@ metalclaw.instances(); metalclaw.detach("baro")
 metalclaw.release_buses()                # parts let go of their buses, as at the DUT board's power-on
 metalclaw.now_us(); metalclaw.running()          # the clock runs from boot
 metalclaw.pause(); metalclaw.advance_us(1000); metalclaw.resume()
+metalclaw.time_us()                      # the harness's own time since boot, which pause() leaves running
 
 d.faults(); d.inject(name, 3); d.clear_faults()   # a model that declares faults
 d.read_region(name, 0, 16); d.write_region(name, 0, b"\x00")   # ... or regions

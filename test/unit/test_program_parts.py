@@ -14,8 +14,8 @@ import types
 
 import pytest
 
-from test.pico_examples.part_targets import PART_SPECS
-from test.pico_examples.parts import PARTS
+from test.unit.programs.part_targets import PART_SPECS
+from test.unit.programs.parts import PARTS
 from test.unit.test_part_models import run, strict_options
 
 ROOT = Path(__file__).resolve().parents[2]

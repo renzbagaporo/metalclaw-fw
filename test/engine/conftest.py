@@ -1,23 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# The engine cases' bench: the harness alone in Renode (bench.py), its pins
-# bridged to a native stimulus (stimulus.py), its REPL over USB/IP as on the
-# emulator platform. Run with pytest test/engine and:
+# The engine cases' bench: the harness alone in Renode (test/rig/renode), its
+# pins bridged to a native stimulus (stimulus.py), its REPL over USB/IP. Run
+# with pytest test/engine and:
 #   METALCLAW_RENODE_DIR       a Renode package with the harness-only scripts
 #   METALCLAW_RENODE_ROMS      the boot ROMs
 #   METALCLAW_HARNESS_BOARD    rpi_pi_pico (default) or metalclaw_pico_rp2
 #   METALCLAW_HARNESS_IMAGE    the harness's firmware.uf2 (default: the build)
 #   METALCLAW_ENGINE_WORK      a directory for the socket and logs
-#   METALCLAW_RENODE_INSTANCE  ports per instance, as for the emulator
+#   METALCLAW_RENODE_INSTANCE  ports per instance, so several can run at once
 
 import os
 from pathlib import Path
 
 import pytest
 
-from test.engine.bench import LAYOUTS, EngineBench
 from test.engine.stimulus import Stimulus
-from test.rig.platforms.emulator.bench import BenchError
-from test.rig.platforms.emulator.platform import EmulatedHarness
+from test.rig.renode.bench import LAYOUTS, Bench, BenchError
+from test.rig.renode.harness import EmulatedHarness
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -43,7 +42,7 @@ def stimulus(board):
     work.mkdir(parents=True, exist_ok=True)
     stim = Stimulus(work / "engine.sock")
     image = Path(os.environ.get("METALCLAW_HARNESS_IMAGE", ROOT / f"build/rp2/{board}/firmware.uf2"))
-    bench = EngineBench(renode, LAYOUTS[board], image, roms, work, stim.path, instance)
+    bench = Bench(renode, LAYOUTS[board], image, roms, work, stim.path, instance)
     try:
         try:
             bench.start()

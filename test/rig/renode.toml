@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# The Renode package the sim platform and the engine tests run: the portable
+# release, built from this commit of the fork that carries the RP2040 and
+# RP2350 models and the bench scripts. A change here runs every image
+# (test/rig/select.py); `just setup-renode` fetches and checks it.
+commit = "ea634040120821a339a4a907214539daac24290c"
+sha256 = "3efeb15bfd4960634a76e4444ced661a7c8788d9bf5dacafbd9bce780bada173"
