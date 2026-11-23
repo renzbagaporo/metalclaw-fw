@@ -459,6 +459,19 @@ SIM_SKIPS = {
 }
 
 
+# Cases that fail on the sim platform every time, by node ID prefix, and
+# why: each still runs, expected to fail, so one that starts to pass shows
+# as an unexpected pass. The benches judge them.
+SIM_KNOWN_FAILURES: dict[str, str] = {}
+
+
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        for prefix, reason in SIM_KNOWN_FAILURES.items():
+            if item.nodeid.startswith(prefix):
+                item.add_marker(pytest.mark.xfail(reason=f"sim platform: {reason}", strict=True))
+
+
 def pytest_runtest_setup(item):
     for prefix, reason in SIM_SKIPS.items():
         if item.nodeid.startswith(prefix):
