@@ -281,10 +281,17 @@ def test_the_public_sync_word_selects_what_is_heard(dut, radio):
     assert result["errno"] == EAGAIN, result
 
 
+# Whether the SPI engine is rated for `hz`: its ceiling (max_clock_hz), or 0
+# for an engine with none of its own, as the host port's, which takes whole
+# frames from the emulator.
+def serves_clock(stats, hz):
+    return stats["max_clock_hz"] == 0 or stats["max_clock_hz"] >= hz
+
+
 def test_no_window_faulted(radio):
     stats = radio.stats()
     assert stats["dma_faults"] == 0 and stats["short_windows"] == 0, repr((stats, radio.trace()))
-    assert stats["max_clock_hz"] >= 8_000_000
+    assert serves_clock(stats, 8_000_000), stats
 
 
 def raw_window(dut, frame, hz=0, write=False, count=1):
@@ -378,7 +385,7 @@ def test_reads_are_exact_across_the_clock_range(dut, raw, hz):
     response = raw_window(dut, "1100000000", hz, count=WINDOWS_PER_CLOCK)
     assert response["rx"] == "a2a2010000" and response["mismatches"] == 0, response
     stats = raw.stats()
-    assert stats["dma_faults"] == before and stats["max_clock_hz"] >= hz, stats
+    assert stats["dma_faults"] == before and serves_clock(stats, hz), stats
 
 
 def frf(hz):
