@@ -459,17 +459,31 @@ SIM_SKIPS = {
 }
 
 
-# Cases that fail on the sim platform every time, by node ID prefix, and
-# why: each still runs, expected to fail, so one that starts to pass shows
-# as an unexpected pass. The benches judge them.
-SIM_KNOWN_FAILURES: dict[str, str] = {}
+# Cases the sim platform cannot pass yet, by node ID prefix, and why. Each
+# still runs, expected to fail: strictly where it fails every time, so one
+# that starts to pass shows as an unexpected pass, and not strictly where it
+# fails only sometimes. The benches judge them.
+_STEPPED_FIX = ("a fix the part sends after the clock is stepped (advance_us) never reaches the DUT's u-blox "
+                "driver as a fix, where one it sends while the clock runs does")
+_SPI_WINDOWS = ("a few of 1000 SPI windows reach the DUT with other bytes than the host's engine served, which "
+                "counted every window whole; more often at the faster clocks")
+SIM_KNOWN_FAILURES: dict[str, tuple[bool, str]] = {
+    "devices/neo_m8n/test/cases.py::test_the_dut_driver_reports_the_injected_fix": (True, _STEPPED_FIX),
+    "devices/neo_m8n/test/cases.py::test_one_fix_per_interval": (True, _STEPPED_FIX),
+    "devices/neo_m8n/test/cases.py::test_the_driver_only_comes_up_at_the_initial_baud": (True, _STEPPED_FIX),
+    "devices/cellular/test/cases/test_sim7080g.py::test_http_get_returns_the_file_intact": (
+        True, "the 1 KiB +CARECV answer to the GET never reaches the DUT's driver, where the 404's short one does"),
+    "devices/icm4268x/test/cases.py::test_a_thousand_fetches_agree": (False, _SPI_WINDOWS),
+    "devices/sx126x/test/cases.py::test_reads_are_exact_across_the_clock_range": (False, _SPI_WINDOWS),
+    "devices/ads7883/test/cases.py::test_the_frame_is_exact_across_the_clock_range": (False, _SPI_WINDOWS),
+}
 
 
 def pytest_collection_modifyitems(config, items):
     for item in items:
-        for prefix, reason in SIM_KNOWN_FAILURES.items():
+        for prefix, (strict, reason) in SIM_KNOWN_FAILURES.items():
             if item.nodeid.startswith(prefix):
-                item.add_marker(pytest.mark.xfail(reason=f"sim platform: {reason}", strict=True))
+                item.add_marker(pytest.mark.xfail(reason=f"sim platform: {reason}", strict=strict))
 
 
 def pytest_runtest_setup(item):
