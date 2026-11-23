@@ -149,6 +149,8 @@ jobs:
             build/units/summary.txt
             build/units/*/*/pytest.log
             build/units/*/*/junit.xml
+            build/units/*/*/first_pytest.log
+            build/units/*/*/first_junit.xml
             build/units/*/*/build.log
             build/units/*/*/work/*.log
             build/units/*/samples/logs/
