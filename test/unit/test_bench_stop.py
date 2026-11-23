@@ -128,6 +128,9 @@ def test_an_interrupt_while_stopping_waits_until_renode_is_down(tmp_path, short_
             stopped.append(True)
 
     stopped = []
+    # A session started in the background starts with SIGINT ignored, not
+    # with Python's handler; the stop puts back whichever it found.
+    before = signal.getsignal(signal.SIGINT)
     b = a_bench(tmp_path)
     b.cable = InterruptedCable()
     b.process = subprocess.Popen(["sleep", "60"], start_new_session=True)
@@ -135,7 +138,7 @@ def test_an_interrupt_while_stopping_waits_until_renode_is_down(tmp_path, short_
         b.stop()
     assert stopped == [True]
     assert b.process.returncode is not None
-    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+    assert signal.getsignal(signal.SIGINT) is before
 
 
 def test_an_interrupt_while_starting_stops_the_renode_already_launched(tmp_path, short_graces, monkeypatch,
