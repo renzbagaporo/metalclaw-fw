@@ -195,7 +195,7 @@ blocks, and every level it drives on a pin the harness watches, to the host
 harness over a Unix socket, in lockstep with the DUT's virtual time: each
 request carries that time and waits for its answer, so a run is the same
 at any host load (`core/ports/host/BRIDGE.md`). The harness's clock,
-`metalclaw.now_us()`, is the DUT's virtual time, and so are the cases'
+`metalclaw.time_us()`, is the DUT's virtual time, and so are the cases'
 bench seconds, the DUT mailbox's deadlines included: the DUT runs slower
 than the host, so a deadline counts its time, and one whose clock stands
 still for 120 s of wall time fails.

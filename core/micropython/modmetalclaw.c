@@ -236,6 +236,13 @@ static mp_obj_t mclw_now_us_fn(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mclw_now_us_obj, mclw_now_us_fn);
 
+// The harness's own time since boot, which pause() leaves running: the
+// chip's on a bench, the DUT's virtual time behind the host port's bridge.
+static mp_obj_t mclw_time_us_fn(void) {
+    return mp_obj_new_int_from_ull(mclw_hal_time_us());
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(mclw_time_us_obj, mclw_time_us_fn);
+
 static mp_obj_t mclw_advance_us_fn(mp_obj_t delta_in) {
     mp_int_t delta = mp_obj_get_int(delta_in);
     if (delta < 0) {
@@ -311,6 +318,7 @@ static const mp_rom_map_elem_t mclw_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_release_buses), MP_ROM_PTR(&mclw_release_buses_obj) },
     { MP_ROM_QSTR(MP_QSTR_detach), MP_ROM_PTR(&mclw_detach_obj) },
     { MP_ROM_QSTR(MP_QSTR_now_us), MP_ROM_PTR(&mclw_now_us_obj) },
+    { MP_ROM_QSTR(MP_QSTR_time_us), MP_ROM_PTR(&mclw_time_us_obj) },
     { MP_ROM_QSTR(MP_QSTR_advance_us), MP_ROM_PTR(&mclw_advance_us_obj) },
     { MP_ROM_QSTR(MP_QSTR_pause), MP_ROM_PTR(&mclw_pause_obj) },
     { MP_ROM_QSTR(MP_QSTR_resume), MP_ROM_PTR(&mclw_resume_obj) },

@@ -298,8 +298,10 @@ class SimHarness:
     def board_info(self) -> dict:
         return ast.literal_eval(self.run("import metalclaw\nprint(metalclaw.board())").strip())
 
+    # The DUT's virtual time, which a case's pause() of the simulation clock
+    # leaves running, as a bench harness's own clock does.
     def clock(self) -> float:
-        return int(self.run("import metalclaw\nprint(metalclaw.now_us())").strip()) / 1e6
+        return int(self.run("import metalclaw\nprint(metalclaw.time_us())").strip()) / 1e6
 
     # Bench seconds: of the DUT's time, which may run slower than the host's.
     def sleep(self, seconds: float) -> None:
