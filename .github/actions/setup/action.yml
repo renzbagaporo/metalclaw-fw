@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+name: setup
+description: >-
+  The rig's tools on a GitHub-hosted runner: just, the tool directories the
+  justfile reads, the host packages, and the caches of the ARM toolchain and,
+  when asked, the Zephyr SDK and workspace and Renode. actions/cache refuses
+  paths containing "..", so the tool directories live in $HOME.
+inputs:
+  zephyr:
+    description: The Zephyr SDK and workspace, for DUT images and samples.
+    default: "false"
+  renode:
+    description: Renode and the boot ROMs.
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: extractions/setup-just@v4
+      with:
+        just-version: 1.40.0
+    - name: Tool directories
+      shell: bash
+      run: |
+        {
+          echo "METALCLAW_ARM_TOOLCHAIN_DIR=$HOME/.arm-none-eabi"
+          echo "METALCLAW_ZEPHYR_WORKSPACE=$HOME/.zephyr-workspace"
+          echo "METALCLAW_RENODE_HOME=$HOME/.renode"
+        } >> "$GITHUB_ENV"
+    - name: Host packages
+      shell: bash
+      run: |
+        sudo apt-get update -o Acquire::Retries=3
+        sudo apt-get install -y -o Acquire::Retries=3 build-essential ninja-build cmake pkg-config python3-venv wget
+    # The toolchain's directory is named for its release, so an older cache
+    # is kept beside a newer download.
+    - uses: actions/cache@v4
+      with:
+        path: ~/.arm-none-eabi
+        key: arm-none-eabi-${{ hashFiles('justfile') }}
+        restore-keys: arm-none-eabi-
+    - if: inputs.zephyr == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/zephyr-sdk-1.0.1
+        key: zephyr-sdk-1.0.1-arm
+    - if: inputs.zephyr == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.zephyr-workspace
+        key: zephyr-workspace-${{ hashFiles('test/rig/dut/west.yml', 'test/rig/dut/*.patch') }}
+    - if: inputs.renode == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.renode
+        key: renode-${{ hashFiles('test/rig/renode.toml', 'justfile') }}

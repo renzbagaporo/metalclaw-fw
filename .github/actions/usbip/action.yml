@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+name: usbip
+description: >-
+  USB/IP on a GitHub-hosted runner, for the engine tests' harness in Renode:
+  the vhci driver, the usbip tool on PATH, the harness's USB device open to
+  the runner's user, and its mass-storage volume left alone.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update -o Acquire::Retries=3
+        if ! sudo modprobe vhci-hcd 2>/dev/null; then
+          sudo apt-get install -y -o Acquire::Retries=3 "linux-modules-extra-$(uname -r)"
+          sudo modprobe vhci-hcd
+        fi
+        sudo apt-get install -y -o Acquire::Retries=3 linux-tools-common linux-tools-generic usbutils
+        usbip=(/usr/lib/linux-tools-*/usbip)
+        sudo ln -sf "${usbip[0]}" /usr/local/bin/usbip
+        usbip version
+        # The imported harness belongs to root otherwise: its tty for the
+        # tests.
+        echo 'SUBSYSTEMS=="usb", ATTRS{idVendor}=="2fe3", MODE="0666"' \
+          | sudo tee /etc/udev/rules.d/70-metalclaw-harness.rules
+        sudo udevadm control --reload
+        # The tests never use the harness's mass-storage volume, and probing
+        # it stalls a busy emulated harness until the kernel resets it.
+        sudo modprobe usb-storage
+        echo 2fe3:0204:i | sudo tee /sys/module/usb_storage/parameters/quirks

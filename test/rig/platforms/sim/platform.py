@@ -338,6 +338,25 @@ class SimHarness:
             self._held = None
 
 
+class DutClock:
+    """The DUT's seconds, for the mailbox's deadlines: the DUT runs slower
+    than the host, so a deadline in bench seconds is one of its time. A
+    clock that stands still for CLOCK_STALL_S of wall time raises."""
+
+    def __init__(self, harness: "SimHarness"):
+        self.harness = harness
+        self.last = None
+        self.moved = time.monotonic()
+
+    def __call__(self) -> float:
+        now = self.harness.clock()
+        if now != self.last:
+            self.last, self.moved = now, time.monotonic()
+        elif time.monotonic() - self.moved > CLOCK_STALL_S:
+            raise TimeoutError(f"the DUT's clock stood at {now:.3f} s for {CLOCK_STALL_S:.0f} s of wall time")
+        return now
+
+
 class MonitorMemory:
     """The DUT's memory through Renode's monitor, as the rig reads and
     writes it through a probe: read_words, write_words, and a link with
@@ -495,7 +514,7 @@ class SimDut(Dut):
         self.harness = harness
         self.image = bench.image
         self.memory = MonitorMemory(bench)
-        self.mailbox = Mailbox(self.memory, bench.image, toolchain_dir, None)
+        self.mailbox = Mailbox(self.memory, bench.image, toolchain_dir, None, DutClock(harness))
 
     def flash(self, wake_harness_pin=None) -> None:
         self.reset()

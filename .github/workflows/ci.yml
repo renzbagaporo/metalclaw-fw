@@ -1,0 +1,167 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# The suite, called by pull.yml, master.yml and release.yml: the harness
+# firmware and the host harness built, the unit, host and engine tests, and
+# the rig units (test/rig/select.py) on the sim platform, the host harness
+# serving a DUT emulated in Renode. `base` picks the units a change reaches;
+# empty runs every unit. ci-ok is the one check that stands for the run.
+
+name: ci
+
+on:
+  workflow_call:
+    inputs:
+      base:
+        description: "Commit to select the units against; empty runs every unit"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      shards: ${{ steps.select.outputs.shards }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: select
+        env:
+          BASE: ${{ inputs.base }}
+        run: |
+          set -euo pipefail
+          shards=$(python3 test/rig/select.py --platform sim --shards 8 ${BASE:+--base "$BASE"})
+          echo "base: ${BASE:-none, every unit}"
+          echo "$shards" | python3 -c 'import json, sys; [print(s["name"]) for s in json.load(sys.stdin)]'
+          echo "shards=${shards}" >> "$GITHUB_OUTPUT"
+
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The firmware's version string comes from git describe.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - name: Harness firmware and host harness
+        run: just setup build build-host
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harness
+          path: |
+            build/rp2/rpi_pi_pico/firmware.uf2
+            build/rp2/rpi_pi_pico/firmware.bin
+            build/host/mpy/metalclaw-host
+          if-no-files-found: error
+
+  unit:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: harness
+          path: build
+      - run: chmod +x build/host/mpy/metalclaw-host
+      - name: Unit tests
+        run: just test-unit -v -p no:cacheprovider --junitxml=build/unit/junit.xml
+      - name: Host harness tests
+        if: always()
+        run: just test-host -v -p no:cacheprovider --junitxml=build/host-tests/junit.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit
+          path: |
+            build/unit/
+            build/host-tests/
+          if-no-files-found: ignore
+
+  engine:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          renode: "true"
+      - uses: ./.github/actions/usbip
+      - uses: actions/download-artifact@v4
+        with:
+          name: harness
+          path: build
+      - name: Renode and boot ROMs
+        run: just setup-renode
+      - name: Engines
+        run: just test-engine -v -p no:cacheprovider --junitxml=build/engine/junit.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine
+          path: build/engine/
+          if-no-files-found: ignore
+
+  sim:
+    needs: [plan, build]
+    if: needs.plan.outputs.shards != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    name: sim (${{ matrix.shard.name }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          zephyr: "true"
+          renode: "true"
+      - uses: actions/download-artifact@v4
+        with:
+          name: harness
+          path: build
+      - run: chmod +x build/host/mpy/metalclaw-host
+      - name: Zephyr, Renode and boot ROMs
+        run: just setup-zephyr-sdk setup-dut setup-renode
+      - name: Units
+        env:
+          UNITS: ${{ toJSON(matrix.shard.units) }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$UNITS" > build/units.json
+          just run-units sim build/units build/units.json
+      - if: always()
+        id: name
+        env:
+          SHARD: ${{ strategy.job-index }}
+        run: echo "artifact=sim-${SHARD}" >> "$GITHUB_OUTPUT"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: |
+            build/units/summary.txt
+            build/units/*/*/pytest.log
+            build/units/*/*/junit.xml
+            build/units/*/*/build.log
+            build/units/*/*/work/*.log
+            build/units/*/samples/logs/
+          if-no-files-found: ignore
+
+  ci-ok:
+    needs: [plan, build, unit, engine, sim]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Every job passed or had nothing to run
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          python3 -c 'import json, os, sys; sys.exit(any(r not in ("success", "skipped") for r in json.loads(os.environ["RESULTS"])))'

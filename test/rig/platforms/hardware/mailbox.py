@@ -143,9 +143,12 @@ def parse_result_line(line):
 
 class Mailbox:
     # `memory` reads and writes DUT RAM: DapMemory, which never halts the
-    # core, or anything with the same read_words/write_words.
-    def __init__(self, memory, elf, toolchain_dir=None, recorder=None):
+    # core, or anything with the same read_words/write_words. `clock` gives
+    # the seconds deadlines are in: the host's on a bench, where the DUT runs
+    # in real time, the DUT's own where it runs slower.
+    def __init__(self, memory, elf, toolchain_dir=None, recorder=None, clock=None):
         self.memory = memory
+        self.clock = clock if clock is not None else lambda: time.monotonic()
         self.recorder = probe_telemetry.DISCARD if recorder is None else recorder
         self.elf = Path(elf)
         addresses = symbol_addresses(
@@ -191,14 +194,14 @@ class Mailbox:
 
     def _wait_ready(self, deadline):
         initialised, _ = self._snapshot()
-        while not initialised and time.monotonic() < deadline:
+        while not initialised and self.clock() < deadline:
             time.sleep(POLL_S)
             initialised, _ = self._snapshot()
         if not initialised:
             raise MailboxError("the DUT mailbox was not initialised before the deadline")
 
     def wait_ready(self, timeout=DEFAULT_TIMEOUT_S):
-        self._wait_ready(time.monotonic() + timeout)
+        self._wait_ready(self.clock() + timeout)
 
     def read_result(self):
         initialised, result = self._snapshot()
@@ -217,22 +220,22 @@ class Mailbox:
         return sequence
 
     def command(self, line, timeout=DEFAULT_TIMEOUT_S):
-        deadline = time.monotonic() + timeout
+        deadline = self.clock() + timeout
         sequence = self.send(line, timeout)
-        return self.receive(sequence, max(0.0, deadline - time.monotonic()), line)
+        return self.receive(sequence, max(0.0, deadline - self.clock()), line)
 
     # A command whose result takes a while (the DUT blocks in a driver call)
     # is sent first and collected later, so the fixture side can act meanwhile.
     def send(self, line, timeout=DEFAULT_TIMEOUT_S):
-        self._wait_ready(time.monotonic() + timeout)
+        self._wait_ready(self.clock() + timeout)
         _, before = self._snapshot()
         if before is not None and before.sequence > self.last_result:
             self.last_result = before.sequence
         return self.write_command(line)
 
     def receive(self, sequence, timeout=DEFAULT_TIMEOUT_S, line=""):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        deadline = self.clock() + timeout
+        while self.clock() < deadline:
             found = self.read_result()
             if found is not None:
                 return parse_result_line(found)

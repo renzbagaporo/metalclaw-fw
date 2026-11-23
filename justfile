@@ -27,10 +27,6 @@ zephyr_base := zephyr_workspace / "zephyr"
 # A fix to Zephyr that the workspace carries on top of the pinned release
 # until upstream has it; see test/rig/dut/README.md.
 zephyr_patch := project_dir / "test/rig/dut/zephyr_modem_cellular_registered_race.patch"
-# Upstream Zephyr samples (test/zephyr_samples) build in a workspace of their
-# own: the same release and patch, with the modules the samples need.
-zephyr_samples_workspace := env_var_or_default("METALCLAW_ZEPHYR_SAMPLES_WORKSPACE", project_dir / "../.zephyr-samples-workspace")
-zephyr_samples_base := zephyr_samples_workspace / "zephyr"
 zephyr_sdk := env_var_or_default("ZEPHYR_SDK_INSTALL_DIR", env_var("HOME") / "zephyr-sdk-1.0.1")
 zephyr_sdk_url := "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v1.0.1/zephyr-sdk-1.0.1_linux-x86_64_minimal.tar.xz"
 zephyr_sdk_sha256 := "ca9bc0ff66fafca1dac9d592a36d953cf16d096a9d09b1c0357f021cf9f6a7eb"
@@ -144,6 +140,16 @@ setup-rig:
     "{{rig_python}}" -m pip install --quiet -r "{{project_dir}}/test/rig/requirements.txt"
     "{{rig_python}}" -c "import pytest, serial; print('rig python ok:', pytest.__version__, serial.__version__)"
 
+# The unit tests: the rig's own code, and the models and engines built for
+# this host (test/unit). Extra arguments go to pytest.
+test-unit *ARGS: setup-rig
+    cd "{{project_dir}}" && "{{rig_python}}" -m pytest test/unit {{ARGS}}
+
+# The host harness's own tests (test/host), against `just build-host`'s
+# build. Extra arguments go to pytest.
+test-host *ARGS: setup-rig
+    cd "{{project_dir}}" && "{{rig_python}}" -m pytest test/host {{ARGS}}
+
 # The harness's engines against a native stimulus: the harness alone in
 # Renode, its pins bridged to test/engine's stimulus, its REPL over USB/IP.
 # Extra arguments go to pytest.
@@ -162,6 +168,18 @@ test PLATFORM="hardware" *ARGS: setup-rig
     fi
     cd "{{project_dir}}" && METALCLAW_ARM_TOOLCHAIN_DIR="{{arm_toolchain_dir}}" \
         "{{rig_python}}" test/rig/run.py --platform {{PLATFORM}} {{ARGS}}
+
+# Build and run rig units (test/rig/select.py's output, or a file holding
+# it) on a platform: each unit's DUT images and upstream samples, for each of
+# the platform's DUT boards (test/rig/platforms.toml), into OUT.
+run-units PLATFORM OUT UNITS: setup-rig
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "{{PLATFORM}}" == sim ]]; then
+        export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
+    fi
+    cd "{{project_dir}}" && METALCLAW_ARM_TOOLCHAIN_DIR="{{arm_toolchain_dir}}" \
+        "{{rig_python}}" test/rig/run_units.py --platform {{PLATFORM}} --out "{{OUT}}" '{{UNITS}}'
 
 # The boot ROMs of both chips, for Renode.
 setup-renode-roms:
@@ -196,7 +214,8 @@ setup-renode: setup-renode-roms
     mv "{{renode_dir}}.part" "{{renode_dir}}"
     "{{renode_dir}}/renode" --version
 
-# Create the Zephyr workspace for the DUT fixture from test/rig/dut/west.yml.
+# Create the Zephyr workspace for the DUT images and the upstream samples
+# from test/rig/dut/west.yml.
 # METALCLAW_ZEPHYR_REFERENCE may name a directory holding local clones
 # (zephyr/, modules/...) to borrow objects from instead of downloading.
 setup-dut: setup-rig
@@ -220,6 +239,9 @@ setup-dut: setup-rig
         git -C "{{zephyr_base}}" -c user.name=metalclaw -c user.email=metalclaw@localhost am --quiet "{{zephyr_patch}}"
     fi
     "{{rig_python}}" -m pip install --quiet -r "{{zephyr_base}}/scripts/requirements-base.txt"
+    # Pillow for subsys/display/cfb_custom_font's font header
+    # (scripts/build/gen_cfb_font_header.py).
+    "{{rig_python}}" -m pip install --quiet Pillow
     "{{venv}}/bin/west" -v list
     echo "Zephyr $(git -C "{{zephyr_base}}" describe --tags), with $(git -C "{{zephyr_base}}" log -1 --format=%s)"
 
@@ -271,43 +293,15 @@ build-dut DEVICE="": setup-rig
     cmake --build "$build"
     ls -l "$build/zephyr/zephyr.elf"
 
-# Create the Zephyr workspace for upstream samples from
-# test/zephyr_samples/west.yml, with the rig's Zephyr patch.
-# METALCLAW_ZEPHYR_REFERENCE works as for setup-dut.
-setup-zephyr-samples: setup-rig
-    #!/usr/bin/env bash
-    set -euo pipefail
-    "{{rig_python}}" -m pip install --quiet west
-    mkdir -p "{{zephyr_samples_workspace}}/manifest"
-    cp "{{project_dir}}/test/zephyr_samples/west.yml" "{{zephyr_samples_workspace}}/manifest/west.yml"
-    if [[ ! -f "{{zephyr_samples_workspace}}/.west/config" ]]; then
-        "{{venv}}/bin/west" init -l "{{zephyr_samples_workspace}}/manifest"
-    fi
-    ref="${METALCLAW_ZEPHYR_REFERENCE:-}"
-    if [[ -n "$ref" && ! -d "{{zephyr_samples_base}}/.git" ]]; then
-        git clone --quiet --reference-if-able "$ref/zephyr" https://github.com/zephyrproject-rtos/zephyr.git "{{zephyr_samples_base}}"
-    fi
-    cd "{{zephyr_samples_workspace}}" && "{{venv}}/bin/west" update --narrow --fetch-opt=--filter=blob:none
-    want=$(git patch-id --stable < "{{zephyr_patch}}" | cut -d' ' -f1)
-    if [[ "$(git -C "{{zephyr_samples_base}}" show HEAD | git patch-id --stable | cut -d' ' -f1)" != "$want" ]]; then
-        git -C "{{zephyr_samples_base}}" -c user.name=metalclaw -c user.email=metalclaw@localhost am --quiet "{{zephyr_patch}}"
-    fi
-    "{{rig_python}}" -m pip install --quiet -r "{{zephyr_samples_base}}/scripts/requirements-base.txt"
-    # Host tools some samples' builds run: nanopb's generator (protobuf and
-    # grpcio-tools' protoc) and Pillow for subsys/display/cfb_custom_font's
-    # font header (scripts/build/gen_cfb_font_header.py).
-    "{{rig_python}}" -m pip install --quiet -r "{{zephyr_samples_workspace}}/modules/lib/nanopb/requirements.txt" Pillow
-    "{{venv}}/bin/west" -v list
-
 # Build upstream Zephyr samples (test/zephyr_samples/builds.py, "all" for
 # every one) for a bench BOARD (pico or pico2) into OUT, staged for the rig:
 # OUT/images/<board>/<target>/{zephyr.elf,example.json}.
 build-zephyr-samples BOARD OUT +TARGETS: setup-rig
     #!/usr/bin/env bash
     set -euo pipefail
-    test -f "{{zephyr_samples_base}}/VERSION" || { echo "no Zephyr workspace at {{zephyr_samples_workspace}}; run 'just setup-zephyr-samples'" >&2; exit 2; }
+    test -f "{{zephyr_base}}/VERSION" || { echo "no Zephyr workspace at {{zephyr_workspace}}; run 'just setup-dut'" >&2; exit 2; }
     test -d "{{zephyr_sdk}}" || { echo "no Zephyr SDK at {{zephyr_sdk}}; set ZEPHYR_SDK_INSTALL_DIR" >&2; exit 2; }
-    export ZEPHYR_BASE="{{zephyr_samples_base}}" ZEPHYR_SDK_INSTALL_DIR="{{zephyr_sdk}}" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
+    export ZEPHYR_BASE="{{zephyr_base}}" ZEPHYR_SDK_INSTALL_DIR="{{zephyr_sdk}}" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
     export PATH="{{venv}}/bin:$PATH"
     cd "{{project_dir}}" && "{{rig_python}}" -m test.zephyr_samples.build --board "{{BOARD}}" --out "{{OUT}}" {{TARGETS}}
 

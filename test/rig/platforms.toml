@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+# The platforms the rig runs on, for test/rig/select.py and the workflows.
+#
+# Per platform:
+#   port        the harness port whose engines the platform runs
+#               (core/ports/<port>): a change to another port's engines
+#               selects nothing there
+#   boards      the DUT boards it runs the upstream samples for
+#               (test/zephyr_samples/builds.py BOARDS)
+#   every_run   device packages every run goes through: a change to one
+#               selects every unit
+#
+# release.required lists the commit statuses a release's commit must carry
+# as passed, besides the release workflow's own run of the suite: those a
+# private bench runner posts (rig/hardware/<bench>). Adding a bench's status
+# here makes it a release gate with no workflow change.
+
+[platforms.sim]
+port = "host"
+boards = ["pico", "pico2"]
+every_run = []
+
+[release]
+required = []
