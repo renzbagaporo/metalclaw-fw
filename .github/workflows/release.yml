@@ -82,5 +82,5 @@ jobs:
           cat dist/SHA256SUMS
           # The version's section of CHANGELOG.md, without its heading.
           awk -v v="$version" '$0 ~ "^## " v "( |$)" {on=1; next} /^## / {on=0} on' CHANGELOG.md > dist/notes.md
-          gh release create "$TAG" --verify-tag --title "metalclaw-fw $TAG" --notes-file dist/notes.md \
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file dist/notes.md \
             dist/*.uf2 dist/*.bin dist/SHA256SUMS
