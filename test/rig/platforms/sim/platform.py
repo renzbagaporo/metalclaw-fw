@@ -473,8 +473,9 @@ _SPI_WINDOWS = ("a few of 1000 SPI windows reach the DUT with other bytes than t
 SIM_KNOWN_FAILURES: dict[str | tuple[str, str], tuple[bool, str]] = {
     ("neo_m8n", "devices/neo_m8n/test/cases.py::test_the_dut_driver_reports_the_injected_fix"): (True, _STEPPED_FIX),
     ("neo_m8n", "devices/neo_m8n/test/cases.py::test_one_fix_per_interval"): (True, _STEPPED_FIX),
-    ("neo_m8n", "devices/neo_m8n/test/cases.py::test_the_driver_only_comes_up_at_the_initial_baud"): (True,
-                                                                                                      _STEPPED_FIX),
+    "devices/neo_m8n/test/cases.py::test_the_driver_only_comes_up_at_the_initial_baud": (
+        True, "the bridge carries a block UART's bytes whole, so the part at another baud than the DUT's still "
+              "reaches its driver ungarbled"),
     "devices/cellular/test/cases/test_sim7080g.py::test_http_get_returns_the_file_intact": (
         True, "the 1 KiB +CARECV answer to the GET never reaches the DUT's driver, where the 404's short one does"),
     "devices/icm4268x/test/cases.py::test_a_thousand_fetches_agree": (False, _SPI_WINDOWS),

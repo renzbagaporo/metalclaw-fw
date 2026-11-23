@@ -192,14 +192,15 @@ def fifo(harness, dut, fixture):
     return imu
 
 
+# The FIFO filled for `seconds` of bench time, the harness's clock, which
+# the part's ODR runs on.
 def fill(dut, seconds):
-    import time
     reg_write(dut, REG_SIGNAL_PATH_RESET, 0x02)
     reg_write(dut, REG_ACCEL_CONFIG0, 0x0B)
     reg_write(dut, REG_FIFO_CONFIG1, 0x07)
     reg_write(dut, REG_FIFO_CONFIG, 0x40)
     reg_write(dut, REG_PWR_MGMT0, 0x0F)
-    time.sleep(seconds)
+    dut.harness.sleep(seconds)
     reg_write(dut, REG_PWR_MGMT0, 0x00)
     return fifo_count(dut)
 
