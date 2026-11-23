@@ -463,14 +463,18 @@ SIM_SKIPS = {
 # still runs, expected to fail: strictly where it fails every time, so one
 # that starts to pass shows as an unexpected pass, and not strictly where it
 # fails only sometimes. The benches judge them.
-_STEPPED_FIX = ("a fix the part sends after the clock is stepped (advance_us) never reaches the DUT's u-blox "
-                "driver as a fix, where one it sends while the clock runs does")
+_STEPPED_FIX = ("with the part on UART0, a fix it sends after the clock is stepped (advance_us) never reaches "
+                "the DUT's u-blox driver as a fix, where one it sends while the clock runs does, and where the "
+                "uart1 image's does")
 _SPI_WINDOWS = ("a few of 1000 SPI windows reach the DUT with other bytes than the host's engine served, which "
                 "counted every window whole; more often at the faster clocks")
-SIM_KNOWN_FAILURES: dict[str, tuple[bool, str]] = {
-    "devices/neo_m8n/test/cases.py::test_the_dut_driver_reports_the_injected_fix": (True, _STEPPED_FIX),
-    "devices/neo_m8n/test/cases.py::test_one_fix_per_interval": (True, _STEPPED_FIX),
-    "devices/neo_m8n/test/cases.py::test_the_driver_only_comes_up_at_the_initial_baud": (True, _STEPPED_FIX),
+# A key is a node ID prefix, or an image name (METALCLAW_DUT_DEVICE) and a
+# node ID prefix, for a case that fails only with that image.
+SIM_KNOWN_FAILURES: dict[str | tuple[str, str], tuple[bool, str]] = {
+    ("neo_m8n", "devices/neo_m8n/test/cases.py::test_the_dut_driver_reports_the_injected_fix"): (True, _STEPPED_FIX),
+    ("neo_m8n", "devices/neo_m8n/test/cases.py::test_one_fix_per_interval"): (True, _STEPPED_FIX),
+    ("neo_m8n", "devices/neo_m8n/test/cases.py::test_the_driver_only_comes_up_at_the_initial_baud"): (True,
+                                                                                                      _STEPPED_FIX),
     "devices/cellular/test/cases/test_sim7080g.py::test_http_get_returns_the_file_intact": (
         True, "the 1 KiB +CARECV answer to the GET never reaches the DUT's driver, where the 404's short one does"),
     "devices/icm4268x/test/cases.py::test_a_thousand_fetches_agree": (False, _SPI_WINDOWS),
@@ -480,9 +484,11 @@ SIM_KNOWN_FAILURES: dict[str, tuple[bool, str]] = {
 
 
 def pytest_collection_modifyitems(config, items):
+    image = os.environ.get("METALCLAW_DUT_DEVICE", "smoke")
     for item in items:
-        for prefix, (strict, reason) in SIM_KNOWN_FAILURES.items():
-            if item.nodeid.startswith(prefix):
+        for key, (strict, reason) in SIM_KNOWN_FAILURES.items():
+            only, prefix = key if isinstance(key, tuple) else (None, key)
+            if (only is None or only == image) and item.nodeid.startswith(prefix):
                 item.add_marker(pytest.mark.xfail(reason=f"sim platform: {reason}", strict=strict))
 
 

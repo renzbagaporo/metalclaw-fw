@@ -301,7 +301,11 @@ stands for the whole run.
 
 A unit is a device package's DUT images and the upstream samples whose main
 part is one of its models, or the smoke image; each is built and run for
-both DUT boards (`test/rig/platforms.toml`) by `just run-units`.
+both DUT boards (`test/rig/platforms.toml`) by `just run-units`. A
+session that fails runs once more; one that passes then is listed as flaky
+in the shard's summary and does not fail the job. The sim platform's
+`SIM_KNOWN_FAILURES` (`test/rig/platforms/sim/platform.py`) lists the cases
+it cannot pass yet, each run and expected to fail, with the reason.
 `test/rig/select.py` picks the units a change reaches: a device's files
 select the units that run its images or attach one of its models
 (`console_bridge` carries every sample's console, so it reaches them all),

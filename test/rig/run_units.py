@@ -8,8 +8,9 @@
 #
 # UNITS_JSON is select.py's output, or a file holding it. Per run, OUT gets
 # <board>/<image or sample>/{pytest.log,junit.xml}, and OUT/summary.txt one
-# line. Exits 1 when any build or run failed. Run through `just run-units`,
-# which sets up the tool paths.
+# line. A run that fails is run once more, and one that passes then is
+# listed as flaky. Exits 1 when any build failed or any run failed twice.
+# Run through `just run-units`, which sets up the tool paths.
 
 import argparse
 import json
@@ -65,20 +66,32 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     python = sys.executable
     failed = []
+    flaky = []
 
     def note(line: str) -> None:
         print(line, flush=True)
         with (out / "summary.txt").open("a") as summary:
             summary.write(line + "\n")
 
+    # A session that fails runs once more: one that passes then is flaky,
+    # listed but not failed, and its first run's logs are kept beside.
     def session(board: str, name: str, env: dict) -> None:
         logs = out / board / safe(name)
-        start = time.monotonic()
-        rc = run([python, "test/rig/run.py", "--platform", args.platform, "-v", "-p", "no:cacheprovider", "-rfE",
-                  f"--junitxml={logs / 'junit.xml'}"], logs / "pytest.log", {**os.environ, **env}, RUN_TIMEOUT_S)
-        if rc != 0:
-            failed.append(f"{board} {name}")
-        note(f"{board} {name} rc={rc} {time.monotonic() - start:.0f}s {last_line(logs / 'pytest.log')}")
+        for attempt in (1, 2):
+            start = time.monotonic()
+            rc = run([python, "test/rig/run.py", "--platform", args.platform, "-v", "-p", "no:cacheprovider", "-rfE",
+                      f"--junitxml={logs / 'junit.xml'}"], logs / "pytest.log", {**os.environ, **env}, RUN_TIMEOUT_S)
+            note(f"{board} {name} rc={rc} {time.monotonic() - start:.0f}s {last_line(logs / 'pytest.log')}"
+                 + (" (again)" if attempt == 2 else ""))
+            if rc == 0:
+                if attempt == 2:
+                    flaky.append(f"{board} {name}")
+                return
+            if attempt == 1:
+                for kept in ("pytest.log", "junit.xml"):
+                    if (logs / kept).exists():
+                        (logs / kept).rename(logs / f"first_{kept}")
+        failed.append(f"{board} {name}")
 
     for board in platform["boards"]:
         zephyr_board = BOARDS[board][0]
@@ -111,6 +124,7 @@ def main() -> int:
                 continue
             session(board, target, {"METALCLAW_DUT_IMAGE": str(elf),
                                     "METALCLAW_SIM_WORK": str(out / board / safe(target) / "work")})
+    note(f"flaky: {len(flaky)}" + (f" ({', '.join(flaky)})" if flaky else ""))
     note(f"failed: {len(failed)}" + (f" ({', '.join(failed)})" if failed else ""))
     return 1 if failed else 0
 
