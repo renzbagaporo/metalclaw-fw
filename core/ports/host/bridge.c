@@ -495,9 +495,9 @@ static size_t handle(const char *text, size_t len) {
     // The host harness models a board with line pull-ups on the Pico's
     // headers, like metalclaw_pico_rp2 (METALCLAW_LINE_PULLUPS,
     // variant/mpconfigvariant.h): a line nothing drives reads high. The
-    // lines METALCLAW_HOST_IDLE_LOW names are pulled down instead, as that
-    // fixture's rig holds a line low that an absent part would show as
-    // active; a part that drives the line wins over either pull. The pulls
+    // lines METALCLAW_HOST_IDLE_LOW names are pulled down instead, as the
+    // rig holds a line low on such a board where an absent part would
+    // look active; a part that drives the line wins over either pull. The pulls
     // go with the first reply after the hello's.
     if (pulls_due && !json_is(op, "hello")) {
         uint32_t low = idle_low_lines();

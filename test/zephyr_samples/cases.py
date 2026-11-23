@@ -34,8 +34,8 @@ for instance in metalclaw.instances():
 
 # The sample's external parts, attached on the harness before any case
 # restarts it, and gone once its cases are done. A part on a DUT pin no
-# harness pin reaches on this bench (fixture 1's GP2, GP3 and GP28), or one
-# that needs a pull-up this bench's lines lack, leaves the sample without
+# harness pin reaches on this bench, or one that needs a pull-up this
+# bench's lines lack, leaves the sample without
 # its outside world, so none of its cases can judge it there.
 @pytest.fixture(scope="module")
 def parts(harness, sample, fixture):

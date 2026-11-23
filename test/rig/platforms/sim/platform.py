@@ -65,8 +65,8 @@ SIM_FIXTURE = {
     "uart": {"tx": 1, "rx": 0},
     "dut_pins": {p: (p,) for p in range(30)},
     "analog_pins": (),
-    # As the pico-rp2 fixture's: the sx126x's BUSY, which reads busy while
-    # no radio drives it. The host harness pulls it low from the start
+    # As the MetalClaw Pico RP2 carrier's: the sx126x's BUSY, which reads
+    # busy while no radio drives it. The host harness pulls it low from the start
     # (SimBench), and a radio attached on it drives it.
     "idle": {10: 0},
 }
