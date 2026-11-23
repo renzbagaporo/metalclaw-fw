@@ -111,7 +111,7 @@ get that far. Its backlight-on passes a NULL buffer for the command's
 argument byte, and GCC at -O2 compiles that read into a UDF: the program
 sends `0xFE 0x42` and takes a HardFault, so the backpack waits for the
 argument and keeps its factory state. It prints nothing, so
-`test/pico_examples/parts.py` judges it by the part's state.
+`test/unit/programs/parts.py` judges it by the part's state.
 
 ## Sources
 

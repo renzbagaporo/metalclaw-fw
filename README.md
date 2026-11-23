@@ -103,7 +103,7 @@ The reference hardware platform is the **[metalclaw-pico-rp2](https://github.com
 
 - **Harness firmware:** `just`, `git`, `curl`, `make`, `cmake`, Python 3, and a host C compiler. `just setup` fetches the pinned submodules (MicroPython v1.28.0, pico-sdk 2.2.0) and the Linux x86_64 ARM GNU toolchain into `../.arm-none-eabi` (override with `METALCLAW_ARM_TOOLCHAIN_DIR` on other hosts).
 - **Flashing:** none required via the RP2 USB bootloader (UF2); an external SWD debugger is optional (a `JLinkExe` helper is included at `tools/flash_rp2.sh`).
-- **Hardware & emulated test suites:** `probe-rs` 0.30, Ninja, and Zephyr SDK 1.0.1 at `ZEPHYR_SDK_INSTALL_DIR` (default `~/zephyr-sdk-1.0.1`, installed by `just setup-zephyr-sdk`). Emulated runs also use `just setup-emulator`.
+- **Hardware & simulated test suites:** `probe-rs` 0.30, Ninja, and Zephyr SDK 1.0.1 at `ZEPHYR_SDK_INSTALL_DIR` (default `~/zephyr-sdk-1.0.1`, installed by `just setup-zephyr-sdk`). Simulated runs also use Renode, which `just setup-renode` fetches at the version `test/rig/renode.toml` pins.
 
 ### Building
 
@@ -152,15 +152,15 @@ Metalclaw separates portable device logic from chip-specific bus engines and Mic
 
 ## Testing
 
-The test rig in [`test/rig/`](test/rig/) runs platform-agnostic pytest suites across three platforms—against Zephyr DUT fixture images (real in-tree drivers communicating via a RAM mailbox over SWD), unmodified `pico-examples` binaries ([`test/pico_examples/`](test/pico_examples/)), and upstream Zephyr samples ([`test/zephyr_samples/`](test/zephyr_samples/)):
+The test rig in [`test/rig/`](test/rig/) runs platform-agnostic pytest suites on two platforms—against Zephyr DUT fixture images (real in-tree drivers communicating via a RAM mailbox over SWD) and the upstream Zephyr samples that drive the models ([`test/zephyr_samples/`](test/zephyr_samples/)):
 
 | Platform / Suite | Command | What it exercises |
 | --- | --- | --- |
 | **Hardware bench** | `METALCLAW_DUT_DEVICE=icm4268x METALCLAW_HARNESS_SERIAL=<serial> just test hardware` | Real harness wired to a real Pico 2 (default) or Pico 1 DUT |
-| **Full emulator** | `just test emulator` | Both harness and DUT chips emulated together in Renode, with harness USB exported over USB/IP |
-| **Native mode** | `just test native` | Linux host harness (`just build-host`) bridged in lockstep to an emulated DUT in Renode |
-| **Engine tests** | `just test-engine` | RP2 harness alone in Renode driven bit-by-bit by a native stimulus ([`test/engine/`](test/engine/)) |
-| **Unit & host tests** | `.venv/bin/pytest test/unit test/native` | Host-compiled C model checks, PIO simulator tests, rig unit tests, and host bridge tests |
+| **Sim** | `just test sim` | Linux host harness (`just build-host`) bridged in lockstep to an emulated DUT in Renode |
+| **Engine tests** | `just test-engine` | RP2 harness firmware alone in Renode driven bit-by-bit by a native stimulus ([`test/engine/`](test/engine/)) |
+| **Unit tests** | `just test-unit` | Host-compiled C model checks, PIO simulator tests, and rig unit tests |
+| **Host tests** | `just test-host` | The Linux host harness on its own, without Renode |
 
 Example workflow for building a Zephyr DUT image and running hardware tests:
 
@@ -171,7 +171,7 @@ just build-dut icm4268x                           # build/dut/icm4268x/zephyr/ze
 METALCLAW_DUT_DEVICE=icm4268x METALCLAW_HARNESS_SERIAL=<serial> just test hardware
 ```
 
-See [docs/testing.md](docs/testing.md) for bench wiring, emulator setup, native mode, probe telemetry, and soak tools (`test/rig/probe_soak.py`, `test/rig/probe_report.py`).
+CI on GitHub runs the unit, host and engine tests and the sim platform on every pull request (the devices and samples a change reaches) and every push to master (all of them), and a `v<major>.<minor>.<patch>` tag publishes the release ([`CHANGELOG.md`](CHANGELOG.md)). See [docs/testing.md](docs/testing.md) for bench wiring, the sim platform, CI, probe telemetry, and soak tools (`test/rig/probe_soak.py`, `test/rig/probe_report.py`).
 
 ## Repository layout
 
@@ -187,16 +187,16 @@ core/                         harness firmware core, MicroPython module, and por
   third_party/micropython/    MicroPython v1.28.0 (pinned, never patched in place)
 devices/                      64 self-contained device packages (86 models)
 test/
-  rig/                        pytest runner, hardware/emulator/native platforms, Zephyr DUT fixture
+  rig/                        pytest runner, hardware/sim platforms, Zephyr DUT fixture, unit selection
   cases/                      harness-wide test cases
   engine/                     bit-level engine stimulus tests against emulated harness
-  native/                     host harness bridge tests (no Renode required)
+  host/                       host harness bridge tests (no Renode required)
   unit/                       host C model checks and rig unit tests
-  pico_examples/              specs and cases for unmodified pico-examples programs
-  zephyr_samples/             build staging and cases for upstream Zephyr samples
+  zephyr_samples/             builds and cases for upstream Zephyr samples that drive the models
 tools/                        flash_rp2.sh (optional SWD flash/recovery helper via JLinkExe)
 docs/                         devices.md, building.md, usb.md, testing.md
 justfile                      setup, build, and test recipes
+CHANGELOG.md                  what each release brought
 ```
 
 ## Documentation
@@ -204,7 +204,7 @@ justfile                      setup, build, and test recipes
 - [docs/devices.md](docs/devices.md) — device model ABI, runtime, response images, HAL engines, and Python API
 - [docs/building.md](docs/building.md) — boards, build flags, warning rules, and flashing
 - [docs/usb.md](docs/usb.md) — composite USB device identity, interfaces, serial functions, and re-enumeration
-- [docs/testing.md](docs/testing.md) — test rig, hardware/emulator/native platforms, DUT fixture, and probe telemetry
+- [docs/testing.md](docs/testing.md) — test rig, hardware and sim platforms, DUT fixture, CI, and probe telemetry
 - [core/ports/host/BRIDGE.md](core/ports/host/BRIDGE.md) — lockstep Unix-socket bridge protocol for the host harness
 - [`devices/<name>/README.md`](devices/) — per-device bindings, properties, and datasheet notes
 

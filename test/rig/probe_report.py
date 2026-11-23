@@ -4,7 +4,7 @@
 # and probe soaks (test/rig/probe_soak.py) write: per bench and per operation,
 # the calls, the error and retry rates, and the duration percentiles.
 #
-#   test/rig/probe_report.py 'build/hardware/*.jsonl' ~/logs/probe.jsonl
+#   test/rig/probe_report.py 'build/rig/*.jsonl' ~/logs/probe.jsonl
 #   test/rig/probe_report.py --source soak --since 2026-11-01 probe.jsonl
 #
 # Paths may be globs, quoted so the shell leaves them alone. Lines that are

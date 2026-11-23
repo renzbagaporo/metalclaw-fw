@@ -107,7 +107,7 @@ pin's open-drain mode.
 and prints raw counts every 100 ms, holding chip select low for 10 ms
 between the register byte and the data. It prints the temperature with the
 MPU-6050's formula, `raw / 340 + 36.53`, so 31 C reads as 46.350588.
-`test/pico_examples/parts.py` attaches the part on the program's pins.
+`test/unit/programs/parts.py` attaches the part on the program's pins.
 The program starts the `WHO_AM_I` read 0.7 us after the reset write's chip
 select rises and clocks its first bit 3.2 us later,
 well after the 0.25 us the SPI target takes to be running for the next
