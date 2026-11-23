@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from test.pico_examples.part_targets import PART_SPECS
-from test.pico_examples.parts import PARTS
+from test.unit.programs.part_targets import PART_SPECS
+from test.unit.programs.parts import PARTS
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).parent

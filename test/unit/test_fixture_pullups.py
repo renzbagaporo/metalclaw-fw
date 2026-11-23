@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
-import types
-
-from test.pico_examples.parts import parts_dut_pins
 from test.rig.platforms.hardware import platform
 from test.rig.platforms.hardware.platform import FIXTURE, METALCLAW_PICO_RP2_FIXTURE, fixture_for, idle_levels
 
@@ -66,11 +63,10 @@ CARRIER = fixture_for(METALCLAW_PICO_RP2_FIXTURE, {"line_pullups": True})
 
 
 def test_an_idle_level_yields_to_a_net_a_part_takes():
-    # GPIO22 is DUT GP10's one branch; pio_hub75 drives GP10 as its E line.
-    assert 10 in parts_dut_pins("pio_hub75", "pico")
-    assert idle_levels(CARRIER, parts_dut_pins("pio_hub75", "pico")) == {}
+    # GPIO22 is DUT GP10's one branch; a part on GP10 takes its net.
+    assert idle_levels(CARRIER, {10}) == {}
     h = ReportingHarness({})
-    platform.hold_idle(h, CARRIER, parts_dut_pins("pio_hub75", "pico"))
+    platform.hold_idle(h, CARRIER, {10})
     assert h.code == []
 
 
@@ -82,18 +78,10 @@ def test_an_idle_level_yields_by_net_not_by_branch():
     assert idle_levels(fixture, {10, 11}) == {}
 
 
-def test_an_idle_level_stays_for_a_program_whose_parts_leave_its_net():
-    assert idle_levels(CARRIER, parts_dut_pins("bmp280_i2c", "pico")) == {22: 0}
+def test_an_idle_level_stays_for_parts_that_leave_its_net():
+    # A part on I2C0 (GP4, GP5) leaves GP10's net alone.
+    assert idle_levels(CARRIER, {4, 5}) == {22: 0}
     assert idle_levels(CARRIER) == {22: 0}
     h = ReportingHarness({})
-    platform.hold_idle(h, CARRIER, parts_dut_pins("ssd1306_i2c", "pico"))
+    platform.hold_idle(h, CARRIER, {4, 5})
     assert h.code == ["from machine import Pin\nPin(22, Pin.OUT, value=0)\n"]
-
-
-def test_an_example_names_the_pins_its_build_s_parts_take():
-    # The RTC clock on GP20 is for the pico build of low_power_dormant_timer only.
-    def example(board):
-        return types.SimpleNamespace(target="low_power_dormant_timer", metadata={"board": board})
-    assert platform.Example.parts_dut_pins(example("pico")) == {20}
-    assert platform.Example.parts_dut_pins(example("pico2")) == set()
-    assert platform.Example.parts_dut_pins(types.SimpleNamespace(target="pio_hub75", metadata={})) >= {10}

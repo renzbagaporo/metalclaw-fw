@@ -28,7 +28,6 @@ from pathlib import Path
 
 import pytest
 
-from test.pico_examples.emulation import DEFAULT, Emulation, emulation_for
 from test.rig.platforms.hardware.mailbox import RESULT_WORDS, Mailbox
 from test.rig.platforms.hardware.platform import (
     FIXTURE,
@@ -38,7 +37,7 @@ from test.rig.platforms.hardware.platform import (
     dut_image,
     example_metadata,
     fixture_for,
-    require_example_image,
+    require_sample_image,
     soc_series,
 )
 from test.rig.renode.bench import MASK_ROM_EXTRACTOR
@@ -53,7 +52,7 @@ SCRIPTS = {"rp2040": "scripts/multi-node/metalclaw_pico_native.resc",
 ROMS = {"rp2040": "b2.elf", "rp2350": "bootrom-combined.bin"}
 START_TIMEOUT_S = 60.0
 # Wall seconds the DUT's clock may stand still before a harness sleep gives
-# up, as the console wait does (test/pico_examples/cases.py).
+# up.
 CLOCK_STALL_S = 120.0
 REPL_STRETCH = 4.0
 REPL_MIN_S = 20.0
@@ -185,19 +184,13 @@ class ConsolePty:
 
 
 def flat_image(image: Path, work: Path) -> Path:
-    """The DUT image as the bytes of its flash from 0x10000000: the ELF's,
-    or the Intel HEX a build names to download in its place (one that also
-    erases a storage partition)."""
-    metadata = example_metadata(image) or {}
-    source, kind = image, "elf32-littlearm"
-    if metadata.get("flash_image"):
-        source, kind = image.parent / metadata["flash_image"], "ihex"
+    """The DUT image as the bytes of its flash from 0x10000000."""
     objcopy = Path(_required("METALCLAW_ARM_TOOLCHAIN_DIR")).glob("*/bin/arm-none-eabi-objcopy")
     objcopy = next(iter(sorted(objcopy)), None)
     if objcopy is None:
         pytest.exit("no arm-none-eabi-objcopy under METALCLAW_ARM_TOOLCHAIN_DIR", returncode=2)
     out = work / "dut_flash.bin"
-    subprocess.run([str(objcopy), "-I", kind, "-O", "binary", str(source), str(out)], check=True)
+    subprocess.run([str(objcopy), "-I", "elf32-littlearm", "-O", "binary", str(image), str(out)], check=True)
     return out
 
 
@@ -221,13 +214,12 @@ class SimBench:
         self.renode = None
         self.monitor = None
         self.console = None
-        self.flash = None
 
     def start(self) -> None:
         if self.chip not in SCRIPTS:
             pytest.skip(f"the sim platform has no DUT script for {self.chip!r} yet")
         self.work.mkdir(parents=True, exist_ok=True)
-        flash = self.flash = flat_image(self.image, self.work)
+        flash = flat_image(self.image, self.work)
         # The RP2040's boot ROM comes as an ELF; the script loads the 16 KiB
         # binary in it. The RP2350's is a binary already.
         rom = self.work / "dut_rom.bin"
@@ -256,13 +248,7 @@ class SimBench:
         self.monitor = Monitor(self.monitor_port)
         self.console = ConsolePty(self.console_port, self.work / "dut_console.log")
 
-    # An image that erases its storage partition (flash_image) is loaded
-    # again, as a bench downloads it again, so each restart starts from
-    # empty storage.
     def restart(self) -> None:
-        if (example_metadata(self.image) or {}).get("flash_image"):
-            self.monitor.command("pause")
-            self.monitor.command(f"xipMemory LoadBinary @{self.flash}")
         self.monitor.command("machine Reset")
         self.monitor.command("start")
 
@@ -420,7 +406,7 @@ class MonitorMemory:
         return contextlib.nullcontext(self)
 
 
-class SimExample:
+class SimSample:
     ASLEEP_MAX_S = 10.0
 
     def __init__(self, bench: SimBench):
@@ -430,19 +416,12 @@ class SimExample:
         self.target = self.metadata["target"]
         self.memory = MonitorMemory(bench)
 
-    def parts_dut_pins(self) -> set[int]:
-        from test.pico_examples.parts import parts_dut_pins
-        return parts_dut_pins(self.target, self.metadata.get("board"))
-
     def restart(self) -> None:
         self.bench.restart()
 
     # The DUT stops where it is; the next restart runs it again.
     def halt_awake(self, wake_harness_pin, timeout) -> None:
         self.bench.halt()
-
-    def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
-        pytest.skip("the sim platform has no RUN pin to press yet")
 
 
 # Cases of the harness's own USB functions, which the host harness does not
@@ -459,14 +438,6 @@ def pytest_runtest_setup(item):
     for prefix, reason in SIM_SKIPS.items():
         if item.nodeid.startswith(prefix):
             pytest.skip(reason)
-
-
-@pytest.fixture(scope="session")
-def emulation() -> Emulation:
-    try:
-        return emulation_for(example_metadata(dut_image()))
-    except pytest.exit.Exception:
-        return DEFAULT
 
 
 @pytest.fixture(scope="session")
@@ -500,47 +471,18 @@ def probe():
 
 
 # DUT seconds the boot run gets before any case: as on a bench, which boots
-# the DUT long before a case listens, what the program does once (hello_otp
-# writing its OTP rows) is done before the judged runs.
+# the DUT long before a case listens, what the sample does once is done
+# before the judged runs.
 BOOT_RUN_S = 1.0
 
 
-# Examples the sim platform cannot judge, by target and chip (None for both),
-# and why.
-SIM_EXAMPLE_LIMITS = {
-    ("pio_hub75", None): "emulator speed: the PIO's pin changes on the panel's 14 pins run about 800 times "
-                         "slower than real time, so one run takes about 2 h (Pico) to 3 h (Pico 2), past the "
-                         "sweep's cap; it passes at a 20000 s cap",
-    ("multicore_doorbell", "rp2350"): "core 1 reads its exit flag once and spins (core1_entry+0x18, b .): on "
-                                      "silicon core 0's first doorbell lands before that read, while the "
-                                      "emulator's core interleaving lets core 1 reach it first",
-    ("dht", "rp2350"): "the emulator runs an instruction a cycle with no bus wait states, so a pass of the "
-                       "program's sleep_us(1) count loop takes exactly 1 us where silicon's takes 1.7 us or "
-                       "more, and every bit counts as a 1",
-    ("pio_uart_rx_intr", "rp2350"): "the SDK's best_effort_wfe_or_timeout takes an alarm due at the current "
-                                    "microsecond as one still to come; the emulator's core is back at that "
-                                    "check within the microsecond the alarm fired (silicon takes hundreds of "
-                                    "cycles), so about 1 run in 3 waits on a fired alarm and stops before "
-                                    "\"Test complete\"",
-}
-
-
 @pytest.fixture(scope="session")
-def example(bench: SimBench, harness: SimHarness) -> SimExample:
-    require_example_image(bench.image)
-    metadata = example_metadata(bench.image) or {}
-    for (target, chip), why in SIM_EXAMPLE_LIMITS.items():
-        if metadata.get("target") == target and chip in (None, metadata.get("chip")):
-            pytest.skip(f"{target} on the sim platform: {why}")
-    e = SimExample(bench)
+def sample(bench: SimBench, harness: SimHarness) -> SimSample:
+    require_sample_image(bench.image)
+    e = SimSample(bench)
     e.restart()
     harness.sleep(BOOT_RUN_S)
     return e
-
-
-@pytest.fixture(scope="module")
-def dut_usb():
-    pytest.skip("the sim platform does not bridge the DUT's own USB")
 
 
 class SimDut(Dut):
@@ -582,7 +524,7 @@ class SimDut(Dut):
 @pytest.fixture(scope="session")
 def dut(bench: SimBench, harness: SimHarness, fixture: dict) -> SimDut:
     if example_metadata(bench.image) is not None:
-        pytest.skip("the DUT image is a pico-examples program, not a rig image")
+        pytest.skip("the DUT image is a Zephyr sample, not a rig image")
     d = SimDut(bench, harness, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
     d.reset()
     d.ping()

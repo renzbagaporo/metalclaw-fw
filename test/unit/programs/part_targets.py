@@ -1,15 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# Console criteria for the pico-examples programs that need an external
-# part, kept beside the parts they attach (parts.py) as each model lands.
-# Same rules as targets.py: every pattern comes from the program's source,
-# and the numbers from its own formatting of the properties parts.py sets
-# (test/unit/test_part_models.py runs the models' arithmetic and the
-# programs' conversions to check them).
+# What the pico-examples programs the model checks transcribe (pico-examples
+# 0d62f75) print, given the properties parts.py sets: every pattern from the
+# program's source, and the numbers from its own formatting of those
+# properties. The checks (test_part_models.py, test_program_parts.py,
+# test_wire_models.py, test_display_models.py) run a model behind the
+# program's transcription and match what comes out against these.
 
 import re
 
-from test.pico_examples import lights
-from test.pico_examples.targets import FORBIDDEN, NL, Spec, _rows, forbid
+from test.unit.programs import lights
+from test.zephyr_samples.spec import FORBIDDEN, NL, Spec, forbid
+
+
+def _rows(byte) -> tuple[str, ...]:
+    # printbuf of a 256-byte page whose byte i is byte(i), in spi_master_slave
+    # and both spi_flash programs: sixteen "%02x" a row, a space between, a
+    # newline after the last.
+    return tuple(" ".join(f"{byte(16 * r + c):02x}" for c in range(16)) + NL for r in range(16))
 
 
 def _twice(*lines: str) -> tuple[str, ...]:
@@ -18,40 +25,12 @@ def _twice(*lines: str) -> tuple[str, ...]:
 
 # printbuf() in spi/spi_flash/spi_flash.c:97-104 and pio/spi/spi_flash.c:94-97
 # prints a page as spi_master_slave's does (targets._rows).
+
+
 def _flash(*banner: str) -> tuple[str, ...]:
     erased = _rows(lambda i: 0xFF)
     return (*banner, r"After erase:" + NL, *erased, r"After program:" + NL, *_rows(lambda i: i),
             r"Erase again:" + NL, *erased)
-
-
-# Any of these integers, whole.
-def _one_of(values) -> str:
-    return "(?:" + "|".join(str(v) for v in sorted(values, key=lambda v: -len(str(v)))) + r")(?!\d)"
-
-
-def _c_div(a: int, b: int) -> int:
-    q = abs(a) // abs(b)
-    return q if (a >= 0) == (b > 0) else -q
-
-
-# The speeds quadrature_encoder_substep.c prints for steps 1 ms apart in
-# `direction`: 64 substeps over 999, 1000 or 1001 us (C's truncating
-# division, then an arithmetic shift).
-def _substep_speeds(direction: int) -> range:
-    speeds = [(_c_div(direction * 64 << 20, us) * 62500) >> 16 for us in (999, 1000, 1001)]
-    return range(min(speeds), max(speeds) + 1)
-
-
-# The pico2 build cannot count that: quadrature_encoder_substep.pio's init
-# writes EXECCTRL's low bits as 0x12, RP2040's STATUS_SEL RXLEVEL with N 2.
-# On RP2350 those bits are STATUS_SEL TXLEVEL with N 18, a reserved level,
-# and on fixture 1's Pico 2 the state machine takes its push path every
-# pass: RX FIFO full (FSTAT 0x0f000e01) and stalled on autopush, so it
-# samples the pins only as the program drains it, about one step a line at
-# 1000 steps/s, speed 2543.
-SUBSTEP_PICO2 = ("quadrature_encoder_substep.pio writes EXECCTRL STATUS_SEL as RP2040's RXLEVEL, which is "
-                 "RP2350's reserved TXLEVEL 18, so its state machine stalls on autopush and samples the pins only "
-                 "as the program drains it")
 
 
 PART_SPECS: dict[str, Spec] = {
@@ -337,36 +316,6 @@ PART_SPECS: dict[str, Spec] = {
         forbidden=forbid(r"Bad data"),
         source="gpio/dht_sensor/dht.c",
     ),
-    # pio/quadrature_encoder/quadrature_encoder.c:44, 57-66: a line when
-    # the count moved, then sleep_ms(100). The SDK's printf ends in
-    # stdio_flush, which waits for the UART to send the line's 33 characters
-    # (CRLF included) at 115200 baud, 2.86 ms, so a loop is 102.9 ms: 102
-    # or 103 steps a line at 1000 steps/s. The travel of 2000 turns the
-    # encoder back every 2 s.
-    "pio_quadrature_encoder": Spec(
-        console=(r"Hello from quadrature encoder" + NL,
-                 *(r"position +-?\d+, delta +(?:102|103)" + NL,) * 3,
-                 *(r"position +-?\d+, delta +-(?:102|103)" + NL,) * 3),
-        seconds=6.0,
-        source="pio/quadrature_encoder/quadrature_encoder.c",
-    ),
-    # quadrature_encoder_substep.c:374, 400-414: a line every 10 ms or so
-    # while it moves. Steps exactly 1 ms apart are 64 substeps each
-    # (calibration 64, 128, 192, :395), and the speed it prints is
-    # (dpos << 20) / dus (:126-129) times 62500 >> 16 (:250). Each
-    # transition time is the read's microsecond less whole microseconds of
-    # PIO loop (:95-114), off by under 1 us either way, so dus between two
-    # transitions k ms apart is 1000k - 1 .. 1000k + 1; k = 1, through the
-    # step-boundary clamps (:232-246), bounds it widest (_substep_speeds).
-    "pio_quadrature_encoder_substep": Spec(
-        boards=("pico",),
-        other_boards=SUBSTEP_PICO2,
-        console=(r"Hello from quadrature encoder substep" + NL,
-                 *(rf"pos: -?\d+ +speed: {_one_of(_substep_speeds(1))} +raw_steps: -?\d+ *" + NL,) * 3,
-                 *(rf"pos: -?\d+ +speed: {_one_of(_substep_speeds(-1))} +raw_steps: -?\d+ *" + NL,) * 3),
-        seconds=6.0,
-        source="pio/quadrature_encoder_substep/quadrature_encoder_substep.c",
-    ),
     # pio/ir_nec/ir_loopback/ir_loopback.c:37-59: a frame a second to
     # address 0, data counting up from 0, each received back 100 ms later.
     "pio_ir_loopback": Spec(
@@ -378,209 +327,3 @@ PART_SPECS: dict[str, Spec] = {
 }
 
 
-def _gpio_wakes(asleep: str) -> tuple[str, ...]:
-    # The first run starts wherever the restart caught GP15; every later
-    # one starts at a rising edge, so GP15 is high and the program waits
-    # for the next dip before it sleeps.
-    return (r"State of gpio 15 is [01]" + NL,
-            r"Wake up, test run: 1" + NL + r"(?:Awake until gpio 15 goes low" + NL + r")?" + asleep + NL,
-            *(rf"Wake up, test run: {n}" + NL + r"Awake until gpio 15 goes low" + NL + asleep + NL
-              for n in (2, 3, 4)))
-
-
-# The pico2 builds reach their first sleep and never print again: on
-# fixture 1's Pico 2 the rising edge that wakes them leaves core 0 locked up
-# (DHCSR S_LOCKUP, a HardFault on IACCVIOL) with every bus read, SRAM,
-# flash and CLOCKS alike, answering 0, the same with the SWD probe
-# detached and with no debug access during the sleep. Both programs gate
-# every clock but the UART's in sleep (pico_low_power, SDK 2.3.0, keeps
-# nothing for a GPIO wake); the timer variants, which keep the timer's
-# clocks, wake as they should. So on pico2 only the first run is judged.
-def _first_sleep(asleep: str) -> dict:
-    return {"pico2": {"console": _gpio_wakes(asleep)[:2]}}
-
-
-def _bar(low: int, high: int) -> str:
-    # One of joystick_display's 40-wide bars with its 'o' at a position in
-    # [low, high].
-    return rf"\[(?= {{{low},{high}}}o)[ o]{{40}}\]"
-
-
-PART_SPECS.update({
-    # low_power/low_power_dormant/low_power_dormant_gpio.c:31-58 and
-    # low_power/low_power_sleep/low_power_sleep_gpio.c:23-49, with GP15 from
-    # parts.py: one run a second.
-    "low_power_dormant_gpio": Spec(
-        console=_gpio_wakes(r"Dormant until gpio 15 goes high"),
-        per_board=_first_sleep(r"Dormant until gpio 15 goes high"),
-        seconds=8.0,
-        forbidden=forbid(r"returned error"),
-        source="low_power/low_power_dormant/low_power_dormant_gpio.c",
-    ),
-    "low_power_sleep_gpio": Spec(
-        console=_gpio_wakes(r"Sleeping until gpio 15 goes high"),
-        per_board=_first_sleep(r"Sleeping until gpio 15 goes high"),
-        seconds=8.0,
-        forbidden=forbid(r"returned error"),
-        source="low_power/low_power_sleep/low_power_sleep_gpio.c",
-    ),
-    # low_power/low_power_pstate/low_power_pstate_gpio.c:21-48 (pico2): every
-    # wake is a boot; the run count persists across them but starts at
-    # whatever the RAM held. Reaching the printf after the power-down is the
-    # failure.
-    "low_power_pstate_gpio": Spec(
-        console=(r"Wake up, test run: \d+" + NL + r"State of gpio 15 is [01]" + NL,
-                 r"Low power until gpio 15 goes high" + NL,
-                 *(r"Wake up, test run: \d+" + NL + r"State of gpio 15 is 1" + NL + r"Awake until gpio 15 goes low"
-                   + NL + r"Low power until gpio 15 goes high" + NL,) * 2),
-        seconds=8.0,
-        forbidden=forbid(r"returned error"),
-        source="low_power/low_power_pstate/low_power_pstate_gpio.c",
-    ),
-    # gpio/hello_gpio_irq/hello_gpio_irq.c:16-31: one line per edge on GP2,
-    # each a single event 200 ms from the last.
-    "hello_gpio_irq": Spec(
-        console=(r"Hello GPIO IRQ" + NL, *(r"GPIO 2 EDGE_RISE" + NL + r"GPIO 2 EDGE_FALL" + NL,) * 3),
-        seconds=3.0,
-        forbidden=forbid(r"LEVEL_", r", EDGE_"),
-        source="gpio/hello_gpio_irq/hello_gpio_irq.c",
-    ),
-    # gpio/hello_7segment/hello_7segment.c:48; the count is judged by its
-    # pins (pin_specs.py).
-    "hello_7segment": Spec(
-        console=(r"Hello, 7segment - press button to count down!" + NL,),
-        seconds=3.0,
-        source="gpio/hello_7segment/hello_7segment.c",
-    ),
-    # adc/joystick_display/joystick_display.c:18-39: every 50 ms "\rX: [",
-    # 40 characters with an 'o' at raw * 40 / 4095, "]  Y: [", the same,
-    # "]". At 25 % and 75 % of 3.3 V, raw is about 1024 and 3071: positions
-    # 10 and 29, give or take the harness's and the DUT's 3V3. A pin held low
-    # puts X at 0; held high, Y reads 4095 or a count under it, position 40
-    # (no 'o') or 39.
-    "joystick_display": Spec(
-        console=(r"\rX: " + _bar(9, 11) + r"  Y: " + _bar(28, 31),) * 3,
-        seconds=3.0,
-        source="adc/joystick_display/joystick_display.c",
-        analog_pins=(26, 27),
-        without_analog={"console": (r"\rX: \[o {39}\]  Y: \[ {39}[ o]\]",) * 3},
-    ),
-    # adc/microphone_adc/microphone_adc.c:32-46: the banner, then GP26 as
-    # raw * 3.3 / 4095 every 10 ms: 1.32 V at 40 % of 3.3 V, within a few
-    # per cent; 0.00 V, or a count or two above, when held low.
-    "microphone_adc": Spec(
-        console=(r"Beep boop, listening\.\.\." + NL, *(r"1\.(?:2[5-9]|3\d)" + NL,) * 5),
-        seconds=3.0,
-        source="adc/microphone_adc/microphone_adc.c",
-        analog_pins=(26,),
-        without_analog={"console": (r"Beep boop, listening\.\.\." + NL, *(r"0\.0\d" + NL,) * 5)},
-    ),
-    # pio/uart_rx/uart_rx.c:40-73: core 1 sends the line once on uart1 and
-    # the PIO receiver echoes it to the console.
-    "pio_uart_rx": Spec(
-        console=(r"Starting PIO UART RX example" + NL,
-                 r"Hello, world from PIO! \(Plus 2 UARTs and 2 cores, for complex reasons\)" + NL),
-        seconds=3.0,
-        source="pio/uart_rx/uart_rx.c",
-    ),
-    # pio/uart_rx/uart_rx_intr.c:51-58, 93-162: ten lines 1-2 s apart, each
-    # echoed from the PIO interrupt, then "Test complete" and main returns.
-    "pio_uart_rx_intr": Spec(
-        console=(r"Starting PIO UART RX interrupt example" + NL,
-                 *(rf"Hello, world from PIO with interrupts! {n}" + NL for n in range(10)), r"Test complete" + NL),
-        seconds=25.0,
-        source="pio/uart_rx/uart_rx_intr.c",
-    ),
-    # pio/uart_dma/uart_dma.c:75-90, 104-241: the sentence out of the PIO
-    # transmitter by DMA at 921600 baud and into the receiver by DMA; each
-    # channel's interrupt says it is done, then the comparison.
-    "pio_uart_dma": Spec(
-        console=(r"dma_tx done" + NL, r"dma_rx done" + NL, r"Test passed" + NL),
-        seconds=3.0,
-        forbidden=forbid(r"Test failed"),
-        source="pio/uart_dma/uart_dma.c",
-    ),
-    # pio/manchester_encoding/manchester_encoding.c:17-43 and
-    # pio/differential_manchester/differential_manchester.c:16-43: three
-    # words sent on GP2 and decoded on GP3.
-    "pio_manchester_encoding": Spec(
-        console=(r"Transmit program loaded at \d+" + NL, r"Receive program loaded at \d+" + NL,
-                 r"00000000" + NL, r"0ff0a55a" + NL, r"12345678" + NL),
-        seconds=3.0,
-        source="pio/manchester_encoding/manchester_encoding.c",
-    ),
-    "pio_differential_manchester": Spec(
-        console=(r"Transmit program loaded at \d+" + NL, r"Receive program loaded at \d+" + NL,
-                 r"00000000" + NL, r"0ff0a55a" + NL, r"12345678" + NL),
-        seconds=3.0,
-        source="pio/differential_manchester/differential_manchester.c",
-    ),
-    # pwm/measure_duty_cycle/measure_duty_cycle.c:19-72: each duty on GP2
-    # measured on GP5 over sleep_ms(10). The level is duty x 1001 truncated
-    # (49.95 % for 50 %), and the window runs a little past 10 ms.
-    "pwm_measure_duty_cycle": Spec(
-        console=(r"PWM duty cycle measurement example" + NL,
-                 r"Output duty cycle = 0\.0%, measured input duty cycle = 0\.0%" + NL,
-                 r"Output duty cycle = 10\.0%, measured input duty cycle = (?:9\.[89]|10\.[01])%" + NL,
-                 r"Output duty cycle = 50\.0%, measured input duty cycle = (?:49\.[89]|50\.[01])%" + NL,
-                 r"Output duty cycle = 90\.0%, measured input duty cycle = (?:89\.[89]|90\.[01])%" + NL,
-                 r"Output duty cycle = 100\.0%, measured input duty cycle = (?:99\.\d|100\.[0-2])%" + NL),
-        seconds=3.0,
-        source="pwm/measure_duty_cycle/measure_duty_cycle.c",
-    ),
-    # pio/clocked_input/clocked_input.c:29-75: eight rand() bytes clocked
-    # out of SPI0 at clk_sys / 6 and into the PIO, each compared.
-    "pio_clocked_input": Spec(
-        console=(r"SPI running at \d+ Hz" + NL, r"Data to transmit:" + NL, r"(?:[0-9a-f]{2}" + NL + r"){8}",
-                 r"Reading back from RX FIFO:" + NL, r"(?:[0-9a-f]{2} OK" + NL + r"){8}", r"Done\." + NL),
-        seconds=3.0,
-        forbidden=forbid(r" FAIL"),
-        source="pio/clocked_input/clocked_input.c",
-    ),
-    # i2c/slave_mem_i2c/slave_mem_i2c.c:90-126: every 2 s the message is
-    # written at 0x00, 0x20, 0x40, ..., read back in two parts (5 bytes,
-    # then the rest from mem_address + 5); a mismatch asserts.
-    "slave_mem_i2c": Spec(
-        console=(r"I2C slave example" + NL,
-                 *(rf"Write at 0x{a:02X}: 'Hello, I2C slave! - 0x{a:02X}'" + NL + rf"Read  at 0x{a:02X}: 'Hello'" + NL
-                   + rf"Read  at 0x{a + 5:02X}: ', I2C slave! - 0x{a:02X}'" + NL for a in (0x00, 0x20, 0x40))),
-        seconds=8.0,
-        forbidden=forbid(r"Couldn't write to slave"),
-        source="i2c/slave_mem_i2c/slave_mem_i2c.c",
-    ),
-    # The rig's own program (test/pico_examples/programs/i2c_target_page):
-    # an I2C target at 0x42 that i2c_page_controller writes a page to and
-    # reads it back from (judged by the part); the console says it is up.
-    "i2c_target_page": Spec(
-        console=(r"I2C target page at 0x42" + NL,),
-        seconds=5.0,
-        source="test/pico_examples/programs/i2c_target_page/i2c_target_page.c",
-    ),
-    # i2c/slave_mem_i2c/slave_mem_i2c_burst.c:92-136: the same a byte at a
-    # time, 1 ms apart, read back whole.
-    "slave_mem_i2c_burst": Spec(
-        console=(r"I2C slave example" + NL,
-                 *(rf"Write at 0x{a:02X}: 'Hello, I2C slave! - 0x{a:02X}'" + NL
-                   + rf"Read  at 0x{a:02X}: 'Hello, I2C slave! - 0x{a:02X}'" + NL for a in (0x00, 0x20, 0x40))),
-        seconds=8.0,
-        forbidden=forbid(r"Couldn't write to slave"),
-        source="i2c/slave_mem_i2c/slave_mem_i2c_burst.c",
-    ),
-})
-
-_SLAVE_BUFFER = (r"SPI slave says: When reading from MOSI, the following buffer will be written to MISO:" + NL
-                 + "".join(_rows(lambda i: 255 - i)))
-
-PART_SPECS.update({
-    # spi/spi_master_slave/spi_slave/spi_slave.c:58-90: the banner, the ff..00
-    # buffer, then for every page the rig's controller clocks (parts.py: the
-    # master's 00..ff, 500 ms apart once told) the page it read.
-    "spi_slave": Spec(
-        console=(r"SPI slave example" + NL, _SLAVE_BUFFER,
-                 *(rf"SPI slave says: read page {p} from the MOSI line:" + NL + "".join(_rows(lambda i: i))
-                   for p in range(3))),
-        seconds=6.0,
-        source="spi/spi_master_slave/spi_slave/spi_slave.c",
-        input=((_SLAVE_BUFFER, "peer.pages = 3"),),
-    ),
-})

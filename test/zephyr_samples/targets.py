@@ -6,11 +6,11 @@
 # the build copies the test's harness_config into the example.json beside
 # its zephyr.elf, so the criteria are the ones the image was built against.
 # OVERRIDES holds what a sample needs beyond its yaml, with the reason.
-# The pico-examples cases (test/pico_examples/cases.py) judge it with these.
+# The sample cases (test/zephyr_samples/cases.py) judge it with these.
 
 from dataclasses import replace
 
-from test.pico_examples.targets import Spec, every
+from test.zephyr_samples.spec import Spec, every
 from test.zephyr_samples.parts import lora_frame
 
 # The boot banner every sample prints first (kernel/banner.c, with
@@ -32,10 +32,6 @@ FORBIDDEN = (
     r"\*\*\* Booting Zephyr OS[^\n]*\n[\s\S]*\*\*\* Booting Zephyr OS",
 )
 
-# For a sample that resets the chip on purpose, whose yaml expects it to
-# boot again: the fault reports only.
-FAULTS = FORBIDDEN[:2]
-
 # Bench seconds a sample gets to print its patterns, unless it overrides.
 SECONDS = 10.0
 
@@ -44,10 +40,6 @@ RX_FRAMES = tuple(f"metalclaw {i}".encode() for i in range(4))
 
 # By target: Spec fields that replace the ones the yaml gives.
 OVERRIDES: dict[str, dict] = {
-    # samples/drivers/led/pwm/src/main.c:80-140: on, off, a fade up and down
-    # (CONFIG_FADE_DELAY steps), then blinking, with one-second pauses: on
-    # the carrier the blinking starts 7 s in, so the loop ends after 10 s.
-    "zephyr/drivers/led/pwm": {"seconds": 30.0},
     # samples/modules/lvgl/demos: its yaml asks for the heap summary in
     # brackets, but Zephyr 4.4.0 prints it without them
     # (lib/heap/heap_info.c:67, from lvgl_print_heap_info at
@@ -55,9 +47,6 @@ OVERRIDES: dict[str, dict] = {
     "zephyr/modules/lvgl/demos": {
         "console": (BANNER, r"^\d+ free bytes, \d+ allocated bytes, overhead = \d+ bytes"),
         "forbidden": (*FORBIDDEN, r"<err>", r"\[Error\]")},
-    # samples/drivers/watchdog: feeds the watchdog five times, then lets it
-    # reset the chip; its yaml expects the second boot.
-    "zephyr/drivers/watchdog": {"forbidden": FAULTS, "seconds": 20.0},
     # samples/sensor/accel_polling: its yaml's line, which a reading in any
     # range matches, as the part's 252, -500, 1020 mg in m/s^2 (%12.6f),
     # through the LIS2DH driver's 1/1024 g digit (see lis2dh above).
@@ -114,18 +103,6 @@ OVERRIDES: dict[str, dict] = {
                   *((r"<inf> lora_receive: LoRa RX RSSI", lora_frame(f)) for f in RX_FRAMES[1:])),
         "seconds": 20.0,
     },
-    # samples/subsys/zbus/confirmed_channel and priority_boost publish on a
-    # timer and their patterns span several rounds: on the carrier the last
-    # comes after more than 10 s.
-    "zephyr/subsys/zbus/confirmed_channel": {"seconds": 30.0},
-    "zephyr/subsys/zbus/priority_boost": {"seconds": 30.0},
-    # samples/subsys/kvss/nvs reboots itself, counting down each time, up to
-    # CONFIG_NVS_SAMPLE_MAX_REBOOT (5) times (src/main.c:189-231): a second
-    # banner is the sample's own.
-    "zephyr/subsys/kvss/nvs": {"forbidden": FAULTS, "seconds": 30.0},
-    # samples/subsys/kvss/zms runs CONFIG_MAX_ITERATIONS (300) rounds of
-    # writes before its line; on the carrier about 14 a second.
-    "zephyr/subsys/kvss/zms": {"seconds": 60.0},
     # samples/sensor/tmp11x/src/main.c:62-66 fetches once, about 16 ms after
     # the driver's last configuration write, and exits on -EBUSY: the
     # TMP116's first result after a write comes at its averaging time, 124
@@ -141,22 +118,6 @@ OVERRIDES: dict[str, dict] = {
                     r"<inf> main: .*Sensor:.* data:\(x:-?\d+, y:-?\d+, z:-?\d+\)"),
         "seconds": 15.0,
     },
-    # samples/subsys/logging/syst sends printk through its MIPI SyS-T log
-    # backend, the boot banner too, which then reaches the console encoded
-    # ("SYS-T RAW DATA: ..."): only the yaml's own lines can be asked for.
-    "zephyr/subsys/logging/syst": {"console": (r"SYS-T RAW DATA: ", r"SYST Sample Execution Completed")},
-    # samples/subsys/task_wdt: the control thread gets stuck and the task
-    # watchdog's callback resets the chip right after printing
-    # (src/main.c:46-58), so the reset cuts the UART's transmit FIFO short: the
-    # callback line ends early and "Resetting device..." never reaches the
-    # console, which the yaml's last two patterns need. The callback line's
-    # start, then the second boot, show the same run; the cut lands a few
-    # bytes earlier on the Pico 2 ("thread" against the Pico 1's "thread: c").
-    "zephyr/subsys/task_wdt": {
-        "console": (BANNER, r"Task watchdog sample application\.", r"Control thread started\.",
-                    r"Main thread still alive\.\.\.", r"Control thread getting stuck\.\.\.",
-                    r"Task watchdog channel 1 callback, thread", BANNER),
-        "forbidden": FAULTS, "seconds": 20.0},
 }
 
 
@@ -210,22 +171,6 @@ def shell_spec(metadata: dict, source: str, prompt: str = PROMPT) -> Spec:
 # By target: criteria of ours, for a sample whose yaml judges it some other
 # way than its console (an LED harness, a host script), read from its source.
 OWN: dict[str, Spec] = {
-    # samples/basic/blinky/src/main.c:37-46: toggles led0 and prints its new
-    # state every SLEEP_TIME_MS = 1000 ms, starting from ON (so OFF first).
-    # Its yaml's harness is "led", which the bench does not have.
-    "zephyr/basic/blinky": own(r"^LED state: OFF$", r"^LED state: ON$", r"^LED state: OFF$",
-                               intervals=every(1.0, 0.005, 3, first=1),
-                               source="samples/basic/blinky/src/main.c"),
-    # samples/subsys/bindesc/read_bindesc/src/main.c:53-126: finds the
-    # descriptors in flash, then reads the kernel version through mapped
-    # flash, RAM and the flash driver, and its own my_bytes {1, 2, 3, 4};
-    # the search for id 123 is meant to miss. Its yaml is build_only.
-    "zephyr/subsys/bindesc/read_bindesc": own(
-        r"^Found descriptors at 0x[0-9a-f]+$", r"^Reading using memory mapped flash:$",
-        r"^Zephyr version: \d+\.\d+\.\d+", r"^Reading using RAM:$", r"^Descriptor not found!$",
-        r"^Zephyr version number: \d+$", r"^Reading using flash:$", r"^my_bytes: 01 02 03 04 ?$",
-        forbidden=(*FORBIDDEN, r"Descriptors not found"),
-        source="samples/subsys/bindesc/read_bindesc/src/main.c"),
     # samples/sensor/pressure_polling/src/main.c:44-61: prints the sensor's
     # temperature (%.2f) and pressure (%f, kPa) every second; build_only
     # upstream. The bmp388 part holds 23.450 °C and 98765 Pa
@@ -338,31 +283,12 @@ OWN: dict[str, Spec] = {
                                         r"<inf> main: Displaying pattern on strip",
                                         forbidden=(*FORBIDDEN, r"<err>"),
                                         source="samples/drivers/led/led_strip/src/main.c"),
-    # samples/basic/rgb_led and servo_motor: a banner, then PWM changes that
-    # print only on an error.
-    "zephyr/basic/rgb_led": own(r"^PWM-based RGB LED control$", forbidden=(*FORBIDDEN, r"Error"), seconds=3.0,
-                                source="samples/basic/rgb_led/src/main.c"),
-    "zephyr/basic/servo_motor": own(r"^Servomotor control$", forbidden=(*FORBIDDEN, r"Error"), seconds=3.0,
-                                    source="samples/basic/servo_motor/src/main.c"),
-    # samples/subsys/fs/littlefs/src/main.c:68-102: mounts the storage
-    # partition and counts boots in a file. The partition is erased at each
-    # restart (the image's erased storage block), so the sample formats it,
-    # finds no count and writes 1.
-    "zephyr/subsys/fs/littlefs": own(r"/boot_count read count:0 \(bytes: 0\)$",
-                                     r"/boot_count write new boot count 1: \[wr:1\]$",
-                                     forbidden=(*FORBIDDEN, r"FAIL"), seconds=30.0,
-                                     source="samples/subsys/fs/littlefs/src/main.c"),
     # samples/sensor/jc42/src/main.c:132-155: its yaml's harness is
     # "sensor", with no patterns; it prints the part's temperature every
     # 2 s, after its uptime. The mcp9808 part reads 25.25 C (parts.py).
     "zephyr/sensor/jc42": own(r"^\d+:\d{2}:\d{2}\.\d{3}: 25\.25 C$",
                               forbidden=(*FORBIDDEN, r"error", r"failed", r"not ready", r"not found"),
                               source="samples/sensor/jc42/src/main.c"),
-    # samples/subsys/fs/format/src/main.c:45-52: formats its file system
-    # (fs_mkfs) and logs the result, through the minimal logger.
-    **{t: own(r"Format successful$", forbidden=(*FORBIDDEN, r"Format failed"),
-              source="samples/subsys/fs/format/src/main.c")
-       for t in ("zephyr/subsys/fs/format", "zephyr/subsys/fs/format@fat_fs")},
     # samples/subsys/display/cfb/src/main.c:35-60: initialises the 128x64
     # panel's framebuffer, lists its fonts and its geometry; the part's
     # GDDRAM is checked too. Its printf lines come straight out, while the
@@ -383,52 +309,6 @@ OWN: dict[str, Spec] = {
         {"command": "cfb init", "expected": r"Framebuffer initialized: ssd1306@3c"},
         {"command": "cfb get_param width", "expected": r"param: width=128"},
         {"command": "cfb print 0 0 metalclaw"}]}, "subsys/fb/cfb_shell.c"),
-    # samples/drivers/auxdisplay_digits/src/main.c: logs only failures; its
-    # pins judge it (test/zephyr_samples/pin_specs.py).
-    "zephyr/drivers/auxdisplay_digits": own(forbidden=(*FORBIDDEN, r"<err>"), seconds=5.0,
-                                            source="samples/drivers/auxdisplay_digits/src/main.c"),
-    # samples/subsys/shell/shell_module/src/main.c: the demo commands
-    # (:84-97, 225-232, 155-201). All three configurations turn the banner
-    # off (prj.conf, prj_minimal.conf, prj_getopt.conf); robot is the
-    # yaml's robot suite, shell_module.robot: `version` at the prompt.
-    "zephyr/subsys/shell/shell_module@minimal": shell_spec(
-        {"sample": "subsys/shell/shell_module", "boot_banner": False, "shell_commands": [
-            {"command": "demo ping", "expected": r"pong"},
-            {"command": "version", "expected": r"Zephyr version \d+\.\d+\.\d+"}]},
-        "samples/subsys/shell/shell_module/src/main.c"),
-    "zephyr/subsys/shell/shell_module@getopt": shell_spec(
-        {"sample": "subsys/shell/shell_module", "boot_banner": False, "shell_commands": [
-            {"command": "demo getopt -b", "expected": r"aflag = 0, bflag = 1"},
-            {"command": "demo getopt -a -c", "expected": r"Option -c requires an argument\."}]},
-        "samples/subsys/shell/shell_module/src/main.c"),
-    "zephyr/subsys/shell/shell_module@robot": shell_spec(
-        {"sample": "subsys/shell/shell_module", "boot_banner": False, "shell_commands": [
-            {"command": "version", "expected": r"Zephyr version"}]},
-        "samples/subsys/shell/shell_module/shell_module.robot"),
-    # shell_module's login test (prj_login.conf: no banner, an obscured
-    # login: prompt whose root command is login; src/login_cmd.c:28-48).
-    # As at any shell, an Enter first at a login: prompt, which may be one
-    # from before the restart: it ends stray input there, and the password
-    # goes in at the prompt after it. The boot's hint is not needed. Then
-    # the welcome, and a command at the ordinary prompt. The Enter may
-    # submit stray input as a password, which the sample refuses
-    # ("Incorrect password!"); the password is typed once, so the welcome
-    # shows it was taken.
-    "zephyr/subsys/shell/shell_module@login": Spec(
-        console=(r"^login: ", r"^Shell Login Demo$", PROMPT, r"^Zephyr version \d"),
-        input=((r"^login: ", b"\n"), (r"^login: ", b"zephyr\n"), (PROMPT, b"kernel version\n")),
-        seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
-        source="samples/subsys/shell/shell_module/src/login_cmd.c"),
-    # samples/subsys/shell/fs: its yaml's harness is keyboard, with no
-    # commands. The fs shell (subsys/fs/shell.c:877-905, 542-600, 180-210,
-    # 425-456) mounts littlefs on the erased storage partition, writes a
-    # file of the bytes given, lists it, and dumps it as hex and text.
-    "zephyr/subsys/shell/fs": shell_spec({"sample": "subsys/shell/fs", "shell_commands": [
-        {"command": "fs mount littlefs /lfs", "expected": r"Successfully mounted littlefs at /lfs"},
-        {"command": "fs write /lfs/mc.txt 6d 65 74 61 6c 63 6c 61 77"},
-        {"command": "fs ls /lfs", "expected": r".*\bmc\.txt$"},
-        {"command": "fs read /lfs/mc.txt", "expected": r"00000000  6D 65 74 61 6C 63 6C 61 77 .*metalclaw$"}]},
-        "subsys/fs/shell.c"),
     # samples/subsys/display/lvgl: its yaml's harness is "none"; it logs
     # only failures (LVGL's own warnings too, CONFIG_LV_USE_LOG). The panel's
     # GDDRAM judges it (test/zephyr_samples/parts.py).
@@ -658,18 +538,6 @@ OWN: dict[str, Spec] = {
         r"<inf> app: Found LED device lp5569@32", r"<inf> app: Testing 9 LEDs \.\.",
         forbidden=(*FORBIDDEN, r"<err>"), seconds=5.0,
         source="samples/drivers/led/lp5569/src/main.c"),
-    # samples/drivers/rtc/src/main.c: sets 2024-11-17 04:19:00, then reads
-    # the clock every second. Its yaml wants 04:19:01, which the RP2040's
-    # RTC passes before the second read (builds.py), so these are the
-    # set time counting up a second per read, from :01 or :02 on. The
-    # first read, right after the set, returns the RTC's old date (1969 or
-    # so): rtc_rpi_pico reads back before the set has loaded, an upstream
-    # quirk not judged here.
-    "zephyr/drivers/rtc": own(
-        r"^RTC date and time: 2024-11-17 04:19:0[12]$", r"^RTC date and time: 2024-11-17 04:19:0[23]$",
-        r"^RTC date and time: 2024-11-17 04:19:0[34]$", r"^RTC date and time: 2024-11-17 04:19:0[45]$",
-        forbidden=(*FORBIDDEN, r"Cannot", r"not ready"), seconds=8.0,
-        source="samples/drivers/rtc/src/main.c"),
     # samples/sensor/max6675/src/main.c:45: a reading a second. Its yaml
     # takes any number; the part holds 123.25 C, a whole count of 0.25 C.
     "zephyr/sensor/max6675": own(*(r"^Temperature: 123\.25 C$",) * 2,
@@ -729,78 +597,6 @@ OWN: dict[str, Spec] = {
                                       seconds=5.0, source="samples/drivers/led/pca9633/src/main.c"),
     "zephyr/drivers/auxdisplay": own(forbidden=(*FORBIDDEN, r"<err>"), seconds=3.0,
                                      source="samples/drivers/auxdisplay/src/main.c"),
-    # Typed console samples, whose yaml harness is "keyboard": a person types.
-    # samples/subsys/console/echo/src/main.c:8-26: echoes each character,
-    # adding a line feed after a carriage return.
-    "zephyr/subsys/console/echo": own(
-        r"^Start typing characters to see them echoed back$", r"^metalclaw$",
-        input=((r"^Start typing characters to see them echoed back$", b"metalclaw\r"),),
-        source="samples/subsys/console/echo/src/main.c"),
-    # samples/subsys/console/getchar/src/main.c:13-21: prints each
-    # character's code and the character.
-    "zephyr/subsys/console/getchar": own(
-        r"^Start typing characters to see their hex codes printed$", r"^char: \[0x61\] a$", r"^char: \[0x62\] b$",
-        input=((r"^Start typing characters to see their hex codes printed$", b"ab"),),
-        source="samples/subsys/console/getchar/src/main.c"),
-    # samples/subsys/console/getline/src/main.c:14-23: prints each line it
-    # reads and the line's last character.
-    "zephyr/subsys/console/getline": own(
-        r"^Enter a line$", r"^line: hi$", r"^last char was: 0x69$",
-        input=((r"^Enter a line$", b"hi\r"),),
-        source="samples/subsys/console/getline/src/main.c"),
-    # samples/drivers/uart/echo_bot/src/main.c:97-105: greets, then echoes
-    # each line that ends in a carriage return or line feed.
-    "zephyr/drivers/uart/echo_bot": own(
-        r"^Hello! I'm your echo bot\.$", r"^Tell me something and press enter:$", r"^Echo: metalclaw$",
-        input=((r"^Tell me something and press enter:$", b"metalclaw\r"),),
-        source="samples/drivers/uart/echo_bot/src/main.c"),
-    # samples/arch/mpu/mpu_test: its test_shell.yml reads words at 0x1 and
-    # 0x2 with `mpu mtest`, unaligned loads that an ARMv6-M core (the
-    # RP2040's) faults on; the Pico 1 build reads the boot ROM's aligned
-    # words at 0x0 and 0x4 instead (src/main.c:124-139).
-    "zephyr/arch/mpu/mpu_test": replace(
-        shell_spec({"sample": "arch/mpu/mpu_test", "shell_commands": [
-            {"command": "mpu mtest 1", "expected": "The value is: 0x.*"},
-            {"command": "mpu mtest 2", "expected": "The value is: 0x.*"}]},
-            "samples/arch/mpu/mpu_test/test_shell.yml"),
-        per_board={"pico": {"input": shell_spec({"sample": "arch/mpu/mpu_test", "shell_commands": [
-            {"command": "mpu mtest 0"}, {"command": "mpu mtest 4"}]}, "").input}}),
-    # samples/boards/raspberrypi/rpi_pico/uart_pio/src/main.c: echoes what
-    # each of two PIO UARTs receives; the first takes GP0/GP1, the console's
-    # pins, before the boot banner, so nothing comes before the echo. Text
-    # typed once the chip is up must come back. No sample.yaml.
-    "zephyr/boards/raspberrypi/rpi_pico/uart_pio": Spec(
-        console=(r"metalclaw",), input=((r"", "import time\ntime.sleep_ms(500)\n"), (r"", b"metalclaw")),
-        seconds=5.0, forbidden=FAULTS, source="samples/boards/raspberrypi/rpi_pico/uart_pio/src/main.c"),
-    # samples/subsys/shell/devmem_load (harness keyboard): `devmem load`
-    # takes hex text until Ctrl-X Ctrl-Q and reports the bytes read
-    # (subsys/shell/modules/devmem_service.c:166-206); `devmem <addr> 32`
-    # then reads the first word back: without -e each 8 hex digits are one
-    # word's value, so 0xdeadbeef. 0x20030000 is SRAM the
-    # sample leaves alone. No banner (its prj.conf).
-    "zephyr/subsys/shell/devmem_load": Spec(
-        console=(PROMPT, r"^press ctrl-x ctrl-q to escape$", r"^Number of bytes read: 8$",
-                 r"^Read value 0xdeadbeef$"),
-        input=((PROMPT, b"\n"), (PROMPT, b"devmem load 0x20030000\n"),
-               (r"^press ctrl-x ctrl-q to escape$", b"deadbeef0badcafe\x18\x11"),
-               (PROMPT, b"devmem 0x20030000 32\n")),
-        seconds=SECONDS, forbidden=FORBIDDEN, lines=True,
-        source="samples/subsys/shell/devmem_load; subsys/shell/modules/devmem_service.c"),
-    # samples/subsys/testsuite/pytest/basic: a ztest suite whose one test
-    # prints Hello world; its yaml's host pytest script checks only the
-    # host side's options, so the suite's own summary judges it.
-    "zephyr/subsys/testsuite/pytest/basic": own(r"Hello world$", r"^PROJECT EXECUTION SUCCESSFUL$",
-                                                forbidden=(*FORBIDDEN, r"PROJECT EXECUTION FAILED"),
-                                                source="samples/subsys/testsuite/pytest/basic/src/main.c"),
-    # samples/net/sockets/socketpair/src/main.c:230-257: three threads write
-    # their names through socketpairs that main polls; it prints SUCCESS or
-    # FAILURE after tearing down, and a short or wrong read on the way. Its
-    # yaml's harness is "net", with no patterns.
-    "zephyr/net/sockets/socketpair": own(
-        r"^setting-up$", r"^tearing-down$", r"^SUCCESS$",
-        forbidden=(*FORBIDDEN, r"only wrote", r"only read", r"expected", r"FAILURE", r"error",
-                   r"unhandled events remaining", r"failed to find fd"),
-        source="samples/net/sockets/socketpair/src/main.c"),
 }
 
 

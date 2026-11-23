@@ -4,9 +4,10 @@
 #
 #   test/rig/run.py --platform hardware [pytest args...]
 #
-# Cases live in test/cases/, devices/*/test/cases.py (or cases/), and
-# client/test/cases.py. They never import a platform; they use the `harness`
-# and `dut` fixtures the platform provides.
+# Cases live in test/cases/, devices/*/test/cases.py (or cases/),
+# client/test/cases.py, and test/zephyr_samples/cases.py. They never import
+# a platform; they use the `harness`, `dut` and `sample` fixtures the
+# platform provides.
 
 import argparse
 import os
@@ -21,10 +22,7 @@ PLATFORMS = {
 
 
 def case_locations() -> list[str]:
-    found = []
-    for top in (ROOT / "test" / "cases", ROOT / "test" / "pico_examples"):
-        if top.is_dir():
-            found.append(str(top))
+    found = [str(ROOT / "test" / "cases"), str(ROOT / "test" / "zephyr_samples" / "cases.py")]
     for holder in ("devices", "client"):
         for cases in sorted((ROOT / holder).glob("*/test/cases.py")) + sorted((ROOT / holder).glob("*/test/cases")):
             found.append(str(cases))

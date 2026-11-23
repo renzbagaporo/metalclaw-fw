@@ -937,7 +937,7 @@ def test_an_i2c_page_controller_counts_an_address_no_one_answers(tmp_path):
 
 
 def test_a_hub75_takes_each_latched_row_and_its_enabled_time(tmp_path):
-    # pio_hub75's wiring (test/pico_examples/parts.py): clock, latch and
+    # pio_hub75's wiring (test/unit/programs/parts.py): clock, latch and
     # output enable on GP11-13, R0 G0 B0 on GP0-2, R1 G1 B1 on GP3-5, the
     # row address on GP6-10. The model arms a look (latch_capture) and the
     # emulator, this test, answers with one (latched): 128 clock samples, the

@@ -1,149 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# The external parts a pico-examples program talks to, as harness models
-# attached before the program starts. A binding names DUT pins (the
-# program's defaults); the bench's fixture says which harness pin reaches
-# each one. On the carrier a Pico pin can have two harness branches, and a
-# PIO engine reaches 32 consecutive GPIOs from base 0 or 16, so the pins of
-# one binding come from one window.
+# The parts the pico-examples programs the model checks transcribe
+# (pico-examples 0d62f75) talk to: the model, its bindings at the program's
+# default pins and the properties the checks set, and what the part must
+# have seen of the program (Check). part_targets.py holds what the program
+# prints with these.
 
-import itertools
-from dataclasses import dataclass, field
-
-from test.pico_examples import displays, lights
-
-WINDOWS = (range(0, 32), range(16, 48))
-
-
-# The harness's I2C target is an I2C controller in target mode, so SDA and
-# SCL need its pin functions: I2C0 on GPIO 4k / 4k+1, I2C1 on 4k+2 / 4k+3
-# (RP2040 and RP2350 GPIO function tables).
-def i2c_pins(pins) -> bool:
-    sda, scl = pins
-    return (sda % 4, scl % 4) in ((0, 1), (2, 3))
-
-
-# A steps_out wire drives its pins as one PIO OUT group: consecutive GPIOs.
-def consecutive_pins(pins) -> bool:
-    return all(p == pins[0] + i for i, p in enumerate(pins))
-
-
-# Per binding name, what its pins must satisfy beyond one PIO window.
-RULES = {"i2c": i2c_pins, "ab": consecutive_pins}
-# Per pair of single-pin bindings, what their pins must satisfy together:
-# an I2C controller's sda and scl, one hardware block's pair.
-PAIR_RULES = {("sda", "scl"): i2c_pins}
-
-
-class PinError(ValueError):
-    pass
-
-
-def harness_pins(fixture: dict, dut_pins, rule=None) -> tuple[int, ...]:
-    reach = fixture["dut_pins"]
-    missing = [p for p in dut_pins if p not in reach]
-    if missing:
-        raise PinError(f"no harness pin reaches DUT GP{missing}")
-    for window in WINDOWS:
-        options = [[b for b in reach[p] if b in window] for p in dut_pins]
-        for chosen in itertools.product(*options):
-            if len(set(chosen)) == len(chosen) and (rule is None or rule(chosen)):
-                return tuple(chosen)
-    raise PinError(f"DUT GP{list(dut_pins)} have no harness branches in one 32-pin window"
-                   + (f" that suit {rule.__name__}" if rule else ""))
-
-
-@dataclass(frozen=True)
-class Check:
-    # What a part saw of the program, read on the harness once the program
-    # has run: `expression` is evaluated there with the attached instance as
-    # `part` (a property, a region, a stats() field), and `test` judges the
-    # value that comes back. A display's frame, an LED strip's colours, the
-    # bytes a flash part was given.
-    expression: str
-    test: object  # callable(value) -> bool
-    description: str
-    # Bench seconds the program gets before the check, after a restart.
-    after_seconds: float = 2.0
-    # Run on the harness with the instance as `part` right after the
-    # restart: what the part is to do for this run.
-    setup: str = ""
-    # Run `setup` before the restart instead, with the DUT halted and what
-    # its UARTs had queued sent: a baseline the run's own traffic cannot
-    # beat, however late the harness gets to it in a loaded emulator.
-    before_restart: bool = False
-
-
-# The W25Q's counters at a restart, once an erase or program in flight has
-# ended (the model keeps BUSY for 9.6's typical times, a sector erase 45 ms;
-# the wait gives up after 3 s), and what the run did since.
-FLASH_AT_RESTART = ("import time\nfor _ in range(600):\n    if not part.busy:\n        break\n    time.sleep(0.005)\n"
-                    "flash_at_restart = (part.programs, part.erases, part.lost, part.ignored)\n")
-FLASH_SINCE_RESTART = ("tuple(now - then for now, then in zip((part.programs, part.erases, part.lost, part.ignored), "
-                       "flash_at_restart))")
-
-
-@dataclass(frozen=True)
-class Attach:
-    # metalclaw.attach(model, name, **bindings): each binding a tuple of DUT
-    # pins, then any plain values (an I2C address, say) after them.
-    model: str
-    name: str
-    bindings: dict = field(default_factory=dict)
-    # How many leading entries of each binding's tuple are pins.
-    pin_counts: dict = field(default_factory=dict)
-    # Properties set once attached: name -> value.
-    properties: dict = field(default_factory=dict)
-    checks: tuple = ()
-    # An open-drain part with no pull-up of its own: it works only on a
-    # bench whose lines have pull-ups (the carrier's 5.1 k), since a
-    # harness pin's internal pull-up (50-80 k) cannot outpull the DUT pad's
-    # pull-down, which gpio_init leaves on.
-    needs_line_pullups: bool = False
-    # The boards (example.json "board") whose build uses this part; empty
-    # for every board.
-    boards: tuple[str, ...] = ()
-    # Every binding's pins from one PIO window together, for a part whose
-    # engine links its pins (a jumper); or the names of the bindings whose
-    # pins must share one, the rest choosing theirs on their own (a radio
-    # whose SPI engine drives BUSY, beside a plain reset line).
-    one_window: bool | tuple[str, ...] = False
-    # Properties that differ on a bench whose harness cannot hold the
-    # part's pins at an analog level (fixture "analog_pins"), only high or
-    # low.
-    without_analog: dict = field(default_factory=dict)
-
-    def dut_pins(self) -> tuple[int, ...]:
-        return tuple(p for b, v in self.bindings.items() for p in v[:self.pin_counts.get(b, len(v))])
-
-    def properties_for(self, fixture: dict) -> dict:
-        if set(self.dut_pins()) <= set(fixture.get("analog_pins", ())):
-            return self.properties
-        return {**self.properties, **self.without_analog}
-
-    def _pins(self, fixture: dict) -> dict:
-        counts = {b: self.pin_counts.get(b, len(v)) for b, v in self.bindings.items()}
-        linked = tuple(self.bindings) if self.one_window is True else tuple(self.one_window or ())
-        pins = {}
-        if linked:
-            chosen = iter(harness_pins(fixture, tuple(p for b in linked for p in self.bindings[b][:counts[b]])))
-            pins = {b: tuple(next(chosen) for _ in range(counts[b])) for b in linked}
-        for pair, rule in PAIR_RULES.items():
-            if all(b in self.bindings and b not in pins and counts[b] == 1 for b in pair):
-                chosen = harness_pins(fixture, tuple(self.bindings[b][0] for b in pair), rule)
-                pins.update({b: (p,) for b, p in zip(pair, chosen)})
-        for b, v in self.bindings.items():
-            if b not in pins:
-                pins[b] = harness_pins(fixture, v[:counts[b]], RULES.get(b))
-        return pins
-
-    def code(self, fixture: dict) -> str:
-        pins = self._pins(fixture)
-        args = [f"{b}={tuple(pins[b]) + tuple(v[self.pin_counts.get(b, len(v)):])!r}"
-                for b, v in self.bindings.items()]
-        lines = [f"{self.name} = metalclaw.attach({self.model!r}, {self.name!r}, {', '.join(args)})"]
-        lines += [f"{self.name}.{k} = {v!r}" for k, v in self.properties_for(fixture).items()]
-        return "import metalclaw\n" + "\n".join(lines) + "\n"
-
+from test.unit.programs import displays, lights
+from test.zephyr_samples.attach import FLASH_AT_RESTART, FLASH_SINCE_RESTART, Attach, Check, ws2812_frames
 
 # The parts each needs_part target uses, filled in as their models land.
 # Bindings are the programs' default pins (PICO_DEFAULT_I2C_SDA_PIN 4,
@@ -154,20 +17,6 @@ class Attach:
 def _i2c_part(model: str, address: int, properties: dict, **gpio) -> tuple[Attach, ...]:
     bindings = {"i2c": (4, 5, address), **{name: (pin,) for name, pin in gpio.items()}}
     return (Attach(model, model, bindings, {"i2c": 2}, properties),)
-
-
-# A strip's frames once the program is sending again after the check's
-# restart. On the carrier the line's pull-up holds DIN high from the reset
-# until the program drives it, and that pulse ends one spoiled frame: the
-# frame the reset cut, at the first good frame at the latest
-# (pio_ws2812_parallel's two strips: bad_frames 0 before the restart, 1 by
-# 0.3 s after it, still 1 at 2.7 s). The count starts after two good
-# frames; a part that has seen no restart counts from 0.
-def _ws2812_frames(name: str, length: int, description: str) -> Check:
-    return Check(f"(part.frames > 10, part.bad_frames - globals().get('_{name}_bad', 0), part.length)",
-                 lambda v: v == (True, 0, length), description, 2.5,
-                 setup=f"import time\n_f = part.frames\nwhile part.frames < _f + 2:\n    time.sleep_ms(1)\n"
-                       f"_{name}_bad = part.bad_frames\n")
 
 
 PARTS: dict[str, tuple[Attach, ...]] = {
@@ -226,13 +75,8 @@ PARTS: dict[str, tuple[Attach, ...]] = {
     # mpl3115a2_i2c.c:28-29: 0x60, INT1 on GP16.
     "mpl3115a2_i2c": _i2c_part("mpl3115a2", 0x60, {"pressure": 95000, "altitude": 321500, "temperature": 21625},
                            int1=16),
-    # i2c/bus_scan/bus_scan.c:40-46 on i2c_default's GP4 and GP5, and
-    # pio/i2c/i2c_bus_scan.c:6-7 on GP2 and GP3: an MCP9808 at the one
-    # address their scans must find (targets.BUS_SCAN_ADDRESS).
-    "i2c_bus_scan": (Attach("mcp9808", "thermo", {"i2c": (4, 5, 0x18)}, {"i2c": 2}),),
-    "pio_i2c_bus_scan": (Attach("mcp9808", "thermo", {"i2c": (2, 3, 0x18)}, {"i2c": 2}),),
     # Displays: what a check reads is the controller's memory and the
-    # settings the program sent, judged by test/pico_examples/displays.py.
+    # settings the program sent, judged by displays.py.
     # i2c/ssd1306_i2c/ssd1306_i2c.c:41-44, 330-376: 0x3C, a 128 x 32 panel. The
     # raspberries are drawn about 3.1 s in (three 1 s flashes first) and
     # scroll for 5 s; the text comes after.
@@ -386,7 +230,7 @@ PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("ws2812b", "strip", {"din": (2,)}, properties={"count": 150}, checks=(
             Check("part.read_region('leds', 0, 450)", lights.ws2812_shows_a_random_frame,
                   "a frame of 150 rand() pixels the 'Random data' pattern sent", 2.5),
-            _ws2812_frames("strip", 450, "frames of 450 bytes, none with a pulse out of the datasheet's windows"),
+            ws2812_frames("strip", 450, "frames of 450 bytes, none with a pulse out of the datasheet's windows"),
         )),
     ),
     # pio/ws2812/ws2812_parallel.c:19-20, 188-203, 295-298: strips on GP2
@@ -395,12 +239,12 @@ PARTS: dict[str, tuple[Attach, ...]] = {
         Attach("ws2812b", "strip0", {"din": (2,)}, properties={"count": 64, "channels": 3}, checks=(
             Check("part.read_region('leds', 0, 192)", lambda v: lights.ws2812_parallel_shows_a_frame(v, 0),
                   "strip 0 holding a frame the program dithered and sent", 2.5),
-            _ws2812_frames("strip0", 256, "frames of 256 bytes, none spoiled"),
+            ws2812_frames("strip0", 256, "frames of 256 bytes, none spoiled"),
         )),
         Attach("ws2812b", "strip1", {"din": (3,)}, properties={"count": 64, "channels": 4}, checks=(
             Check("part.read_region('leds', 0, 256)", lambda v: lights.ws2812_parallel_shows_a_frame(v, 1),
                   "strip 1 holding a frame the program dithered and sent, W always 0", 2.5),
-            _ws2812_frames("strip1", 256, "frames of 256 bytes, none spoiled"),
+            ws2812_frames("strip1", 256, "frames of 256 bytes, none spoiled"),
         )),
     ),
     # pio/apa102/apa102.c:14-21: CLK on GP2, DIN on GP3, 150 LEDs at 5 MHz;
@@ -433,17 +277,6 @@ PARTS: dict[str, tuple[Attach, ...]] = {
                              "the program's start signals answered", 5.0),),
                needs_line_pullups=True),
     ),
-    # pio/quadrature_encoder/quadrature_encoder.c:41 and the substep
-    # program's :371: A on GP10, B on GP11. A thousand steps a second, back
-    # and forth over 2000. The encoder only drives the DUT's pins and sees
-    # nothing the program does, so it has no checks: the counts the
-    # program prints judge it (part_targets.py).
-    "pio_quadrature_encoder": (
-        Attach("quadrature_encoder", "encoder", {"ab": (10, 11)}, properties={"travel": 2000, "rate": 1000}),
-    ),
-    "pio_quadrature_encoder_substep": (
-        Attach("quadrature_encoder", "encoder", {"ab": (10, 11)}, properties={"travel": 2000, "rate": 1000}),
-    ),
     # pio/ir_nec/ir_loopback/ir_loopback.c:24-25: the IR LED on GP14, the
     # receiver's output on GP15; ir=(led, out).
     "pio_ir_loopback": (
@@ -463,142 +296,3 @@ PARTS: dict[str, tuple[Attach, ...]] = {
         )),
     ),
 }
-
-
-# What a program finds on its pins beyond a part: a signal on an input, or a
-# jumper between two of its own pins. Times are in ns, the square_wave
-# model's unit; a wave whose period is under 2 ms comes from the harness's
-# PWM, a longer one follows the simulation clock.
-MS = 1_000_000
-
-
-def _wave(name: str, pin: int, period: int, high: int, **variants) -> Attach:
-    return Attach("square_wave", name, {"out": (pin,)}, properties={"period": period, "high": high}, **variants)
-
-
-def _level(level: bool) -> dict:
-    return {"period": 0, "high": 0, "level": level}
-
-
-def _jumper(name: str, source: int, sink: int) -> Attach:
-    return Attach("jumper", name, {"source": (source,), "sink": (sink,)}, one_window=True)
-
-
-def _i2c_jumpers() -> tuple[Attach, ...]:
-    # slave_mem_i2c.c:20-23: the i2c0 target on GP4 (SDA) / GP5 (SCL), the
-    # i2c1 controller on GP6 / GP7, wired SDA to SDA and SCL to SCL; SCL
-    # through the clock jumper, which keeps the target's clock stretching.
-    return (Attach("jumper_open_drain", "sda", {"a": (4,), "b": (6,)}, one_window=True),
-            Attach("jumper_open_drain_clock", "scl", {"a": (5,), "b": (7,)}, one_window=True))
-
-
-# low_power_{dormant,sleep,pstate}_gpio.c wait while LOW_POWER_WAKE_GPIO 15
-# is high, go to sleep once it is low, and wake on its rising edge. GP15
-# rests high and dips low for 100 ms a second: every dip is one sleep and
-# one wake, and the DUT is reachable over SWD but for the dips.
-WAKE = _wave("wake", 15, 1000 * MS, 900 * MS)
-
-STIMULI: dict[str, tuple[Attach, ...]] = {
-    "low_power_dormant_gpio": (WAKE,),
-    "low_power_sleep_gpio": (WAKE,),
-    "low_power_pstate_gpio": (WAKE,),
-    # gpio/hello_gpio_irq/hello_gpio_irq.c:11, 29: GPIO_WATCH_PIN 2 with
-    # an interrupt on both edges; an edge every 200 ms.
-    "hello_gpio_irq": (_wave("edges", 2, 400 * MS, 200 * MS),),
-    # gpio/hello_7segment/hello_7segment.c:28-29, 71-79: the button on
-    # FIRST_GPIO + 7 = GP9, pressed when low; 2 s pressed, 2 s released.
-    "hello_7segment": (_wave("button", 9, 4000 * MS, 2000 * MS),),
-    # low_power_dormant_timer.c:25-29, 66-68 on RP2040: the AON timer runs
-    # from RTC_CLOCK_SRC_GPIO_IN 20 at RTC_CLOCK_FREQ_HZ, 46875 Hz
-    # (pico-sdk pico_low_power), clk_usb / 1024 on a Pico.
-    "low_power_dormant_timer": (_wave("rtc_clock", 20, 21333, 10667, boards=("pico",)),),
-    # adc/joystick_display/joystick_display.c:15-21: X on GP26 (ADC0), Y on
-    # GP27 (ADC1). A 1 MHz PWM through the carrier's RC filter holds X at a
-    # quarter and Y at three quarters of the harness's 3V3; a harness pin
-    # straight on the DUT's can only hold X low and Y high.
-    "joystick_display": (_wave("x", 26, 1000, 250, without_analog=_level(False)),
-                         _wave("y", 27, 1000, 750, without_analog=_level(True))),
-    # adc/microphone_adc/microphone_adc.c:24-25: ADC0 on GP26, at 40 %, or
-    # low.
-    "microphone_adc": (_wave("mic", 26, 1000, 400, without_analog=_level(False)),),
-}
-
-JUMPERS: dict[str, tuple[Attach, ...]] = {
-    # pio/uart_rx/uart_rx.c:26-27, uart_rx_intr.c:33-34: uart1 TX on GP4 to
-    # the PIO receiver on GP3.
-    "pio_uart_rx": (_jumper("tx_to_rx", 4, 3),),
-    "pio_uart_rx_intr": (_jumper("tx_to_rx", 4, 3),),
-    # pio/uart_dma/uart_dma.c:21-22: the PIO transmitter on GP4 to the PIO
-    # receiver on GP5.
-    "pio_uart_dma": (_jumper("tx_to_rx", 4, 5),),
-    # pio/manchester_encoding/manchester_encoding.c:17-18 and
-    # pio/differential_manchester/differential_manchester.c: GP2 to GP3.
-    "pio_manchester_encoding": (_jumper("tx_to_rx", 2, 3),),
-    "pio_differential_manchester": (_jumper("tx_to_rx", 2, 3),),
-    # pwm/measure_duty_cycle/measure_duty_cycle.c:16-17: PWM out on GP2,
-    # measured on GP5 (PWM 2B).
-    "pwm_measure_duty_cycle": (_jumper("out_to_in", 2, 5),),
-    # pio/clocked_input/clocked_input.c:23-30: SPI0 SCK GP2 to the PIO's
-    # clock GP5, SPI0 TX GP3 to its data GP4.
-    "pio_clocked_input": (_jumper("clock", 2, 5), _jumper("data", 3, 4)),
-    "slave_mem_i2c": _i2c_jumpers(),
-    # The rig's own I2C target program at 0x42 on GP4/GP5: one page written
-    # in 16-byte transfers and read back the same way.
-    "i2c_target_page": (Attach("i2c_page_controller", "ctl", {"sda": (4,), "scl": (5,)},
-                               properties={"address": 0x42, "interval": 300, "pages": 1},
-                               checks=(Check("(bytes(part.read_region('in', 0, 256)) == bytes(range(256)), "
-                                             "part.clocked, part.nacks, part.last_error)",
-                                             lambda v: v == (True, 1, 0, 0),
-                                             "one page written and read back whole, with no NACK", 3.0),)),),
-    "slave_mem_i2c_burst": _i2c_jumpers(),
-}
-
-PARTS.update(STIMULI)
-PARTS.update(JUMPERS)
-
-
-# spi/spi_master_slave: spi_master.c and spi_slave.c are each other's part,
-# SPI0 at 1 MHz in mode 0 on the default pins, one byte per chip-select
-# window (spi_peer.h). The master's MOSI is its TX, GP19, and its MISO its
-# RX, GP16; the slave receives on its RX, GP16, and answers on its TX, GP19.
-UP = bytes(range(256))
-DOWN = bytes(255 - i for i in range(256))
-
-PEERS: dict[str, tuple[Attach, ...]] = {
-    # spi_master.c:79-89: one page every 10 s, which the target answers with
-    # the slave's ~i (spi_slave.c:72-75).
-    "spi_master": (Attach("spi_page_target", "peer", {"sck": (18,), "mosi": (19,), "miso": (16,), "cs": (17,)},
-                          one_window=True,
-                          checks=(Check("part.read_region('mosi', 0, 256)", lambda v: v == UP,
-                                        "the program clocked out its 00..ff page"),)),),
-    # spi_slave.c:72-88: a page of ~i out for every page in; the controller
-    # clocks the master's 00..ff (spi_master.c:70-73) when told to.
-    "spi_slave": (Attach("spi_page_controller", "peer", {"sck": (18,), "mosi": (16,), "miso": (19,), "cs": (17,)},
-                         one_window=True,
-                         checks=(Check("part.read_region('miso', 0, 256)", lambda v: v == DOWN,
-                                       "the program answered a page with its ff..00", setup="part.pages = 1"),)),),
-}
-
-PARTS.update(PEERS)
-
-
-# The parts a program's build on `board` (example.json "board") uses: an
-# upstream Zephyr sample's from test/zephyr_samples.
-def parts_for(target: str, board: str | None) -> tuple[Attach, ...]:
-    from test.zephyr_samples.parts import ZEPHYR_PARTS
-    table = ZEPHYR_PARTS if target.startswith("zephyr/") else PARTS
-    return tuple(p for p in table.get(target, ()) if not p.boards or board in p.boards)
-
-
-# The DUT pins they take.
-# DUT pins a program drives by itself, with no part on them, from its first
-# instruction on: no idle level may hold their nets either.
-PROGRAM_OUTPUTS: dict[str, tuple[int, ...]] = {
-    # adc/dma_capture/dma_capture.c:119-126: core 1 drives a 5-bit resistor DAC on
-    # GP6-GP10 (DAC_PIN_BASE 6) with PIO0 from boot.
-    "adc_dma_capture": (6, 7, 8, 9, 10),
-}
-
-
-def parts_dut_pins(target: str, board: str | None) -> set[int]:
-    return {pin for part in parts_for(target, board) for pin in part.dut_pins()} | set(PROGRAM_OUTPUTS.get(target, ()))

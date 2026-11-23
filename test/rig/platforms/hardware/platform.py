@@ -19,8 +19,7 @@ import usb.util
 from test.rig import probe_telemetry
 from test.rig.platforms.hardware import dap
 from test.rig.platforms.hardware.dap import DapMemory
-from test.rig import dut_flash
-from test.rig.platforms.hardware.mailbox import Mailbox, MailboxError, symbol_addresses
+from test.rig.platforms.hardware.mailbox import Mailbox, MailboxError
 from test.rig.platforms.hardware.probe import ProbeError, ProbeRs
 from test.rig.platforms.hardware.repl import Repl
 
@@ -118,8 +117,8 @@ DUT_CHIPS = {
 }
 
 
-# A pico-examples build carries its identity beside the ELF instead of a
-# Zephyr .config: target, board and chip (see test/pico_examples).
+# A Zephyr sample's build carries its identity beside the ELF: target, board
+# and chip (test/zephyr_samples/build.py).
 EXAMPLE_METADATA = "example.json"
 
 
@@ -372,16 +371,15 @@ class Target:
     # A program can leave the DUT asleep with its clocks stopped (every debug
     # access answers WAIT) or with its power manager ignoring the debugger
     # (the debug port never powers up), and no reset the probe sends reaches
-    # it: pico-examples' low_power_* do both. They wake on a rising edge on
-    # GP15 and stay awake while it is high, so the harness raises it and the
-    # core is halted then. An RP2350 that still does not answer has its power
+    # it: a low-power program can do both. One that wakes on a rising edge
+    # on GP15 and stays awake while it is high is woken by the harness
+    # raising it, and the core is halted then. An RP2350 that still does not answer has its power
     # manager reset through the RP-AP, and is halted as it boots again. A
     # halted core then takes the download; on a DUT that is awake the first
     # halt lands at once.
     WAKE_PIN = 15
     WAKE_TIMEOUT_S = 3.0
-    # How long a program may sleep on its own between two wakes:
-    # low_power_dormant_timer is dormant for 10 s at a time.
+    # How long a program may sleep on its own between two wakes.
     ASLEEP_MAX_S = 12.0
 
     def halt_awake(self, wake_harness_pin, timeout=None) -> None:
@@ -569,115 +567,23 @@ def probe(harness: Harness, fixture: dict, pytestconfig):
     probe_telemetry.read_end(pytestconfig, harness)
 
 
-# Armv6-M / Armv8-M debug registers (ARMv6-M and ARMv8-M ARM, C1.6).
-DEMCR, AIRCR, VTOR = 0xE000EDFC, 0xE000ED0C, 0xE000ED08
-DCRSR, DCRDR = 0xE000EDF4, 0xE000EDF8
-DHCSR_S_HALT, DHCSR_S_REGRDY = 1 << 17, 1 << 16
-DEMCR_VC_CORERESET = 1
-AIRCR_SYSRESETREQ = 0x05FA0004
-REG_SP, REG_PC, REG_XPSR = 13, 15, 16
-XPSR_T = 1 << 24
-START_TIMEOUT_S = 5.0
-
-
-def write_core_register(link, register: int, value: int) -> None:
-    link.write_words(DCRDR, [value])
-    link.write_words(DCRSR, [(1 << 16) | register])
-    deadline = time.monotonic() + START_TIMEOUT_S
-    while not link.read_words(DHCSR, 1)[0] & DHCSR_S_REGRDY:
-        if time.monotonic() >= deadline:
-            raise TimeoutError(f"the DUT core never took register {register}")
-
-
-# The way probe-rs and the SDK's own no_flash flow start an image that loads
-# nothing into flash: the core halts at its reset vector, the segments go
-# into SRAM, and it starts at the image's entry with VTOR on __vectors and SP
-# from its first word.
-def start_from_ram(link, elf: bytes, vectors: int) -> None:
-    link.write_words(DHCSR, [DHCSR_HALT])
-    link.write_words(DEMCR, [DEMCR_VC_CORERESET])
-    link.write_words(AIRCR, [AIRCR_SYSRESETREQ])
-    deadline = time.monotonic() + START_TIMEOUT_S
-    while not link.read_words(DHCSR, 1)[0] & DHCSR_S_HALT:
-        if time.monotonic() >= deadline:
-            raise TimeoutError("the DUT core never halted at its reset vector")
-    for physical, offset, size in dut_flash.segments(elf):
-        data = elf[offset:offset + size] + bytes(-size % 4)
-        link.write_words(physical, list(int.from_bytes(data[i:i + 4], "little") for i in range(0, len(data), 4)))
-    link.write_words(VTOR, [vectors])
-    write_core_register(link, REG_SP, link.read_words(vectors, 1)[0])
-    write_core_register(link, REG_PC, dut_flash.entry(elf) & ~1)
-    write_core_register(link, REG_XPSR, XPSR_T)
-    link.write_words(DEMCR, [0])
-    link.write_words(DHCSR, [DHCSR_RESUME])
-
-
-# An unmodified pico-examples program: no mailbox, judged by what it does on
-# its pins (test/pico_examples). One that loads nothing into flash runs from
-# SRAM, so a restart loads it again.
-class Example(Target):
-    reset_window_s = 0.0
-    # The image downloaded in place of the ELF, at each restart too, or None.
-    flash_image = None
-
-    def __init__(self, harness: Harness, image: Path, toolchain_dir: str, recorder=None):
+# An upstream Zephyr sample: no mailbox, judged by its console and by what its
+# parts saw of it (test/zephyr_samples).
+class Sample(Target):
+    def __init__(self, harness: Harness, image: Path, recorder=None):
         metadata = example_metadata(image)
-        # A Zephyr sample's target already reads "zephyr/<path>".
-        name = metadata["target"] if metadata.get("kind") == "zephyr" else f"pico-examples/{metadata['target']}"
-        super().__init__(harness, image, recorder, name)
-        # A build may name an image to download in place of the ELF, beside
-        # it: a Zephyr sample's Intel HEX that also erases its storage
-        # partition (test/zephyr_samples/build.py), downloaded at each
-        # restart too. The ELF stays what the rig reads symbols and segments
-        # from.
-        if metadata.get("flash_image"):
-            self.flash_image = self.image = image.parent / metadata["flash_image"]
+        super().__init__(harness, image, recorder, metadata["target"])
         self.metadata = metadata
-        self.target = self.metadata["target"]
-        self.elf = image.read_bytes()
-        self.ram_only = not any(dut_flash.in_flash(p) for p, _, _ in dut_flash.segments(self.elf))
-        self.vectors = symbol_addresses(image, ("__vectors",), toolchain_dir)["__vectors"] if self.ram_only else None
-        from test.pico_examples.pin_specs import BOOTSEL_SPECS
-        spec = BOOTSEL_SPECS.get(self.target)
-        # A program that counts resets takes a second one within its window
-        # as a double press, whoever issued the two: each reset waits that
-        # long of bench time first. On a bench the host's round trips take
-        # longer; an emulated bench runs them in a few emulated ms.
-        self.reset_window_s = spec.window_s if spec is not None else 0.0
+        self.target = metadata["target"]
 
-    # The DUT pins the program's parts take, which no idle level may hold.
+    # The DUT pins the sample's parts take, which no idle level may hold.
     def parts_dut_pins(self) -> set[int]:
-        from test.pico_examples.parts import parts_dut_pins
+        from test.zephyr_samples.parts import parts_dut_pins
         return parts_dut_pins(self.target, self.metadata.get("board"))
 
-    def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
-        self._past_reset_window()
-        super().reset_by_run(count, low_s, gap_s)
-
-    def _past_reset_window(self) -> None:
-        if self.reset_window_s:
-            self.harness.sleep(self.reset_window_s)
-
-    def flash(self, wake_harness_pin=None) -> None:
-        if not self.ram_only:
-            super().flash(wake_harness_pin)
-
-    # A program that sleeps on its own (low_power_* while their wake pin
-    # dips or their timer runs) can be asleep when the reset lands; it is
-    # halted once it is awake again, as before a download, and reset then.
+    # A sample that sleeps on its own can be asleep when the reset lands; it
+    # is halted once it is awake again, as before a download, and reset then.
     def restart(self) -> None:
-        self._past_reset_window()
-        if self.ram_only:
-            with self.memory.link() as link:
-                link.write_words(DHCSR, [DHCSR_HALT])
-                self.release_buses()
-                start_from_ram(link, self.elf, self.vectors)
-            return
-        # An image that erases its storage partition (flash_image) is
-        # downloaded again, so each restart starts from empty storage.
-        if self.flash_image is not None:
-            Target.flash(self)
-            return
         try:
             self.reset()
         except ProbeError:
@@ -687,38 +593,22 @@ class Example(Target):
 
 def require_rig_image(image: Path) -> None:
     if example_metadata(image) is not None:
-        pytest.skip("the DUT image is a pico-examples program, not a rig image")
+        pytest.skip("the DUT image is a Zephyr sample, not a rig image")
 
 
-def require_example_image(image: Path) -> None:
+def require_sample_image(image: Path) -> None:
     if example_metadata(image) is None:
-        pytest.skip("the DUT image is not a pico-examples program")
+        pytest.skip("the DUT image is not a Zephyr sample")
 
 
 @pytest.fixture(scope="session")
-def example(harness: Harness, probe, fixture: dict, pytestconfig) -> Example:
+def sample(harness: Harness, probe, fixture: dict, pytestconfig) -> Sample:
     image = dut_image()
-    require_example_image(image)
-    # Checked before anything is flashed: a reset alone would run it.
-    from test.pico_examples.hazards import HARDWARE_HAZARDS, bench_limit
-    metadata = example_metadata(image)
-    target = metadata["target"]
-    if target in HARDWARE_HAZARDS:
-        pytest.skip(f"{target} {HARDWARE_HAZARDS[target]}; it runs only in the emulator")
-    limit = bench_limit(target, harness.board(), metadata.get("board"))
-    if limit is not None:
-        pytest.skip(f"{target}'s {metadata.get('board')} build {limit}; this bench does not judge it")
-    e = Example(harness, image, _required("METALCLAW_ARM_TOOLCHAIN_DIR"), probe_telemetry.recorder(pytestconfig))
+    require_sample_image(image)
+    e = Sample(harness, image, probe_telemetry.recorder(pytestconfig))
     hold_idle(harness, fixture, e.parts_dut_pins())
     e.flash(fixture["dut_pins"][Target.WAKE_PIN][0])
     return e
-
-
-# Neither bench cables the DUT's own USB to the rig host; the emulator
-# imports it.
-@pytest.fixture(scope="module")
-def dut_usb():
-    pytest.skip("the DUT's own USB reaches no rig host on either bench")
 
 
 @pytest.fixture(scope="session")
