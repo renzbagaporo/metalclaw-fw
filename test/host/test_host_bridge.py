@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from test.native.host import Bridge, HostHarness, default_build
+from test.host.host import Bridge, HostHarness, default_build
 
 PROGRAM = default_build()
 pytestmark = pytest.mark.skipif(not PROGRAM.exists(), reason=f"no host harness at {PROGRAM} (just build-host)")
@@ -208,7 +208,7 @@ def test_the_w25q_answers_and_programs_over_spi(tmp_path):
     # W25Q16JV datasheet 8.2: Read JEDEC ID (9Fh) EFh 40h 15h right after the
     # opcode; Write Enable (06h), Page Program (02h), Read Status (05h) busy
     # until tPP is over, then Read Data (03h) returns what was programmed.
-    from test.native.host import spi_window
+    from test.host.host import spi_window
     path = tmp_path / "native.sock"
     harness = HostHarness(PROGRAM, path)
     bridge = Bridge(path)
@@ -248,7 +248,7 @@ def test_an_spi_target_reports_all_its_counters(tmp_path):
 def test_the_w25q_status_poll_after_a_write_enable_reads_wel(tmp_path):
     # W25Q16JV 8.2: Write Enable (06h) sets WEL and Write Disable (04h)
     # clears it; the Read Status (05h) right after either reads the change.
-    from test.native.host import spi_window
+    from test.host.host import spi_window
     path = tmp_path / "native.sock"
     harness = HostHarness(PROGRAM, path)
     bridge = Bridge(path)
@@ -358,7 +358,7 @@ def test_a_route_report_moves_a_bus_to_where_the_dut_routed_it(bridged):
 def test_a_max7219_takes_the_dut_s_spi_writes(tmp_path):
     # MAX7219 datasheet Table 2: a 16-bit word, address then data, latched
     # at CS's rise; 0Ah is intensity.
-    from test.native.host import spi_window
+    from test.host.host import spi_window
     path = tmp_path / "native.sock"
     harness = HostHarness(PROGRAM, path)
     bridge = Bridge(path)
@@ -544,7 +544,7 @@ def test_a_target_answers_16_bit_lsb_first_frames(tmp_path):
 def test_an_mcp2515_read_right_after_a_mode_change_reads_the_new_mode(tmp_path):
     # BIT MODIFY of CANCTRL's REQOP to Loopback, then READ of CANSTAT at
     # once, with no time for the model: OPMOD already reads Loopback.
-    from test.native.host import spi_window
+    from test.host.host import spi_window
     harness, bridge = _spi_pair(tmp_path, SPI0)
     try:
         harness.run("import metalclaw\nc = metalclaw.attach('mcp2515', 'can', spi=(18, 19, 16, 17))")
@@ -845,7 +845,7 @@ def test_an_empty_chip_select_window_leaves_an_sx1262_ready(tmp_path):
     # a delay: chip select falls and rises with no clock. The release
     # raises BUSY as after any window; the part lowers it, as it has no
     # command to work on.
-    from test.native.host import spi_window
+    from test.host.host import spi_window
     path = tmp_path / "native.sock"
     harness = HostHarness(PROGRAM, path)
     bridge = Bridge(path)

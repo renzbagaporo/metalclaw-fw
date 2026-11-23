@@ -42,7 +42,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from test.rig import probe_report, probe_telemetry  # noqa: E402
-from test.rig.platforms.emulator import dut_flash  # noqa: E402
+from test.rig import dut_flash  # noqa: E402
 from test.rig.platforms.hardware import dap  # noqa: E402
 from test.rig.platforms.hardware import mailbox  # noqa: E402
 from test.rig.platforms.hardware.platform import (  # noqa: E402

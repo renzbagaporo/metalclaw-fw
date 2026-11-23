@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from test.rig.platforms.hardware.repl import Repl
-from test.rig.platforms.native.host import HostProcess, host_harness_program
+from test.rig.platforms.sim.host import HostProcess, host_harness_program
 
 
 def default_build() -> Path:

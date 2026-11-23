@@ -19,7 +19,7 @@ import usb.util
 from test.rig import probe_telemetry
 from test.rig.platforms.hardware import dap
 from test.rig.platforms.hardware.dap import DapMemory
-from test.rig.platforms.emulator import dut_flash
+from test.rig import dut_flash
 from test.rig.platforms.hardware.mailbox import Mailbox, MailboxError, symbol_addresses
 from test.rig.platforms.hardware.probe import ProbeError, ProbeRs
 from test.rig.platforms.hardware.repl import Repl

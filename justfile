@@ -44,12 +44,12 @@ arm_toolchain_bin := arm_toolchain_dir / arm_toolchain_name / "bin"
 arm_toolchain_url := "https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz"
 arm_toolchain_sha256 := "62a63b981fe391a9cbad7ef51b17e49aeaa3e7b0d029b36ca1e9c3b2a9b78823"
 
-# The emulator platform: Renode's portable package, released from the fork
-# that carries the RP2040 and RP2350 models and the bench script, the two
-# boot ROMs, and probe-rs with host timeouts that stretch for emulated SWD.
-renode_commit := "ea634040120821a339a4a907214539daac24290c"
+# Renode for the sim platform and the engine tests: the package pinned in
+# test/rig/renode.toml, and the two boot ROMs.
+renode_pin := read(project_dir / "test/rig/renode.toml")
+renode_commit := replace_regex(renode_pin, '(?s).*\ncommit = "([0-9a-f]+)".*', "$1")
+renode_package_sha256 := replace_regex(renode_pin, '(?s).*\nsha256 = "([0-9a-f]+)".*', "$1")
 renode_package_url := "https://github.com/renzbagaporo/renode/releases/download/rp2-portable-" + replace_regex(renode_commit, "^(.{12}).*", "$1") + "/renode-1.17.0.linux-portable-headless.tar.gz"
-renode_package_sha256 := "3efeb15bfd4960634a76e4444ced661a7c8788d9bf5dacafbd9bce780bada173"
 renode_home := env_var_or_default("METALCLAW_RENODE_HOME", project_dir / "../.renode")
 renode_dir := env_var_or_default("METALCLAW_RENODE_DIR", renode_home / renode_commit)
 renode_roms := env_var_or_default("METALCLAW_RENODE_ROMS", renode_home / "roms")
@@ -57,9 +57,6 @@ rp2040_rom_url := "https://raw.githubusercontent.com/matgla/Renode_RP2040/5aca84
 rp2040_rom_sha256 := "3a3c4c617d83bc9b910a6fa7bfdffa11ce26ff89370271d861507be821cc49aa"
 rp2350_rom_url := "https://github.com/raspberrypi/pico-bootrom-rp2350/releases/download/A2/bootrom-combined.bin"
 rp2350_rom_sha256 := "196c503fbb17b2ad21a1f496574786af698f9376af9a5f79e5e75293c9e12191"
-probe_rs_commit := "eab9c5e0ecb0eb7875050070719cf5370ac62d32"   # v0.30.0
-probe_rs_patch := project_dir / "test/rig/platforms/emulator/probe_rs_0.30.0_emulation_timeouts.patch"
-probe_rs_emulation_dir := env_var_or_default("METALCLAW_PROBE_RS_EMULATION_DIR", project_dir / "../.probe-rs-emulation")
 
 default:
     @just --list
@@ -155,27 +152,19 @@ test-engine *ARGS: setup-rig
         METALCLAW_HARNESS_BOARD="{{board}}" METALCLAW_HARNESS_IMAGE="{{build_dir}}/rp2/{{board}}/firmware.uf2" \
         "{{rig_python}}" -m pytest test/engine {{ARGS}}
 
-# Run the cases on a platform. Extra arguments go to pytest.
+# Run the cases on a platform: `hardware` (a bench, named by its serials) or
+# `sim` (the host harness, the DUT in Renode). Extra arguments go to pytest.
 test PLATFORM="hardware" *ARGS: setup-rig
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ "{{PLATFORM}}" == native ]]; then
+    if [[ "{{PLATFORM}}" == sim ]]; then
         export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
-    fi
-    if [[ "{{PLATFORM}}" == emulator ]]; then
-        export METALCLAW_RENODE_DIR="{{renode_dir}}" METALCLAW_RENODE_ROMS="{{renode_roms}}"
-        # The board `just build` builds picks the bench.
-        export METALCLAW_HARNESS_BOARD="{{board}}"
-        export METALCLAW_PROBE_RS="${METALCLAW_PROBE_RS:-{{probe_rs_emulation_dir}}/bin/probe-rs}"
-        echo "probe-rs: $("$METALCLAW_PROBE_RS" --version | head -1), patched with $(basename "{{probe_rs_patch}}")"
     fi
     cd "{{project_dir}}" && METALCLAW_ARM_TOOLCHAIN_DIR="{{arm_toolchain_dir}}" \
         "{{rig_python}}" test/rig/run.py --platform {{PLATFORM}} {{ARGS}}
 
-# The emulator platform's tools: the boot ROMs, patched probe-rs and Renode.
-setup-emulator: setup-emulator-roms setup-emulator-probe-rs setup-renode
-
-setup-emulator-roms:
+# The boot ROMs of both chips, for Renode.
+setup-renode-roms:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{renode_roms}}"
@@ -191,28 +180,9 @@ setup-emulator-roms:
     fetch "{{rp2350_rom_url}}" "{{rp2350_rom_sha256}}"
     ls -l "{{renode_roms}}"
 
-# probe-rs 0.30.0 with three host-side timeouts made configurable; unset,
-# they keep upstream's defaults. Needs cargo.
-setup-emulator-probe-rs:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    stamp="{{probe_rs_emulation_dir}}/built-from"
-    want="{{probe_rs_commit}} $(sha256sum "{{probe_rs_patch}}" | cut -d' ' -f1)"
-    if [[ -x "{{probe_rs_emulation_dir}}/bin/probe-rs" && "$(cat "$stamp" 2>/dev/null)" == "$want" ]]; then
-        "{{probe_rs_emulation_dir}}/bin/probe-rs" --version; exit 0
-    fi
-    src="{{probe_rs_emulation_dir}}/src"
-    rm -rf "$src"
-    git init --quiet "$src"
-    git -C "$src" fetch --quiet --depth 1 https://github.com/probe-rs/probe-rs.git "{{probe_rs_commit}}"
-    git -C "$src" checkout --quiet FETCH_HEAD
-    git -C "$src" -c user.name=metalclaw -c user.email=metalclaw@localhost am --quiet "{{probe_rs_patch}}"
-    cargo install --quiet --locked --path "$src/probe-rs-tools" --bin probe-rs --root "{{probe_rs_emulation_dir}}"
-    echo "$want" > "$stamp"
-    "{{probe_rs_emulation_dir}}/bin/probe-rs" --version
-
-# Renode's portable package for the pinned commit, which bundles .NET.
-setup-renode:
+# Renode's portable package for the pinned commit, which bundles .NET, and
+# the boot ROMs.
+setup-renode: setup-renode-roms
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ -x "{{renode_dir}}/renode" ]]; then "{{renode_dir}}/renode" --version; exit 0; fi

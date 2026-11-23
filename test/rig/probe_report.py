@@ -4,7 +4,7 @@
 # and probe soaks (test/rig/probe_soak.py) write: per bench and per operation,
 # the calls, the error and retry rates, and the duration percentiles.
 #
-#   test/rig/probe_report.py 'build/emulator/*.jsonl' ~/logs/probe.jsonl
+#   test/rig/probe_report.py 'build/hardware/*.jsonl' ~/logs/probe.jsonl
 #   test/rig/probe_report.py --source soak --since 2026-11-01 probe.jsonl
 #
 # Paths may be globs, quoted so the shell leaves them alone. Lines that are
@@ -220,7 +220,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Roll up probe telemetry JSON lines per bench and operation.")
     parser.add_argument("paths", nargs="+", help="JSON-lines files or globs")
     parser.add_argument("--source", choices=("rig", "soak"), help="only sessions from the rig, or only soaks")
-    parser.add_argument("--platform", help="only this platform (hardware, emulator)")
+    parser.add_argument("--platform", help="only this platform (hardware)")
     parser.add_argument("--since", help="only sessions that started at or after this ISO time, e.g. 2026-11-01")
     args = parser.parse_args(argv)
     paths, missing = expand(args.paths)

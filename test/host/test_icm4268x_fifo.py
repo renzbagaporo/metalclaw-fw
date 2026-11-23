@@ -6,7 +6,7 @@
 
 import pytest
 
-from test.native.host import Bridge, HostHarness, default_build, spi_window
+from test.host.host import Bridge, HostHarness, default_build, spi_window
 
 PROGRAM = default_build()
 pytestmark = pytest.mark.skipif(not PROGRAM.exists(), reason=f"no host harness at {PROGRAM} (just build-host)")

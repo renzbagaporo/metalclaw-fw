@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# The native platform: the DUT emulated in Renode, its parts served by the
+# The sim platform: the DUT emulated in Renode, its parts served by the
 # host harness (core/ports/host) through the bridge (BRIDGE.md). The host
 # harness is Metalclaw's own runtime and models in a Linux process, so the
 # cases attach parts and judge them as on a bench; the emulator holds only
@@ -8,11 +8,11 @@
 # Environment:
 #   METALCLAW_DUT_IMAGE       the DUT's ELF (with example.json beside it)
 #   METALCLAW_RENODE_DIR      a Renode package with the bridge
-#   METALCLAW_RENODE_ROMS     the boot ROMs, as for the emulator platform
+#   METALCLAW_RENODE_ROMS     the boot ROMs
 #   METALCLAW_ARM_TOOLCHAIN_DIR  for objcopy
 #   METALCLAW_HOST_HARNESS    the host harness (default build/host/...)
-#   METALCLAW_NATIVE_WORK     a directory for the socket and logs
-#   METALCLAW_RENODE_INSTANCE ports per instance, as for the emulator
+#   METALCLAW_SIM_WORK        a directory for the socket and logs
+#   METALCLAW_RENODE_INSTANCE ports per instance, so several can run at once
 
 import ast
 import contextlib
@@ -41,9 +41,9 @@ from test.rig.platforms.hardware.platform import (
     require_example_image,
     soc_series,
 )
-from test.rig.platforms.emulator.bench import MASK_ROM_EXTRACTOR
+from test.rig.renode.bench import MASK_ROM_EXTRACTOR
 from test.rig.platforms.hardware.repl import Repl
-from test.rig.platforms.native.host import HostProcess, _raw_pty, host_harness_program
+from test.rig.platforms.sim.host import HostProcess, _raw_pty, host_harness_program
 
 MONITOR_PORT = 1334
 CONSOLE_PORT = 1434
@@ -60,7 +60,7 @@ REPL_MIN_S = 20.0
 
 # The DUT's pins are the harness's: the bridge names every line by the DUT
 # pin it is on.
-NATIVE_FIXTURE = {
+SIM_FIXTURE = {
     **FIXTURE,
     # The harness's side of the DUT's console: its TX is the DUT's RX (GP1).
     "uart": {"tx": 1, "rx": 0},
@@ -201,7 +201,7 @@ def flat_image(image: Path, work: Path) -> Path:
     return out
 
 
-class NativeBench:
+class SimBench:
     def __init__(self, renode_dir: Path, roms: Path, image: Path, work: Path, number: int):
         self.renode_dir = renode_dir
         self.roms = roms
@@ -211,12 +211,12 @@ class NativeBench:
         self.chip = soc_series(image)
         self.monitor_port = MONITOR_PORT + number
         self.console_port = CONSOLE_PORT + number
-        self.socket_path = work / "native.sock"
+        self.socket_path = work / "sim.sock"
         # A Unix socket's path is at most 107 bytes; a deep work directory
         # gets one under the runtime directory instead.
         if len(str(self.socket_path)) > 100:
             runtime = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
-            self.socket_path = runtime / f"metalclaw-native-{os.getpid()}-{number}.sock"
+            self.socket_path = runtime / f"metalclaw-sim-{os.getpid()}-{number}.sock"
         self.host = None
         self.renode = None
         self.monitor = None
@@ -225,7 +225,7 @@ class NativeBench:
 
     def start(self) -> None:
         if self.chip not in SCRIPTS:
-            pytest.skip(f"native mode has no DUT script for {self.chip!r} yet")
+            pytest.skip(f"the sim platform has no DUT script for {self.chip!r} yet")
         self.work.mkdir(parents=True, exist_ok=True)
         flash = self.flash = flat_image(self.image, self.work)
         # The RP2040's boot ROM comes as an ELF; the script loads the 16 KiB
@@ -290,11 +290,11 @@ class NativeBench:
             self.host.close()
 
 
-class NativeHarness:
+class SimHarness:
     """The host harness, as the cases use a harness: its REPL, and its
     clock, which is the DUT's virtual time."""
 
-    def __init__(self, bench: NativeBench):
+    def __init__(self, bench: SimBench):
         self.bench = bench
         self._held = None
 
@@ -307,7 +307,7 @@ class NativeHarness:
         return self._held.run(code, max(timeout * REPL_STRETCH, REPL_MIN_S))
 
     def board(self) -> str:
-        return "native"
+        return "sim"
 
     def board_info(self) -> dict:
         return ast.literal_eval(self.run("import metalclaw\nprint(metalclaw.board())").strip())
@@ -360,7 +360,7 @@ class MonitorMemory:
     BYTE = re.compile(r"0x([0-9A-Fa-f]{2})\b")
     CHUNK = 1024
 
-    def __init__(self, bench: "NativeBench"):
+    def __init__(self, bench: "SimBench"):
         self.bench = bench
 
     # Peripheral registers (from 0x40000000 on: the RP2040's and RP2350's
@@ -420,10 +420,10 @@ class MonitorMemory:
         return contextlib.nullcontext(self)
 
 
-class NativeExample:
+class SimExample:
     ASLEEP_MAX_S = 10.0
 
-    def __init__(self, bench: NativeBench):
+    def __init__(self, bench: SimBench):
         self.bench = bench
         self.image = bench.image
         self.metadata = example_metadata(bench.image)
@@ -442,21 +442,21 @@ class NativeExample:
         self.bench.halt()
 
     def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
-        pytest.skip("native mode has no RUN pin to press yet")
+        pytest.skip("the sim platform has no RUN pin to press yet")
 
 
 # Cases of the harness's own USB functions, which the host harness does not
-# present: the native platform reaches the DUT through the emulator.
-NATIVE_SKIPS = {
-    "devices/swd_probe/": "the SWD probe is the harness's USB debug probe; native mode reaches the DUT's memory "
+# present: the sim platform reaches the DUT through Renode.
+SIM_SKIPS = {
+    "devices/swd_probe/": "the SWD probe is the harness's USB debug probe; the sim platform reaches the DUT's memory "
                           "through Renode's monitor instead",
     "devices/console_bridge/": "its cases are of the harness's USB serial function (interface numbers, line coding, "
-                               "DTR); native mode serves it as a terminal, which reads the DUT's console and no more",
+                               "DTR); the sim platform serves it as a terminal, which reads the DUT's console and no more",
 }
 
 
 def pytest_runtest_setup(item):
-    for prefix, reason in NATIVE_SKIPS.items():
+    for prefix, reason in SIM_SKIPS.items():
         if item.nodeid.startswith(prefix):
             pytest.skip(reason)
 
@@ -472,8 +472,8 @@ def emulation() -> Emulation:
 @pytest.fixture(scope="session")
 def bench(pytestconfig):
     image = dut_image()
-    work = Path(os.environ.get("METALCLAW_NATIVE_WORK", ROOT / "build/native")) / str(instance())
-    b = NativeBench(Path(_required("METALCLAW_RENODE_DIR")), Path(_required("METALCLAW_RENODE_ROMS")),
+    work = Path(os.environ.get("METALCLAW_SIM_WORK", ROOT / "build/sim")) / str(instance())
+    b = SimBench(Path(_required("METALCLAW_RENODE_DIR")), Path(_required("METALCLAW_RENODE_ROMS")),
                     image, work, instance())
     try:
         b.start()
@@ -483,15 +483,15 @@ def bench(pytestconfig):
 
 
 @pytest.fixture(scope="session")
-def harness(bench) -> NativeHarness:
-    h = NativeHarness(bench)
+def harness(bench) -> SimHarness:
+    h = SimHarness(bench)
     yield h
     h.close()
 
 
 @pytest.fixture(scope="session")
-def fixture(harness: NativeHarness) -> dict:
-    return fixture_for(NATIVE_FIXTURE, harness.board_info())
+def fixture(harness: SimHarness) -> dict:
+    return fixture_for(SIM_FIXTURE, harness.board_info())
 
 
 @pytest.fixture(scope="session")
@@ -505,9 +505,9 @@ def probe():
 BOOT_RUN_S = 1.0
 
 
-# Examples native mode cannot judge, by target and chip (None for both),
+# Examples the sim platform cannot judge, by target and chip (None for both),
 # and why.
-NATIVE_EXAMPLE_LIMITS = {
+SIM_EXAMPLE_LIMITS = {
     ("pio_hub75", None): "emulator speed: the PIO's pin changes on the panel's 14 pins run about 800 times "
                          "slower than real time, so one run takes about 2 h (Pico) to 3 h (Pico 2), past the "
                          "sweep's cap; it passes at a 20000 s cap",
@@ -526,13 +526,13 @@ NATIVE_EXAMPLE_LIMITS = {
 
 
 @pytest.fixture(scope="session")
-def example(bench: NativeBench, harness: NativeHarness) -> NativeExample:
+def example(bench: SimBench, harness: SimHarness) -> SimExample:
     require_example_image(bench.image)
     metadata = example_metadata(bench.image) or {}
-    for (target, chip), why in NATIVE_EXAMPLE_LIMITS.items():
+    for (target, chip), why in SIM_EXAMPLE_LIMITS.items():
         if metadata.get("target") == target and chip in (None, metadata.get("chip")):
-            pytest.skip(f"{target} natively: {why}")
-    e = NativeExample(bench)
+            pytest.skip(f"{target} on the sim platform: {why}")
+    e = SimExample(bench)
     e.restart()
     harness.sleep(BOOT_RUN_S)
     return e
@@ -540,15 +540,15 @@ def example(bench: NativeBench, harness: NativeHarness) -> NativeExample:
 
 @pytest.fixture(scope="module")
 def dut_usb():
-    pytest.skip("native mode does not bridge the DUT's own USB")
+    pytest.skip("the sim platform does not bridge the DUT's own USB")
 
 
-class NativeDut(Dut):
+class SimDut(Dut):
     """The rig's own DUT image, answering on its RAM mailbox, which the rig
     reaches through the monitor instead of a probe. The image is in the
     DUT's flash from the bench's start; a reset is the machine's."""
 
-    def __init__(self, bench: NativeBench, harness: NativeHarness, toolchain_dir: str):
+    def __init__(self, bench: SimBench, harness: SimHarness, toolchain_dir: str):
         self.bench = bench
         self.harness = harness
         self.image = bench.image
@@ -576,14 +576,14 @@ class NativeDut(Dut):
         pass
 
     def reset_by_run(self, count: int, low_s: float, gap_s: float) -> None:
-        pytest.skip("native mode has no RUN pin to press yet")
+        pytest.skip("the sim platform has no RUN pin to press yet")
 
 
 @pytest.fixture(scope="session")
-def dut(bench: NativeBench, harness: NativeHarness, fixture: dict) -> NativeDut:
+def dut(bench: SimBench, harness: SimHarness, fixture: dict) -> SimDut:
     if example_metadata(bench.image) is not None:
         pytest.skip("the DUT image is a pico-examples program, not a rig image")
-    d = NativeDut(bench, harness, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
+    d = SimDut(bench, harness, _required("METALCLAW_ARM_TOOLCHAIN_DIR"))
     d.reset()
     d.ping()
     return d

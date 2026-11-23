@@ -1,14 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-# The bench in Renode: the harness, the DUT and their wires in one emulation,
-# with the harness's USB exported over USB/IP and imported into this host's
-# kernel, so the host sees the same USB device the bench does.
+# The harness alone in Renode, for its engines: its firmware on the emulated
+# chip, its USB exported over USB/IP and imported into this host's kernel, so
+# the host sees the same USB device a bench harness is, and a bridge on its
+# GPIO bank to a stimulus in this process (test/engine), which drives its
+# pins as a DUT would.
 
 import atexit
 import contextlib
 import fcntl
 import json
 import os
-import re
 import shutil
 import signal
 import socket
@@ -19,60 +20,36 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from test.pico_examples.emulation import DEFAULT, Emulation
-
-from . import dut_flash, storage, uf2
+from . import storage, uf2
 
 MASK_ROM_EXTRACTOR = "scripts/multi-node/extract_rp2040_mask_rom.py"
 
 
-# What differs between benches: the bench script in the Renode package, the
-# chip on each side, and the DUT's machine in that script.
+# By the harness's MicroPython board: the harness-only script in the Renode
+# package, the chip, and the USB serial the emulated harness reports, with
+# the script variable that sets it where the script has one.
 @dataclass(frozen=True)
-class Layout:
+class HarnessLayout:
     script: str
-    harness_chip: str
-    dut_chip: str
-    dut_machine: str
-    # The USB serial the emulated harness reports.
+    chip: str
     serial: str
-    # The bench script variable that sets the harness's chip ID, and with it
-    # its USB serial, when the script has one.
     chip_id_variable: str | None = None
-    # The prefix of the DUT's peripherals' names in `dut_machine`.
-    dut_prefix: str = "d_"
 
 
-# By the harness's MicroPython board. Both chips run in one Renode machine,
-# "bench": the harness's and the DUT's peripherals on one clock, their pins
-# joined by wires with no latency, each chip's cores and bus registrations
-# in a cluster of its own, the DUT's peripherals named with its prefix.
 LAYOUTS = {
-    # Stacked Pico bench: an RP2040 Pico harness driving a Pico 2 DUT. The
-    # RP2040 reports the emulated W25Q's default unique ID.
-    "rpi_pi_pico": Layout("scripts/multi-node/metalclaw_fixture_one_machine.resc", "rp2040", "rp2350", "bench",
-                          "0123456789ABCDEF", dut_prefix="d_"),
-    # The MetalClaw Pico RP2 carrier: an RP2354B harness driving a Pico DUT.
-    # The RP2350 reports its OTP chip ID, which the bench script sets.
-    "metalclaw_pico_rp2": Layout("scripts/multi-node/metalclaw_carrier_one_machine.resc", "rp2350", "rp2040",
-                                 "bench", "00000000C0FFEE01", "harness_chip_id", dut_prefix="d_"),
+    "rpi_pi_pico": HarnessLayout("scripts/multi-node/metalclaw_harness_native.resc", "rp2040", "0123456789ABCDEF"),
+    "metalclaw_pico_rp2": HarnessLayout("scripts/multi-node/metalclaw_harness_rp2_native.resc", "rp2350",
+                                        "00000000C0FFEE01", "harness_chip_id"),
 }
 
 # Each chip's boot ROM, by its file in the ROM directory. The RP2040's is the
 # B2 ROM's ELF, from which the bench script's extractor takes the mask ROM.
 ROMS = {"rp2040": "b2.elf", "rp2350": "bootrom-combined.bin"}
 # Instance N of the bench listens on these ports plus N, so several benches
-# can run on one host, each with its own harness serial.
+# can run on one host.
 MONITOR_PORT = 1234
 USBIP_PORT = 3240
 USBIP_BUSID = "1-0"
-# The DUT's own USB device, on a USB/IP server of its own at DUT_USBIP_PORT
-# plus the instance: Renode's server takes one connection at a time, and
-# the harness's import holds its own server's for the whole session.
-DUT_USBIP_PORT = 3250
-DUT_USBIP_BUSID = "1-1"
-INSTANCE_ENV = "METALCLAW_RENODE_INSTANCE"
-MAX_INSTANCES = 8
 # Held while a bench attaches, checks or detaches its import, and records which
 # bench's import took each vhci port: the kernel's table shows every import
 # alike, and the next attach takes the lowest free port, so another bench's
@@ -86,28 +63,6 @@ REPLUG_AFTER_S = 120.0
 
 class BenchError(RuntimeError):
     pass
-
-
-def instance() -> int:
-    value = os.environ.get(INSTANCE_ENV, "").strip() or "0"
-    try:
-        number = int(value)
-    except ValueError:
-        number = -1
-    if not 0 <= number < MAX_INSTANCES:
-        raise BenchError(f"invalid {INSTANCE_ENV} {value!r}; expected 0 to {MAX_INSTANCES - 1}")
-    return number
-
-
-# Instance 0's harness reports the layout's serial; another instance's needs a
-# bench script that can set the chip ID.
-def harness_serial(layout: Layout, number: int) -> str:
-    if number == 0:
-        return layout.serial
-    if layout.chip_id_variable is None:
-        raise BenchError(f"{layout.script} gives every harness the serial {layout.serial}, "
-                         f"so only {INSTANCE_ENV}=0 can run on it")
-    return f"{int(layout.serial, 16) + number:016X}"
 
 
 # The vhci ports' owners, by port, as each owner's USB/IP target; changes are
@@ -189,18 +144,6 @@ def _device_attribute(device: str, name: str) -> str | None:
 def _port_serial(port: int) -> str | None:
     device = _port_device(port)
     return None if device is None else _device_attribute(device, "serial")
-
-
-# The VID:PID of the device enumerated on a vhci port, if one is.
-def _port_identity(port: int) -> tuple[int, int] | None:
-    device = _port_device(port)
-    if device is None:
-        return None
-    vid, pid = _device_attribute(device, "idVendor"), _device_attribute(device, "idProduct")
-    try:
-        return int(vid, 16), int(pid, 16)
-    except (TypeError, ValueError):
-        return None
 
 
 # Enumerated means the kernel lists the harness and its REPL tty is up. A
@@ -321,161 +264,24 @@ class Cable(threading.Thread):
             self._detach(self._own_ports(owners), owners)
 
 
-DEV = Path("/dev")
-
-
-# What a USB device presents to this host once its drivers bound, from
-# sysfs: its CDC ACM ttys as (interface string, device node) in interface
-# order, its hidraw nodes, and its endpoints but EP0 as bEndpointAddress in
-# two hex digits.
-@dataclass(frozen=True)
-class UsbFunctions:
-    device: str
-    vid: int
-    pid: int
-    ttys: tuple[tuple[str, str], ...] = ()
-    hidraw: tuple[str, ...] = ()
-    endpoints: tuple[str, ...] = ()
-
-
-def _interface_number(interface: Path) -> int:
-    try:
-        return int((interface / "bInterfaceNumber").read_text().strip(), 16)
-    except (OSError, ValueError):
-        return -1
-
-
-def usb_functions(device: str) -> UsbFunctions | None:
-    try:
-        vid = int(_device_attribute(device, "idVendor"), 16)
-        pid = int(_device_attribute(device, "idProduct"), 16)
-    except (TypeError, ValueError):
-        return None
-    ttys, hidraw, endpoints = [], [], set()
-    for interface in sorted(USB_DEVICES.glob(f"{device}:*"), key=_interface_number):
-        label = _device_attribute(interface.name, "interface") or ""
-        ttys += [(label, str(DEV / tty.name)) for tty in sorted(interface.glob("tty/tty*"))]
-        hidraw += [str(DEV / node.name) for node in sorted(interface.glob("*/hidraw/hidraw*"))]
-        endpoints |= {ep.name[3:] for ep in interface.glob("ep_*")}
-    return UsbFunctions(device, vid, pid, tuple(ttys), tuple(hidraw), tuple(sorted(endpoints)))
-
-
-class DutCable(Cable):
-    # The DUT's own USB, which the bench exports as a second device on the
-    # harness's USB/IP server, as its USB connector would reach this host:
-    # the program's device, known by its VID:PID, since its serial comes
-    # from the DUT's flash.
-    def __init__(self, busid: str, port: int, vid: int, pid: int, log):
-        super().__init__(busid, port, f"{vid:04x}:{pid:04x}", log)
-        self.identity = (vid, pid)
-
-    def _carries(self, port: int) -> bool:
-        return _port_identity(port) in (None, self.identity)
-
-    def _enumerated(self, ports: list[int]) -> bool:
-        return any(_port_identity(port) == self.identity for port in ports)
-
-    # The program's device on this cable's import, once it enumerated.
-    def functions(self) -> UsbFunctions | None:
-        with _port_owners() as owners:
-            ports = self._own_ports(owners)
-        for port in ports:
-            device = _port_device(port)
-            if device is not None and _port_identity(port) == self.identity:
-                return usb_functions(device)
-        return None
-
-
-# The variables a bench script takes, with their defaults: its `$name?=value`
-# lines.
-def script_variables(text: str) -> dict[str, str]:
-    return dict(re.findall(r"^\$(\w+)\?=(.*?)\s*$", text, re.M))
-
-
-@dataclass(frozen=True)
-class Settings:
-    # (name, value) set before the bench script is included.
-    variables: tuple[tuple[str, str], ...] = ()
-    # What the program needs that this bench script does not take.
-    unmet: tuple[str, ...] = ()
-
-
-# What a program's Emulation (test/pico_examples/emulation.py) sets on the
-# bench `script`: its I2C0 wiring, the byte-level bus or pin-level wires
-# (`<script>_i2c0_{bus,wires}.resc`), since Renode's I2C controllers talk to
-# a byte-level bus unless their pads carry the bus. A variable the script
-# does not declare, or a wiring script not in the package, is left out and
-# named in `unmet`. `quantum` (METALCLAW_RENODE_QUANTUM) sets the script's
-# synchronisation quantum.
-def bench_settings(emulation: Emulation, script: Path, script_text: str, quantum: str | None = None) -> Settings:
-    declared = script_variables(script_text)
-    variables, unmet = [], []
-    if quantum:
-        variables.append(("quantum", f'"{quantum}"'))
-    wiring = emulation.i2c0_wiring
-    if wiring is not None:
-        if wiring not in ("bus", "wires"):
-            raise BenchError(f"invalid I2C0 wiring {wiring!r}; expected bus or wires")
-        wiring_script = script.with_name(f"{script.stem}_i2c0_{wiring}.resc")
-        if "i2c0_wiring" in declared and wiring_script.is_file():
-            variables.append(("i2c0_wiring", f"@{wiring_script}"))
-        elif wiring != "bus":
-            # The scripts' own I2C0 is the byte-level bus.
-            unmet.append(f"$i2c0_wiring {wiring} ({wiring_script.name})")
-    return Settings(tuple(variables), tuple(unmet))
-
-
-# The monitor commands that bring the bench up. The DUT image goes straight
-# into the DUT's flash, as a probe download would leave it: downloading it
-# through the emulated probe takes 20-30 minutes of host time.
-def monitor_commands(script: Path, harness_rom: Path, harness_flash: Path, dut_rom: Path, dut_flash_bin: Path,
-                     dut_machine: str, settings: Settings | None = None, usbip_port: int | None = None,
-                     chip_id: tuple[str, str] | None = None, dut_usbip_port: int | None = None,
-                     dut_prefix: str = "") -> list[str]:
-    settings = settings or Settings()
-    commands = [
-        f"$harness_rom=@{harness_rom}",
-        f"$harness_flash=@{harness_flash}",
-        f"$dut_rom=@{dut_rom}",
-        f"$usbip_port={USBIP_PORT if usbip_port is None else usbip_port}",
-    ]
-    if dut_usbip_port is not None:
-        commands.append(f"$dut_usbip_port={dut_usbip_port}")
-    commands += [f"${name}={value}" for name, value in settings.variables]
-    if chip_id is not None:
-        variable, serial = chip_id
-        commands.append(f"${variable}=0x{serial}")
-    # Through the DUT's XIP window, as the bench script loads the harness's:
-    # the W25Q takes the image at flash offset 0, which the XIP window's reset
-    # address translation puts at 0x10000000.
-    return commands + [
-        f"include @{script}",
-        f'mach set "{dut_machine}"',
-        f"{dut_prefix}xipMemory LoadBinary @{dut_flash_bin}",
-        "start",
-    ]
-
-
 class Bench:
-    def __init__(self, renode_dir: Path, layout: Layout, harness_uf2: Path, roms: Path, dut_image: Path,
-                 work: Path, serial: str, instance: int = 0, emulation: Emulation = DEFAULT):
+    """The harness of `layout` in Renode, its GPIO bank bridged at `bridge`
+    (a stimulus's socket); start() returns once its USB is imported."""
+
+    def __init__(self, renode_dir: Path, layout: HarnessLayout, harness_uf2: Path, roms: Path, work: Path,
+                 bridge: Path, instance: int = 0):
         self.renode_dir = renode_dir
-        self.emulation = emulation
-        self.settings = Settings()
         self.layout = layout
-        self.serial = serial
+        self.serial = layout.serial
         self.instance = instance
         self.monitor_port = None
         self.harness_uf2 = harness_uf2
         self.roms = roms
-        self.dut_image = dut_image
         self.work = work
+        self.bridge = bridge
         self.usbip_port = None
-        # The DUT's USB/IP server, where this package's bench script has one.
-        self.dut_usbip_port = None
         self.process = None
         self.cable = None
-        self.dut_cable = None
         self.log = None
         self._handlers = {}
         # Set once stop() has dealt with the Renode in `process`.
@@ -504,94 +310,41 @@ class Bench:
     def _start(self) -> None:
         layout = self.layout
         for path in (self.renode_dir / "renode", self.renode_dir / layout.script, self.harness_uf2,
-                     self.roms / ROMS[layout.harness_chip], self.roms / ROMS[layout.dut_chip], self.dut_image):
+                     self.roms / ROMS[layout.chip]):
             if not path.is_file():
                 raise BenchError(f"missing {path}")
-        script = self.renode_dir / layout.script
-        script_text = script.read_text()
         # A Renode left from an earlier run would answer on these ports, and
-        # the run would drive its bench instead of this one.
+        # the run would drive its harness instead of this one.
         monitor_port, usbip_port = MONITOR_PORT + self.instance, USBIP_PORT + self.instance
-        dut_usbip_port = DUT_USBIP_PORT + self.instance if "dut_usbip_port" in script_variables(script_text) else None
-        for port in (monitor_port, usbip_port, dut_usbip_port):
-            if port is None:
-                continue
+        for port in (monitor_port, usbip_port):
             if _listening(port):
-                raise BenchError(f"port {port} is already in use; another Renode is running "
-                                 f"(another {INSTANCE_ENV} runs on its own ports)")
+                raise BenchError(f"port {port} is already in use; another Renode is running")
         try:
-            elf = self.dut_image.read_bytes()
-            # A pico-examples program may run from SRAM, leaving flash erased.
-            if (self.dut_image.parent / "example.json").is_file():
-                contents = dut_flash.flash_contents(elf, allow_empty=True)
-            else:
-                contents = dut_flash.flash_contents(elf)
-        except dut_flash.DutFlashError as error:
-            raise BenchError(f"{self.dut_image}: {error}") from error
-        try:
-            harness_flash = storage.with_storage(uf2.flash_contents(self.harness_uf2.read_bytes(), layout.harness_chip))
+            flash = storage.with_storage(uf2.flash_contents(self.harness_uf2.read_bytes(), layout.chip))
         except (uf2.Uf2Error, storage.StorageError) as error:
             raise BenchError(f"{self.harness_uf2}: {error}") from error
         self.work.mkdir(parents=True, exist_ok=True)
-        flash_bin = self.work / "dut_flash.bin"
-        flash_bin.write_bytes(contents)
         payload = self.work / "harness_flash.bin"
-        payload.write_bytes(harness_flash)
-        harness_rom = self._rom(layout.harness_chip, "harness_rom.bin")
-        dut_rom = self._rom(layout.dut_chip, "dut_rom.bin")
-        self.settings = bench_settings(self.emulation, script, script_text,
-                                       os.environ.get("METALCLAW_RENODE_QUANTUM"))
+        payload.write_bytes(flash)
+        rom = self._rom(layout.chip, "harness_rom.bin")
+        commands = [f"$harness_rom=@{rom}", f"$harness_flash=@{payload}", f"$usbip_port={usbip_port}"]
+        if layout.chip_id_variable is not None:
+            commands.append(f"${layout.chip_id_variable}=0x{layout.serial}")
+        commands += [f"include @{self.renode_dir / layout.script}", "start"]
         self.log = (self.work / "renode.log").open("w")
-        self._note_settings()
-        chip_id = None if layout.chip_id_variable is None else (layout.chip_id_variable, self.serial)
-        commands = monitor_commands(script, harness_rom, payload, dut_rom, flash_bin, layout.dut_machine,
-                                    self.settings, usbip_port, chip_id, dut_usbip_port, layout.dut_prefix)
-        argv = renode_argv(self.renode_dir / "renode", monitor_port, commands)
         self._hold_exits()
-        self.process = subprocess.Popen(argv, cwd=self.renode_dir, stdout=self.log, stderr=subprocess.STDOUT,
-                                        start_new_session=True)
+        env = dict(os.environ, METALCLAW_BRIDGE=str(self.bridge))
+        self.process = subprocess.Popen(renode_argv(self.renode_dir / "renode", monitor_port, commands),
+                                        cwd=self.renode_dir, stdout=self.log, stderr=subprocess.STDOUT,
+                                        start_new_session=True, env=env)
         self._ended = False
         self.monitor_port = monitor_port
         self.usbip_port = usbip_port
-        self.dut_usbip_port = dut_usbip_port
         _wait_port(usbip_port, STARTUP_TIMEOUT_S)
         self.cable = Cable(USBIP_BUSID, usbip_port, self.serial, self.log)
         self.cable.start()
         if not self.cable.imported.wait(STARTUP_TIMEOUT_S):
             raise BenchError(f"the harness's USB/IP bus {USBIP_BUSID} was never imported")
-
-    def _note_settings(self) -> None:
-        s = self.settings
-        if s.variables:
-            self.log.write("rig: bench variables " + " ".join(f"${n}={v}" for n, v in s.variables) + "\n")
-        if s.unmet:
-            self.log.write(f"rig: {self.layout.script} does not take " + ", ".join(s.unmet) + "\n")
-        self.log.flush()
-
-    # What the bench lacks for the DUT's own USB, or None: a bench script
-    # without $dut_usbip_port exports no USB/IP server for it.
-    def dut_usb_unmet(self) -> str | None:
-        if self.process is not None and self.dut_usbip_port is None:
-            return f"$dut_usbip_port, which {self.layout.script} in this Renode package does not take"
-        return None
-
-    # The DUT's own USB, imported into this host: only while the emulation
-    # runs, and once the program has its device up.
-    def import_dut_usb(self, vid: int, pid: int) -> DutCable:
-        if self.process is None or self.usbip_port is None:
-            raise BenchError("the bench is not running")
-        if self.dut_usbip_port is None:
-            raise BenchError(f"the DUT's USB needs {self.dut_usb_unmet()}")
-        if self.dut_cable is not None:
-            raise BenchError("the DUT's USB is already imported")
-        self.dut_cable = DutCable(DUT_USBIP_BUSID, self.dut_usbip_port, vid, pid, self.log)
-        self.dut_cable.start()
-        return self.dut_cable
-
-    def release_dut_usb(self) -> None:
-        cable, self.dut_cable = self.dut_cable, None
-        if cable is not None:
-            cable.stop()
 
     # Until stop(), every way out of the session stops the bench: an
     # interpreter exit through atexit, SIGTERM and SIGHUP as a KeyboardInterrupt
@@ -627,17 +380,14 @@ class Bench:
             self._release_exits()
 
     def _stop_cables(self) -> None:
-        cables = [c for c in (self.dut_cable, self.cable) if c is not None]
-        self.dut_cable = self.cable = None
-        failed = None
-        for cable in cables:
-            try:
-                cable.stop()
-            except Exception as error:
-                self._note(f"rig: could not release {cable.target}: {error}")
-                failed = failed or error
-        if failed is not None:
-            raise failed
+        cable, self.cable = self.cable, None
+        if cable is None:
+            return
+        try:
+            cable.stop()
+        except Exception as error:
+            self._note(f"rig: could not release {cable.target}: {error}")
+            raise
 
     def _note(self, line: str) -> None:
         if self.log is not None:
