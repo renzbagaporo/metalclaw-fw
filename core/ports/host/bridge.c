@@ -8,6 +8,7 @@
 #include <inttypes.h>
 #include <poll.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -116,6 +117,26 @@ static void add_action(uint64_t t_ns, uint8_t kind, uint8_t pin, uint8_t value) 
         actions_dropped++;
     }
     mclw_hal_critical_exit(state);
+}
+
+// METALCLAW_HOST_IDLE_LOW: comma-separated DUT pins, as a mask.
+static uint32_t idle_low_lines(void) {
+    const char *list = getenv("METALCLAW_HOST_IDLE_LOW");
+    uint32_t mask = 0;
+
+    while (list != NULL && *list != '\0') {
+        char *end;
+        unsigned long pin = strtoul(list, &end, 10);
+
+        if (end == list) {
+            break;
+        }
+        if (pin < DUT_LINES) {
+            mask |= 1u << pin;
+        }
+        list = *end == ',' ? end + 1 : end;
+    }
+    return mask;
 }
 
 void mclw_host_event_gpio(uint8_t pin, uint8_t state) {
@@ -474,12 +495,17 @@ static size_t handle(const char *text, size_t len) {
     // The host harness models a board with line pull-ups on the Pico's
     // headers, like metalclaw_pico_rp2 (METALCLAW_LINE_PULLUPS,
     // variant/mpconfigvariant.h): a line nothing drives reads high. The
-    // pulls go with the first reply after the hello's.
+    // lines METALCLAW_HOST_IDLE_LOW names are pulled down instead, as that
+    // fixture's rig holds a line low that an absent part would show as
+    // active; a part that drives the line wins over either pull. The pulls
+    // go with the first reply after the hello's.
     if (pulls_due && !json_is(op, "hello")) {
+        uint32_t low = idle_low_lines();
+
         pulls_due = false;
         for (uint8_t pin = 0; pin < DUT_LINES; pin++) {
             if ((ONBOARD_LINES & (1u << pin)) == 0u) {
-                add_action(mclw_host_event_ns(), ACTION_PULL, pin, 1u);
+                add_action(mclw_host_event_ns(), ACTION_PULL, pin, (low & (1u << pin)) != 0u ? 0u : 1u);
             }
         }
     }

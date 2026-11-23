@@ -65,7 +65,10 @@ SIM_FIXTURE = {
     "uart": {"tx": 1, "rx": 0},
     "dut_pins": {p: (p,) for p in range(30)},
     "analog_pins": (),
-    "idle": {},
+    # As the pico-rp2 fixture's: the sx126x's BUSY, which reads busy while
+    # no radio drives it. The host harness pulls it low from the start
+    # (SimBench), and a radio attached on it drives it.
+    "idle": {10: 0},
 }
 
 
@@ -230,7 +233,8 @@ class SimBench:
         else:
             shutil.copyfile(self.roms / ROMS[self.chip], rom)
         self.host = HostProcess(host_harness_program(), self.socket_path, log=self.work / "host.log",
-                                usb_dir=self.work / "usb")
+                                usb_dir=self.work / "usb",
+                                idle_low=[p for p, level in SIM_FIXTURE["idle"].items() if level == 0])
         commands = [
             f"$dut_rom=@{rom}",
             f"$console_port={self.console_port}",
