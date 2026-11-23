@@ -457,7 +457,7 @@ their difference, and pytest's exit status. The line goes to the file
 `--junitxml` report, else nowhere; the terminal summary says which:
 
 ```text
-probe: 3 probe-rs runs, 0 failed; 1514 DAP accesses, 1 failed (usb_timeout 1), 1 retried; probe counted transfers +41230, errors +0, short_replies +0; logged to build/rig/probe_telemetry.jsonl
+probe: 3 probe-rs runs, 0 failed; 1514 DAP accesses, 1 failed (usb_timeout 1), 1 retried; probe counted transfers +41230, errors +0, short_replies +0; logged to build/probe/probe_telemetry.jsonl
 ```
 
 
@@ -470,8 +470,8 @@ own counters summed over the sessions that read them. `--source rig|soak`,
 `--platform` and `--since <ISO time>` narrow it.
 
 ```text
-$ test/rig/probe_report.py 'build/rig/*.jsonl'
-hardware E6612483CB313225 fixture1_pico [rig]: 2 sessions, 2026-11-15 09:46 .. 2026-11-15 10:46 UTC, 1.9min in all
+$ test/rig/probe_report.py 'build/probe/*.jsonl'
+hardware 0123456789ABCDEF rpi_pi_pico [rig]: 2 sessions, 2026-01-01 00:00 .. 2026-01-01 01:00 UTC, 1.9min in all
   layer     operation  calls  errors  error%  retries  retry%  recovered      p50      p95      p99      max  errors by kind
   dap       connect     3000       0  0.000%        0  0.000%          0    2.0ms    2.9ms    3.4ms    4.5ms
   dap       read        3002       2  0.067%        2  0.067%          2    4.5ms    6.9ms    8.2ms    1.00s  usb_timeout 2
