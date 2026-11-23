@@ -14,10 +14,8 @@ backlight, P4-P7 DB4-DB7, DB0-DB3 open.
 
 ## Datasheets
 
-HD44780U (LCD-II), ADE-207-272(Z) '99.9 Rev 0.0 (`HD44780U_ADE-207-272.pdf`),
-and TI PCF8574 SCPS068K, revised September 2024 (`pcf8574_scps068k.pdf`).
-NXP's PCF8574 data sheet could not be downloaded (its site refused the
-request); TI's describes the same part. Page numbers below are the
+HD44780U (LCD-II), ADE-207-272(Z) '99.9 Rev 0.0,
+and TI PCF8574 SCPS068K (revised September 2024). Page numbers below are the
 HD44780U's; section numbers the PCF8574's.
 
 ## Bindings

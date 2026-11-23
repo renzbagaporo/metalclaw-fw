@@ -24,7 +24,7 @@ model never sees an interrupt.
 | 0 | `uart` | `uart` | yes | a UART, from the tuple `(tx, rx)` |
 
 The binding advertises the datasheet's default port setting, 9600 baud 8N1.
-On fixture 1 the crossed pair is GP0/GP1:
+With the default Pico harness wiring, the crossed pair is GP0/GP1:
 
 ```python
 import metalclaw

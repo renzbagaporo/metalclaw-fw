@@ -10,7 +10,7 @@
 };
 
 &pinctrl {
-	spi0_fixture1: spi0_fixture1 {
+	spi0_harness: spi0_harness {
 		group1 {
 			pinmux = <SPI0_SCK_P18>, <SPI0_TX_P19>;
 		};
@@ -28,7 +28,7 @@
  */
 &spi0 {
 	status = "okay";
-	pinctrl-0 = <&spi0_fixture1>;
+	pinctrl-0 = <&spi0_harness>;
 	pinctrl-names = "default";
 	cs-gpios = <&gpio0 17 GPIO_ACTIVE_LOW>;
 

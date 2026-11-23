@@ -7,10 +7,9 @@ finds it on the other side of the SWD pins, and a user names it in `attach()`.
 Attaching it claims the SWD wire and adds a vendor bulk interface to the
 harness's USB device; a host debugger then drives the DUT through it.
 
-The package is two files. `dap.c` is the portable CMSIS-DAP command processor,
-ported from the old repository's `src/probe/`; it speaks only
-`metalclaw/hal/swd.h`. `swd_probe.c` is the model: descriptors, properties and
-the ops the runtime calls.
+The package is two files. `dap.c` is the portable CMSIS-DAP command processor;
+it speaks only `metalclaw/hal/swd.h`. `swd_probe.c` is the model: descriptors,
+properties and the ops the runtime calls.
 
 ## Bindings
 
@@ -23,7 +22,8 @@ the ops the runtime calls.
 descriptor the model carries. probe-rs recognises a v2 probe by that interface
 string, so it must not change.
 
-On fixture 1 that is SWCLK on GP2, SWDIO on GP3 and the DUT's RUN line on GP28:
+With the default Pico harness wiring, SWCLK is on GP2, SWDIO on GP3 and the
+DUT's RUN line on GP28:
 
 ```python
 import metalclaw
@@ -58,9 +58,9 @@ There are no regions and no faults.
 
 ## What a host sees
 
-The harness enumerates as `2FE3:0204` with the RP2040's unique id as its USB
-serial, so the probe's identity is `2fe3:0204:<serial>` — on this bench
-`2fe3:0204:E6612483CB313225`.
+The harness enumerates as `2FE3:0204` with the RP2040 flash unique ID or
+RP2350 OTP chip ID as its USB serial, so the probe's identity is
+`2fe3:0204:<serial>`.
 
 ```sh
 probe-rs list
@@ -79,8 +79,7 @@ Commands: `DAP_Info`, `DAP_HostStatus`, `DAP_Connect`, `DAP_Disconnect`,
 `DAP_SWD_Sequence`. Anything else answers `0xFF`. There is no JTAG and no SWO.
 
 Transfer requests that ask for a value match, a match mask or a timestamp are
-answered with an error; the old core did the same, and no host on this bench
-has needed them.
+answered with an error.
 
 A packet is processed to completion inside the model's `usb_rx` op and its
 response is handed to the interface before the op returns, so requests are

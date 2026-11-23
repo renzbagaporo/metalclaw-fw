@@ -48,8 +48,8 @@ class Layout:
 # joined by wires with no latency, each chip's cores and bus registrations
 # in a cluster of its own, the DUT's peripherals named with its prefix.
 LAYOUTS = {
-    # Fixture 1: a Pico harness driving a Pico 2 DUT. The RP2040 reports the
-    # emulated W25Q's default unique ID.
+    # Stacked Pico bench: an RP2040 Pico harness driving a Pico 2 DUT. The
+    # RP2040 reports the emulated W25Q's default unique ID.
     "rpi_pi_pico": Layout("scripts/multi-node/metalclaw_fixture_one_machine.resc", "rp2040", "rp2350", "bench",
                           "0123456789ABCDEF", dut_prefix="d_"),
     # The MetalClaw Pico RP2 carrier: an RP2354B harness driving a Pico DUT.

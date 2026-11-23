@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-// ST LIS3DH three-axis accelerometer on I2C. ST's datasheet could not be
-// downloaded (st.com refuses scripted clients); the register map, bit
-// fields and data scaling come from ST's own driver, STMicroelectronics/
-// lis3dh-pid 8c0588b (lis3dh_reg.h, lis3dh_reg.c); see README.md.
+// ST LIS3DH three-axis accelerometer on I2C. The register map, bit fields and
+// data scaling come from ST's driver, STMicroelectronics/lis3dh-pid 8c0588b
+// (lis3dh_reg.h, lis3dh_reg.c); see README.md.
 
 #include <errno.h>
 #include <stdbool.h>

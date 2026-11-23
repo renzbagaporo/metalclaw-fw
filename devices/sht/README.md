@@ -2,9 +2,7 @@
 # sht
 
 Sensirion humidity and temperature sensors on I2C, two models: `sht3x`, the
-SHT3x-DIS (datasheet version 7, `SHT3x-DIS.pdf`), and `sht4x`
-(`SHT4x.pdf`, Sensirion's datasheet as Adafruit hosts it; Sensirion's own
-link no longer serves it). Both take commands rather than registers: the
+SHT3x-DIS (datasheet version 7), and `sht4x` (Sensirion SHT4x datasheet). Both take commands rather than registers: the
 host writes a command (16 bits on the SHT3x, 8 on the SHT4x) and then
 reads its answer, each 16-bit word followed by its CRC-8.
 

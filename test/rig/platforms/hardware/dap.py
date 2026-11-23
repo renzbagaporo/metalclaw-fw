@@ -2,7 +2,7 @@
 # DUT memory over the harness's CMSIS-DAP v2 interface, without a debug
 # session. Every probe-rs command opens a session, and a session halts every
 # core twice (probe-rs 0.32 `Session::new` and its drop clear the hardware
-# breakpoints under `halted_access`), about 13 ms each time on this RP2350.
+# breakpoints under `halted_access`), about 13 ms each time on an RP2350.
 # A halted DUT cannot drain its 32-byte UART FIFO, so a mailbox poll that
 # lands on a modem's reply loses the bytes. This talks to the MEM-AP directly:
 # the core keeps running, DHCSR is never written.
@@ -68,7 +68,7 @@ CSW_SIZE_32 = 0x2
 CSW_ADDRINC_MASK = 0x30
 CSW_ADDRINC_SINGLE = 0x10
 # AHB5-AP CSW.HNONSEC. The RP2350 datasheet (3.5.9.1) has it reset to 0,
-# Secure, but after a RUN reset fixture 1's Pico 2 reads CSW 0x43800052:
+# Secure, but after a RUN reset an RP2350 can read CSW 0x43800052:
 # Non-secure, and every Secure-only target (SRAM, TIMER0, RESETS) answers
 # FAULT. A probe-rs session clears it, and a probe reset keeps the AP.
 CSW_HNONSEC = 1 << 30
@@ -114,7 +114,7 @@ class DebugPort:
 
 # RP2350 is an ADIv6 target: an AP register is addressed by its full offset,
 # the 4 KiB-aligned AP base plus the register, through SELECT. Core 0's
-# AHB MEM-AP sits at 0x2000 on fixture 1's Pico 2 (see rp2350_core0.yaml).
+# AHB MEM-AP sits at 0x2000 on an RP2350 (see rp2350_core0.yaml).
 RP2350 = DebugPort(ap_select=0x2D00)
 # RP2040 is ADIv5 on an SWD multidrop bus: core 0's DP is TARGETSEL
 # 0x01002927 and its MEM-AP is APSEL 0.

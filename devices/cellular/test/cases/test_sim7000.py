@@ -21,7 +21,7 @@ REVISION = "Revision:1351B03SIM7000G"
 PRODUCT = "SIM7000 R1351"
 IMEI = "862818040001234"
 IMSI = "001010123456789"
-ICCID = "89882280666027595036"
+ICCID = "89001010000000000018"
 APN = "internet"
 
 # Longer than both Ton (1 s) and Toff (1.2 s): one press turns an off part

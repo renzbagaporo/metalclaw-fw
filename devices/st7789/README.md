@@ -89,5 +89,5 @@ All read-only.
 `SERIAL_CLK_DIV` 1, one bit per two system clocks: 62.5 MHz on a Pico,
 75 MHz on a Pico 2, beyond both the part's 15 MHz and the `spi_sink`
 engine, which needs about four instructions a bit (`core/ports/rp2/hal/
-spi_sink.c`). The program also uses GP2 and GP3, which on fixture 1 are
-the harness's SWD pins and reach nothing. So no rig case attaches it.
+spi_sink.c`). The program also uses GP2 and GP3, which on a stacked Pico
+harness are the SWD pins and reach nothing. So no rig case attaches it.

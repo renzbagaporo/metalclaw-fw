@@ -74,16 +74,13 @@ master, motion interrupts, self-test and the INT pin are not modelled.
 
 ## Sources
 
-TDK's MPU-6000/MPU-6050 Product Specification (PS-MPU-6000A-00) and Register
-Map (RM-MPU-6000A-00) could not be downloaded: tdk.com answers 403 and
-invensense.tdk.com no longer has them. Everything here comes from the
-Linux driver InvenSense contributed, `drivers/iio/imu/inv_mpu6050/`
+Register addresses, bit fields, and scaling come from the InvenSense-authored
+Linux driver `drivers/iio/imu/inv_mpu6050/`
 (`inv_mpu_iio.h` at torvalds/linux d23d763: register addresses, the
 `PWR_MGMT_1` and `INT_STATUS` bits, `INV_MPU6050_WHOAMI_VALUE`, the FSR
 shift, `INV_MPU6050_INTERNAL_FREQ_HZ`, `INV_MPU6050_TEMP_OFFSET`/`TEMP_SCALE`;
 `inv_mpu_core.c`: `accel_scale`, `gyro_scale_6050` and "after reset, the
-sleep bit could be on"), saved beside the datasheets in
-`.dev/resources/datasheets/`, and from the temperature formula
+sleep bit could be on"), and from the temperature formula
 `mpu6050_i2c.c:117` applies. The driver's `gyro_scale_6050` (133090 nrad/s
 per LSB) is 131.1 LSB/(deg/s); the model uses 131, a figure not checked
 against the specification. The power-up value of `PWR_MGMT_1` (0x40) is

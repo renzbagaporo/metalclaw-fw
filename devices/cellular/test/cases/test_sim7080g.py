@@ -16,7 +16,7 @@ MANUFACTURER = "SIMCOM INCORPORATED"
 MODEL_NAME = "SIMCOM_SIM7080"
 REVISION = "Revision:1951B16SIM7080"
 IMEI = "869951030006302"
-ICCID = "89882280666027595036"
+ICCID = "89001010000000000018"
 # The serving cell the model reports in +CPSI? (TAC 0x0001).
 CELL = {"mcc": 1, "mnc": 1, "tac": 1, "sci": 12345678, "pci": 123, "band": "EUTRAN-BAND20",
         "earfcn": 6290, "dlbw": 0, "ulbw": 0, "rsrq": -10, "rssnr": 13}

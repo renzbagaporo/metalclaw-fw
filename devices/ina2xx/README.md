@@ -124,9 +124,9 @@ register in the layout; the parts' behaviour there is not documented.
 
 ## Datasheets
 
-In `.dev/resources/datasheets/` of the main checkout:
+Datasheets:
 
-- INA219: SBOS448G, December 2015 (`ina219_sbos448g.pdf`): Table 2, 8.5,
+- INA219: SBOS448G, December 2015: Table 2, 8.5,
   Equations 1-5, 8.6.2-8.6.4, Tables 3-7.
 - INA228: SLYS021A, May 2022 (`ina228_slys021a.pdf`): 7.3.2, Tables 7-3 to
   7-24, 8.1.2 Equations 2-7, Table 8-1, Table 8-4.

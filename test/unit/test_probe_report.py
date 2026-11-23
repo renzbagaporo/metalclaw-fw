@@ -6,7 +6,7 @@ from test.rig import probe_report
 from test.rig.probe_telemetry import Recorder
 
 
-def session(serial="E661", source="rig", reads=(0.002,) * 10, failures=0, retries=0, transfers=(0, 100),
+def session(serial="SER2", source="rig", reads=(0.002,) * 10, failures=0, retries=0, transfers=(0, 100),
             mode=None, start=1_700_000_000.0):
     r = Recorder(source, clock=lambda: 0.0, wall=lambda: start)
     r.describe(platform="hardware", bench={"serial": serial})
@@ -20,9 +20,9 @@ def session(serial="E661", source="rig", reads=(0.002,) * 10, failures=0, retrie
     for _ in range(retries):
         r.retry("dap", "read", True)
     before, after = transfers
-    r.probe_start = {"board": "fixture1_pico", "probes": [{"name": "dut", "transfers": before, "errors": 0,
+    r.probe_start = {"board": "rpi_pi_pico", "probes": [{"name": "dut", "transfers": before, "errors": 0,
                                                            "short_replies": 0}]}
-    r.probe_end = {"board": "fixture1_pico", "probes": [{"name": "dut", "transfers": after, "errors": 1,
+    r.probe_end = {"board": "rpi_pi_pico", "probes": [{"name": "dut", "transfers": after, "errors": 1,
                                                          "short_replies": 0}]}
     r.finish()
     return r.line()
@@ -34,13 +34,13 @@ def write(path, *lines):
 
 def test_sessions_of_a_bench_add_up(tmp_path, capsys):
     write(tmp_path / "a.jsonl", session(failures=1, retries=1), session(start=1_700_000_100.0))
-    write(tmp_path / "b.jsonl", session(serial="D4D2"))
+    write(tmp_path / "b.jsonl", session(serial="SER1"))
     assert probe_report.main([str(tmp_path / "*.jsonl")]) == 0
     out = capsys.readouterr().out
-    assert "hardware D4D2 fixture1_pico [rig]: 1 session," in out
-    assert "hardware E661 fixture1_pico [rig]: 2 sessions," in out
+    assert "hardware SER1 rpi_pi_pico [rig]: 1 session," in out
+    assert "hardware SER2 rpi_pi_pico [rig]: 2 sessions," in out
     rows = [line.split() for line in out.splitlines() if line.strip().startswith("dap")]
-    # E661 sorts after D4D2: 21 reads, 1 failed, 1 retried.
+    # SER2 sorts after SER1: 21 reads, 1 failed, 1 retried.
     assert rows[1][:8] == ["dap", "read", "21", "1", "4.762%", "1", "4.762%", "1"]
     assert rows[1][-2:] == ["usb_timeout", "1"]
     assert "harness probe: 200 transfers, 2 wire errors (1.000%), 0 short replies, over 2 of 2 sessions" in out
@@ -59,13 +59,13 @@ def test_the_percentiles_come_from_the_merged_durations():
 
 def test_rig_sessions_and_soaks_are_kept_apart():
     benches = probe_report.roll_up([session(), session(source="soak", mode="memory")])
-    assert sorted(benches) == ["hardware E661 fixture1_pico [rig]", "hardware E661 fixture1_pico [soak memory]"]
+    assert sorted(benches) == ["hardware SER2 rpi_pi_pico [rig]", "hardware SER2 rpi_pi_pico [soak memory]"]
 
 
 def test_a_soak_through_another_probe_is_its_own_group():
     line = session(source="soak", mode="memory")
     line["soak"]["probe_id"] = "1366:0101:000123456789"
-    assert probe_report.bench_key(line) == "hardware E661 fixture1_pico [soak memory] via 1366:0101:000123456789"
+    assert probe_report.bench_key(line) == "hardware SER2 rpi_pi_pico [soak memory] via 1366:0101:000123456789"
 
 
 def test_other_records_and_malformed_lines_are_skipped(tmp_path, capsys):

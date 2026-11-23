@@ -17,7 +17,7 @@
 // chip select is high. Data finishes a window's last byte and goes on to
 // wait for the next byte's first edge before the host raises chip select,
 // so without the restart an SCK edge between windows would count as a bit
-// and every byte after it would be off by one. On a bench whose lines have
+// and every byte after it would be off by one. On a board whose lines have
 // pull-ups the DUT's SCK makes such an edge whenever it resets: its pins
 // float and the pull-up raises SCK, until the program drives it low again.
 // The restart lands about ten cycles after the rise (the edge program's

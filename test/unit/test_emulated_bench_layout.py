@@ -11,7 +11,7 @@ def no_bench_environment(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
-def test_the_bench_defaults_to_fixture_1(monkeypatch):
+def test_the_bench_defaults_to_rpi_pi_pico(monkeypatch):
     assert platform.layout() == platform.LAYOUTS["rpi_pi_pico"]
     assert platform._serial() == "0123456789ABCDEF"
 
@@ -23,12 +23,12 @@ def test_the_harness_board_picks_the_carrier_bench(monkeypatch):
 
 
 def test_a_harness_board_without_a_bench_stops_the_run(monkeypatch):
-    monkeypatch.setenv(platform.HARNESS_BOARD_ENV, "fixture1_pico")
-    with pytest.raises(pytest.exit.Exception, match="no emulated bench for harness board 'fixture1_pico'"):
+    monkeypatch.setenv(platform.HARNESS_BOARD_ENV, "unknown_board")
+    with pytest.raises(pytest.exit.Exception, match="no emulated bench for harness board 'unknown_board'"):
         platform.layout()
 
 
 def test_a_bench_harness_serial_in_the_environment_leaves_the_emulated_one(monkeypatch):
     monkeypatch.setenv(platform.HARNESS_BOARD_ENV, "metalclaw_pico_rp2")
-    monkeypatch.setenv("METALCLAW_HARNESS_SERIAL", "D4D2E0179F4FECF3")
+    monkeypatch.setenv("METALCLAW_HARNESS_SERIAL", "1111222233334444")
     assert platform._serial() == "00000000C0FFEE01"

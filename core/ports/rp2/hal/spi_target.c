@@ -154,7 +154,7 @@ struct spi_descriptor {
 // state machine's OSR; the prologue's status byte is its second.
 //
 // A chain trigger fires before the last write of the finished block has
-// landed (measured on the bench). So the jump to a list writes L's
+// landed (measured on hardware). So the jump to a list writes L's
 // READ_ADDR through its trigger alias instead of chaining, and a block
 // that W patches is never the very next one L loads: a spacer block sits
 // between them, or the patch is written SPI_COMMAND_STEP_REPEAT times so
@@ -244,15 +244,15 @@ enum {
 // the state machine's autopull stalls the MISO bit until it does. After the
 // last address byte the chain runs two blocks and the data channel's first
 // transfer, a third of the six blocks the response read was measured to fit
-// in 600 ns, so about 200 ns against one SCK period. Not measured on the
-// bench: the ceiling below keeps a factor of two on that estimate.
+// in 600 ns, so about 200 ns against one SCK period. Estimated (not yet
+// measured on hardware): the ceiling below keeps a factor of two on that.
 #define SPI_COMMAND_MEMORY_CLOCK_HZ 2000000u
 // An immediate image's byte after the opcode must reach the TX FIFO within
 // one SCK period of the opcode's last bit, as a memory read's first data
 // byte must: the opcode, spacer, lookup and jump blocks and the list's
 // first, which is five, or six for the busy and memory lists, against the
 // six the response read was measured to run in 600 ns. A 1 MHz period
-// leaves under a factor of two on that; to be measured on the bench.
+// leaves under a factor of two on that (estimated; not yet measured).
 #define SPI_COMMAND_IMMEDIATE_CLOCK_HZ 1000000u
 // With several immediate responses the response list looks the opcode up
 // first: its three blocks and the opcode copy's repeats come before D's

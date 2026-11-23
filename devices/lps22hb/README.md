@@ -2,9 +2,7 @@
 # lps22hb
 
 ST's LPS22HB MEMS nano pressure sensor on I2C, as the model `lps22hb`: a
-register map the harness serves from hardware (datasheet DocID027083 Rev 5,
-`LPS22HB-st.pdf`, as SparkFun hosts it: ST's site does not serve it to a
-script).
+register map the harness serves from hardware (datasheet DocID027083 Rev 5).
 
 ## Bindings
 

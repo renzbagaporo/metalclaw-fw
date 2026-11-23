@@ -4,8 +4,6 @@
 //
 // There is deliberately no write_abort here: DAP_WriteABORT is a DP write
 // to address 0 and nothing else, so a correct transfer() already covers it.
-// The old implementation gave each backend its own entry point and both
-// backends got it wrong separately.
 
 #ifndef MCLW_HAL_SWD_H
 #define MCLW_HAL_SWD_H

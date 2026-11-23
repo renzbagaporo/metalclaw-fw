@@ -471,8 +471,8 @@ static size_t handle(const char *text, size_t len) {
         mclw_host_uart_poll(mclw_host_event_ns());
         mclw_host_wire_poll(mclw_host_event_ns());
     }
-    // The host harness is a board that pulls every DUT line on the Pico's
-    // headers up, as the pico-rp2 fixture's does (METALCLAW_LINE_PULLUPS,
+    // The host harness models a board with line pull-ups on the Pico's
+    // headers, like metalclaw_pico_rp2 (METALCLAW_LINE_PULLUPS,
     // variant/mpconfigvariant.h): a line nothing drives reads high. The
     // pulls go with the first reply after the hello's.
     if (pulls_due && !json_is(op, "hello")) {

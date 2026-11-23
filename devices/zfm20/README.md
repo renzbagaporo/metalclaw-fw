@@ -3,9 +3,8 @@
 
 ZhianTec's ZFM-20 optical fingerprint module on a UART, as the model
 `zfm20`: the packet protocol and its instructions, over a finger the host
-puts on the sensor (ZFM-20 user manual V1.5, `ZFM_user_manual_V15.pdf`, as
-Adafruit hosts it; VfyPwd 13h and ReadIndexTable 1Fh, which V1.5 lacks,
-from Grow's R503 manual V1.4.1, the same protocol). Zephyr drives it as
+puts on the sensor (ZFM-20 user manual V1.5; VfyPwd 13h and ReadIndexTable
+1Fh, which V1.5 lacks, from Grow's R503 manual V1.4.1, the same protocol). Zephyr drives it as
 `zhiantec,zfm-x0`.
 
 A finger is a number. An image, a character file and a template hold the

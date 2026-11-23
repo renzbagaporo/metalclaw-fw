@@ -30,8 +30,8 @@ bytes of the old sample and of the new one.
 | 1 | `int1` | `gpio_out` | no | the INT1 pin |
 
 The binding advertises the datasheet's modes 0 and 3, mode 3 by default (which
-is what Zephyr's driver forces), MSB first. On fixture 1 that is SCK on GP18,
-MOSI on GP19, MISO on GP16 and chip select on GP17:
+is what Zephyr's driver forces), MSB first. With the default Pico harness wiring,
+that is SCK on GP18, MOSI on GP19, MISO on GP16 and chip select on GP17:
 
 ```python
 import metalclaw
@@ -141,7 +141,7 @@ count in bytes and records and either byte order, pops whole and partial, a
 flush, bypass mode, the watermark, and the packets lost once full.
 
 `test/cases.py` attaches `icm42688` on the rig's SPI pins for this part
-(`(18, 19, 16, 17)` on fixture 1, from the platform's `fixture` description),
+(`(18, 19, 16, 17)` on the stacked Pico fixture, from the platform's `fixture` description),
 resets the DUT and checks: four samples across the range come back through the driver within one
 LSB on every axis; the driver left `PWR_MGMT0`, `ACCEL_CONFIG0` and
 `GYRO_CONFIG0` at the overlay's values, bank 0 selected, at least one soft

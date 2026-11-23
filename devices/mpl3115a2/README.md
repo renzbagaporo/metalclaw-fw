@@ -92,8 +92,7 @@ writable; the rest is read-only. `SYSMOD` follows `SBYB`.
 
 ## Datasheet
 
-`MPL3115A2_rev8.1.pdf`: NXP MPL3115A2 data sheet, Rev. 8.1, 17 May 2024, in
-`.dev/resources/datasheets/`: Tables 10-12 (register map and Area A
+NXP MPL3115A2 data sheet, Rev. 8.1, 17 May 2024: Tables 10-12 (register map and Area A
 aliasing), 14.2-14.4 and Tables 14-17 (data formats), 14.7, 14.8 and Tables
 21-27 (FIFO), Table 31-32 (`INT_SOURCE`), 14.22 and Tables 44-54 (control
 registers, sample rates), 14.23 (offsets).

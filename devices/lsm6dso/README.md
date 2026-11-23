@@ -3,10 +3,8 @@
 
 ST's LSM6DSO and LSM6DSL 6-axis IMUs on I2C, as the models `lsm6dso` and
 `lsm6dsl`: the main register page as a register map the harness serves from
-hardware, with data-ready on INT1. Datasheets: DS12140 Rev 3, June 2024
-(`LSM6DSO-st.pdf`, as xdevs.com hosts it) and DocID028475 Rev 6, May 2017
-(`LSM6DSL-st.pdf`, as SparkFun hosts it); ST's site does not serve them to a
-script. The two parts share the main page, sensitivities and data-ready
+hardware, with data-ready on INT1. Datasheets: DS12140 Rev 3 (June 2024)
+and DocID028475 Rev 6 (May 2017). The two parts share the main page, sensitivities and data-ready
 configuration; the LSM6DSL answers WHO_AM_I 6Ah, has no PIN_CTRL and resets
 CTRL9_XL to 00h.
 

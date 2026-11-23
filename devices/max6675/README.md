@@ -2,8 +2,7 @@
 # max6675
 
 Maxim's MAX6675 cold-junction-compensated K-thermocouple-to-digital
-converter on SPI, as the model `max6675` (data sheet 19-2235 Rev 1,
-`MAX6675.pdf`, as Adafruit hosts it). The part is read-only: every
+converter on SPI, as the model `max6675` (data sheet 19-2235 Rev 1). The part is read-only: every
 chip-select window clocks out one 16-bit frame, which the harness serves as
 an output stream.
 

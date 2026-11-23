@@ -72,16 +72,20 @@ the third-party build still passes with it.
 
 ## Flashing
 
-With a J-Link on the harness's own SWD pads, which never depends on the
-firmware already on the board:
+Via the RP2 USB bootloader (no external debugger needed): hold BOOTSEL while
+powering the board—or run `machine.bootloader()` from the MicroPython REPL—then
+copy `build/rp2/<board>/firmware.uf2` to the `RPI-RP2` drive that appears.
+
+With an external SWD debugger on the harness's own SWD pads, which never depends
+on the firmware already on the board, flash `build/rp2/<board>/firmware.elf`
+with `probe-rs download` or the included `JLinkExe` helper:
 
 ```sh
 tools/flash_rp2.sh build/rp2/<board>/firmware.elf
 ```
 
-Without one, from the MicroPython REPL: `machine.bootloader()`, then copy the
-UF2 to the `RPI-RP2` drive that appears.
-
 `METALCLAW_ARM_TOOLCHAIN_DIR` and `METALCLAW_BUILD_DIR` override the toolchain
-and build locations, `METALCLAW_JOBS` the parallel job count, and
-`METALCLAW_JLINK_SERIAL` selects the probe when more than one is attached.
+and build locations, `METALCLAW_JOBS` the parallel job count,
+`METALCLAW_JLINK_DEVICE` the target device (default `RP2040_M0_0`, e.g.
+`RP2350_M33_0` for RP235x boards), and `METALCLAW_JLINK_SERIAL` selects the
+debugger when more than one is attached.

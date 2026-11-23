@@ -4,8 +4,7 @@
 ST's HTS221 humidity and temperature sensor on I2C, as the model `hts221`:
 Table 15's registers as a register map the harness serves from hardware,
 with fixed calibration coefficients and outputs computed from them (data
-sheet DocID026333 Rev 4, `HTS221.pdf`, the copy chipsmall hosts, which
-lacks page 26). Table 19's coefficient layout, on that page, is taken from
+sheet DocID026333 Rev 4). Table 19's coefficient layout is taken from
 ST's hal_st `hts221_reg.h` and Zephyr's driver, which agree: 30h-3Fh, the
 T0 and T1 MSBs in 35h bits 1-0 and 3-2.
 

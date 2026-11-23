@@ -370,8 +370,8 @@ ZEPHYR_PARTS: dict[str, tuple[Attach, ...]] = {
     # DS18B20 on GP15: 21.375 °C is 342 sixteenths, exact at 12 bits. Open
     # drain with no pull-up of its own; the overlay turns on the DUT pad's
     # pull-up (GPIO_PULL_UP), where pico-examples' gpio_init leaves the
-    # pad's pull-down on, and that alone carries the bus on fixture 1's
-    # bare lines: both samples passed there twice each.
+    # pad's pull-down on, and that alone carries the bus on bare lines
+    # without external pull-ups.
     **{f"zephyr/{target}": (Attach("ds18b20", "thermo", {"dq": (15,)},
                                    properties={"temperature": 21375, "serial": 0xC0FFEE}),)
        for target in ("sensor/ds18b20", "drivers/w1/scanner")},

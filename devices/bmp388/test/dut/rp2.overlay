@@ -9,7 +9,7 @@
 };
 
 &pinctrl {
-	i2c0_fixture1: i2c0_fixture1 {
+	i2c0_harness: i2c0_harness {
 		group1 {
 			pinmux = <I2C0_SDA_P4>, <I2C0_SCL_P5>;
 			input-enable;
@@ -21,7 +21,7 @@
 &i2c0 {
 	status = "okay";
 	clock-frequency = <I2C_BITRATE_STANDARD>;
-	pinctrl-0 = <&i2c0_fixture1>;
+	pinctrl-0 = <&i2c0_harness>;
 	pinctrl-names = "default";
 
 	barometer: bmp388@76 {

@@ -26,23 +26,22 @@ BENCH_LIMITS: dict[str, tuple[tuple[str, ...], tuple[str, ...], str]] = {
     # pio/spi/spi_flash.c, Pico 2 build: the program raises chip select
     # after Write Enable and after the erase and lowers it in the very next
     # instruction, so CS stays high for 1-2 cycles of the DUT's 150 MHz
-    # clock (7-13 ns, measured on the bench), against the W25Q16JV's 50 ns
-    # tSHSL2 after an erase, program or write. Fixture 1's 125 MHz RP2040
-    # harness misses some of those rises and takes two windows for one: 3
-    # of 15 bench runs passed (devices/w25q/README.md). The carrier's
+    # clock (7-13 ns), against the W25Q16JV's 50 ns tSHSL2 after an erase,
+    # program or write. A 125 MHz RP2040 harness misses some of those rises
+    # and takes two windows for one (devices/w25q/README.md). The carrier's
     # 150 MHz RP2350 harness sees them all.
-    "pio_spi_flash": (("fixture1_pico", "rpi_pi_pico"), ("pico2",),
+    "pio_spi_flash": (("rpi_pi_pico",), ("pico2",),
                       "holds chip select high for 1-2 DUT cycles (7-13 ns) between commands, under the "
-                      "W25Q16JV's 50 ns tSHSL2, and fixture 1's 125 MHz RP2040 harness misses some of those "
+                      "W25Q16JV's 50 ns tSHSL2, and a 125 MHz RP2040 harness misses some of those "
                       "rises (3 of 15 bench runs passed)"),
     # pio/manchester_encoding/manchester_encoding.c:32-33 and
     # manchester_encoding.pio:21-25,62-70, Pico build: clock divider 1 and
     # 12 cycles a bit, so 96 ns bits at the Pico's 125 MHz, sampled 3/4 of
     # a bit after each mid-bit edge. The carrier relays GP2 to GP3 through
     # its harness jumper, whose sampling jitter (about 10-20 ns) is a large
-    # part of the 48 ns half-bit: 2 of 12 bench runs passed on 2026-11-20,
-    # with the decoded words shifted (fff80000 for 00000000). Fixture 1
-    # cannot reach GP2-3 (its SWD lines), so only the emulator judges it.
+    # part of the 48 ns half-bit, shifting the decoded words (fff80000 for
+    # 00000000). A stacked Pico harness cannot reach GP2-3 (its SWD lines),
+    # so only the emulator judges it.
     "pio_manchester_encoding": (("metalclaw_pico_rp2",), ("pico",),
                                 "sends 96 ns Manchester bits, and the carrier's GP2-to-GP3 jumper adds "
                                 "about 10-20 ns of jitter against the 48 ns half-bit (2 of 12 bench runs "

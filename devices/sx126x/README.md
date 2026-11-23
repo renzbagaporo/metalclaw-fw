@@ -41,8 +41,9 @@ The engine raises BUSY from the SPI engine's PIO block when the chip
 select rises, so BUSY must be a pin that block reaches: on an RP2350B
 harness, the same half of GPIO0-31 or GPIO16-47 as the bus.
 
-On fixture 1 the radio sits on SPI0 with its chip select on GP21, BUSY on
-GP10, DIO1 on GP20 and NRESET on GP6, the same GP numbers on both boards:
+With the default Pico harness wiring, the radio sits on SPI0 with its chip
+select on GP21, BUSY on GP10, DIO1 on GP20 and NRESET on GP6, the same GP
+numbers on both boards:
 
 ```python
 import metalclaw

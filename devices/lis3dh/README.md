@@ -67,14 +67,12 @@ without bit 7 auto-increment as well, which the part may not.
 
 ## Sources
 
-ST's LIS3DH datasheet could not be downloaded (st.com does not answer
-scripted clients). The register addresses, bit fields, `LIS3DH_ID` and the
-data scaling come from ST's own driver, STMicroelectronics/lis3dh-pid at
+The register addresses, bit fields, `LIS3DH_ID` and the
+data scaling come from ST's driver, STMicroelectronics/lis3dh-pid at
 8c0588b: `lis3dh_reg.h` (register map, `lis3dh_ctrl_reg1_t`,
 `lis3dh_ctrl_reg4_t`, `lis3dh_temp_cfg_reg_t`, the status registers) and
 `lis3dh_reg.c` (`lis3dh_from_fs*_{lp,nm,hr}_to_mg`,
-`lis3dh_from_lsb_*_to_celsius`, `lis3dh_aux_adc_set`), saved beside the
-datasheets in `.dev/resources/datasheets/`. The bit-7 auto-increment rule is
+`lis3dh_from_lsb_*_to_celsius`, `lis3dh_aux_adc_set`). The bit-7 auto-increment rule is
 Zephyr v4.4.0's `LIS2DH_AUTOINCREMENT_ADDR` (`drivers/sensor/st/lis2dh/
 lis2dh.h`). The driver does not give reset values, so every register but
 `WHO_AM_I` starts at zero here; the datasheet's own reset values were not

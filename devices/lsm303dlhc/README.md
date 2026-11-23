@@ -3,8 +3,7 @@
 
 The magnetometer of ST's LSM303DLHC on I2C, as the model `lsm303dlhc_magn`:
 registers 00h-0Ch and 31h-32h of Table 17 as a register map the harness
-serves from hardware (data sheet Doc ID 018771 Rev 1, `LSM303DLHC.pdf`,
-as Adafruit hosts it, section 7.2). The accelerometer, at 19h, is a
+serves from hardware (data sheet Doc ID 018771 Rev 1, section 7.2). The accelerometer, at 19h, is a
 separate I2C target and not modelled; Zephyr drives the magnetometer as
 `st,lsm303dlhc-magn`.
 

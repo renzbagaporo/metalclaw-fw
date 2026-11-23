@@ -120,8 +120,8 @@ FIFO.
 which bus role, and where each part sits on the shared buses. A case builds
 its attach line from it and carries no pin number of its own. The hardware
 platform picks it by the harness's MicroPython board
-(`sys.implementation._build`). For fixture 1, a Pico harness (`fixture1_pico`
-or `rpi_pi_pico`) with the DUT stacked on it, it is
+(`sys.implementation._build`). For a stacked Raspberry Pi Pico harness
+(`rpi_pi_pico`) with the DUT stacked on it, it is
 
 ```python
 {"swd": (2, 3, 28),
@@ -189,7 +189,8 @@ as `neo_m8n`'s do.
 ## The emulator
 
 `just test emulator` runs the same cases against the bench emulated in
-Renode, from the fork that carries the RP2040 and RP2350 models. The
+Renode, from the [RP2 Renode fork](https://github.com/renzbagaporo/renode)
+that carries the RP2040 and RP2350 models. The
 justfile pins a commit of that fork and the portable package its release
 workflow published for it, which bundles .NET.
 Each bench's script in that fork
@@ -317,7 +318,7 @@ stimulus.py`. The stimulus drives the harness's pins bit by bit as a DUT
 would, an I2C or SPI controller, a UART, raw pulses, at exact virtual times,
 and reads what the harness drives back, so a case can try the edges a DUT
 image never makes: a pulse just outside a window, a frame cut short. The
-`emulator` workflow runs them as its `engine` job. The benches still judge
+`emulator` workflow runs them as its `engine` job. Hardware runs still judge
 the engines on silicon; the emulated PIO's timing is the limit here.
 
 ## Native mode
@@ -327,9 +328,10 @@ own, with its parts served by the host harness: Metalclaw built for Linux
 (`just build-host`), MicroPython's unix port with the `metalclaw` module,
 the runtime and every device, over a software HAL in `core/ports/host`.
 The models, the runtime and the REPL the cases drive are the firmware's
-own; what differs from a bench is the HAL under them, which serves the
+own; what differs from hardware is the HAL under them, which serves the
 DUT's buses from the emulator instead of from PIO and DMA. The rp2 port's
-engines are not exercised here; the two benches are where they are judged.
+engines are not exercised here; hardware and full-emulator runs are where
+they are judged.
 
 The emulator holds only the DUT, a Pico or a Pico 2 (`scripts/multi-node/
 metalclaw_pico_native.resc`, `metalclaw_pico2_native.resc`), chosen by the
@@ -385,7 +387,7 @@ flashes one image, so they are in `EMULATOR_LIMITS` with that reason.
 The bench script exports the DUT's own USB too, as USB/IP bus `1-1` on a
 server of its own at `$dut_usbip_port`: Renode's server takes one
 connection at a time, and the harness's import holds its server's for the
-whole session. Neither bench cables the DUT's USB to the rig host, so only
+whole session. The hardware platform does not assume the DUT's USB is cabled to the rig host, so only
 the emulator imports it, for the cases that ask for it (`dut_usb`, which
 the hardware platform skips): once the program has turned its USB
 controller on with its pull-up, read over SWD, a second cable imports
@@ -418,7 +420,7 @@ one host. Instance N's Renode takes monitor port 1234 + N and USB/IP ports
 3240 + N for the harness and 3250 + N for the DUT, and its cables attach,
 replug and detach only their own vhci ports. On the carrier, instance N's harness reports chip ID
 `00000000C0FFEE01` + N, and that is its serial. The Pico harness's serial is
-fixed by the emulated flash, so fixture 1 runs only instance 0.
+fixed by the emulated flash, so `rpi_pi_pico` runs only instance 0.
 
 Emulated SWD runs about 30 times slower than the bench in host time while
 the target's own timing is unchanged. The platform stretches only host-side
@@ -511,7 +513,7 @@ installs it there with only the Arm toolchain.
 
 ## probe-rs
 
-The installed probe-rs 0.30 has no `download --reset`, so flashing and
+`probe-rs` 0.30 has no `download --reset`, so flashing and
 resetting are two sessions. `--connect-under-reset` is refused in the rig's
 probe wrapper. The rig reads the DUT's chip from the image's
 `CONFIG_SOC_SERIES` (`zephyr/.config` next to `zephyr.elf`). An RP2350 is
@@ -605,8 +607,8 @@ own counters summed over the sessions that read them. `--source rig|soak`,
 `--platform` and `--since <ISO time>` narrow it.
 
 ```text
-$ test/rig/probe_report.py 'build/emulator/*.jsonl'
-hardware E6612483CB313225 fixture1_pico [rig]: 2 sessions, 2026-11-15 09:46 .. 2026-11-15 10:46 UTC, 1.9min in all
+$ test/rig/probe_report.py 'build/probe/*.jsonl'
+hardware 0123456789ABCDEF rpi_pi_pico [rig]: 2 sessions, 2026-01-01 00:00 .. 2026-01-01 01:00 UTC, 1.9min in all
   layer     operation  calls  errors  error%  retries  retry%  recovered      p50      p95      p99      max  errors by kind
   dap       connect     3000       0  0.000%        0  0.000%          0    2.0ms    2.9ms    3.4ms    4.5ms
   dap       read        3002       2  0.067%        2  0.067%          2    4.5ms    6.9ms    8.2ms    1.00s  usb_timeout 2

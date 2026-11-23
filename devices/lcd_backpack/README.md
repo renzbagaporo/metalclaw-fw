@@ -119,4 +119,4 @@ Adafruit's "USB + Serial RGB Backlight Character LCD Backpack" guide (PDF of
 learn.adafruit.com/usb-plus-serial-backpack, last updated 2025-07-28),
 "Command Reference", and the backpack's firmware
 `Adafruit_USBSerialLCD.ino` at adafruit/Adafruit-USB-Serial-RGB-Character-Backpack
-9b8b221, both in `.dev/resources/datasheets/`.
+9b8b221.

@@ -17,7 +17,7 @@ re-enumerates, once, after the changes settle.
 | VID:PID | `2FE3:0204` |
 | Manufacturer | `Metalclaw` |
 | Product | `Metalclaw`, unless a board overrides it |
-| Serial | the RP2040 unique id, 16 uppercase hex digits |
+| Serial | the RP2040 flash unique ID or RP2350 OTP chip ID, 16 uppercase hex digits |
 
 ## Interfaces
 
@@ -45,9 +45,7 @@ nothing ever moves it. The interface string is the device's to choose;
 On Linux the REPL appears as `/dev/serial/by-id/usb-Metalclaw_<product>_<serial>-if00`,
 a serial function as the same name ending in its control interface number
 in two hex digits: the first one is `-if03`, the second `-if05`, then
-`-if07` and `-if09`. On the
-bench that is
-`/dev/serial/by-id/usb-Metalclaw_Metalclaw_E6612483CB313225-if03`.
+`-if07` and `-if09`.
 The volume is a raw FAT block device with no partition table.
 
 ## Serial functions

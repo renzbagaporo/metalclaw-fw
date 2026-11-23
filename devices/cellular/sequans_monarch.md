@@ -22,8 +22,8 @@ link parts and its own: no GNSS.
 ## Attaching
 
 The UART binding advertises 115200 baud 8N1. The second binding is
-`reset`, the module's RESETN, active low. On fixture 1 the crossed pair is
-GP0/GP1 and the DUT's GP6 drives the harness's GP6:
+`reset`, the module's RESETN, active low. With the default Pico harness wiring,
+the crossed pair is GP0/GP1 and the DUT's GP6 drives the harness's GP6:
 
 ```python
 import metalclaw
@@ -91,7 +91,7 @@ Test forms (`=?`) answer `OK` or the manual's ranges.
 | `AT+CGSN`, `AT+CGSN=0`, `AT+GSN` | `354658090123453` |
 | `AT+CGSN=1` | `+CGSN: "354658090123453"` |
 | `AT+CIMI` | `001010123456789`; CME 10 at CFUN 0 |
-| `AT+SQNCCID`, `AT+SQNCCID?` | `+SQNCCID: "89882280666027595036",""`; `OK` alone at CFUN 0; CME 10 without a SIM |
+| `AT+SQNCCID`, `AT+SQNCCID?` | `+SQNCCID: "89001010000000000018",""`; `OK` alone at CFUN 0; CME 10 without a SIM |
 | `AT+CMEE=<n>`, `?` | 0, 1, 2 |
 | `AT+IPR=<rate>`, `?` | 9600 to 921600; `OK`, then the switch; 0 is `ERROR` |
 | `AT+CFUN=<fun>[,<rst>]`, `?` | 0, 1, 4 and 5; 1 registers, the others drop the network; `rst` 1 reboots (see above) |
@@ -178,7 +178,7 @@ works against the model:
 - `gprsConnect()` detaches, deactivates every context (nothing is active
   then, so no last-PDN refusal), defines context 3 `IPV4V6`, activates it,
   which attaches, and attaches; `localIP()` reads the quoted `+CGPADDR: 3,"<ip>"`.
-- `getSimCCID()` returns `"89882280666027595036",""` with the quotes.
+- `getSimCCID()` returns `"89001010000000000018",""` with the quotes.
 - Every `write()` is one `SQNSSENDEXT` in hex with a NUL after each digit
   pair; the last NUL comes after the `OK` and is dropped as noise.
 - `+SQNSRING: <id>,<n>` sets the available count, which every read

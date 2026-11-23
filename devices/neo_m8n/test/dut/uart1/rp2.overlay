@@ -7,7 +7,7 @@
 };
 
 &pinctrl {
-	uart1_fixture1: uart1_fixture1 {
+	uart1_harness: uart1_harness {
 		group1 {
 			pinmux = <UART1_TX_P8>;
 		};
@@ -27,7 +27,7 @@
 &uart1 {
 	status = "okay";
 	current-speed = <115200>;
-	pinctrl-0 = <&uart1_fixture1>;
+	pinctrl-0 = <&uart1_harness>;
 	pinctrl-names = "default";
 
 	gnss: neo_m8n {

@@ -37,7 +37,7 @@
 #define A7672X_FIRMWARE "A011B07A7672M7"
 #define A7672X_IMEI "862205051234567"
 #define A7672X_IMSI "001010123456789"
-#define A7672X_ICCID "89882280666027595044"
+#define A7672X_ICCID "89001010000000000026"
 #define A7672X_OPERATOR "Metalclaw"
 
 // Manual 15.2.3: links 0..9. The model backs the first four with sockets.

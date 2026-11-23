@@ -41,8 +41,8 @@ either level (`int_od` is not modelled). The conversions run without `int`
 too.
 
 `init` refuses an attach with both or neither. The SPI binding advertises
-modes 0 and 3, mode 3 by default (Zephyr's driver forces it), MSB first. On
-fixture 1 that is SDA on GP4, SCL on GP5 and address `0x76`, the address the
+modes 0 and 3, mode 3 by default (Zephyr's driver forces it), MSB first. With
+the default Pico harness wiring, that is SDA on GP4, SCL on GP5 and address `0x76`, the address the
 BMP388 uses with SDO low, or SCK on GP18, MOSI on GP19, MISO on GP16 and chip
 select on GP22:
 
@@ -78,8 +78,7 @@ There are no regions and **no faults**. A fault that withholds data-ready would
 hang the DUT rather than fail it: `bmp388_sample_fetch()` spins on
 `STATUS.drdy_press` with no timeout and no error path. `nak` is not available
 either — the engine answers every addressed transfer from the map, and the
-model is never on the wire. The old implementation had no fault injection for
-this part.
+model is never on the wire.
 
 `reset()` puts pressure and temperature back to their defaults and rebuilds the
 whole register map at its power-on values, which also throws away everything
@@ -99,7 +98,7 @@ Everything lives in one 256-byte bank, filler `0x00`. `W` is
 | 0x03 | `STATUS` | `0x70` | | `cmd_rdy`, `drdy_press`, `drdy_temp`; the fetch loop waits on `drdy_press` |
 | 0x04..0x09 | `DATA_0..DATA_5` | the sample | | 24-bit pressure then 24-bit temperature, little-endian |
 | 0x10 | `EVENT` | `0x01` | | `por_detected`, the part's reset value |
-| 0x11 | `INT_STATUS` | `0x08` | C | `drdy`; nothing on this bench reads it |
+| 0x11 | `INT_STATUS` | `0x08` | C | `drdy`; unused when triggers are disabled |
 | 0x15..0x18 | `FIFO_WTM_*`, `FIFO_CONFIG_*` | `0x01`/`0x00`/`0x02`/`0x02` | W | reset values, writable, otherwise inert |
 | 0x19 | `INT_CTRL` | `0x02` | W | written only by the driver's trigger path, which this image does not build |
 | 0x1a | `IF_CONF` | `0x00` | W | reset value |
@@ -196,9 +195,8 @@ raw_press = (pressure_pa * 1000 * 262144 + D/2) / D,  D = (p1 - 16384) * 250 = 4
 raw_temp  = t1 * 256 + (temperature_mc * 65536) / 1000
 ```
 
-Both are integer expressions in `int64_t`, clamped to 24 bits. The pressure
-form is the old implementation's, with its millipascal input reconstructed as
-`pressure_pa * 1000`. One raw pressure LSB is 1/64.004 Pa ≈ 15.6 mPa and one
+Both are integer expressions in `int64_t`, clamped to 24 bits (scaling
+`pressure_pa * 1000` into millipascals for the pressure inversion). One raw pressure LSB is 1/64.004 Pa ≈ 15.6 mPa and one
 raw temperature LSB is 1/65.536 mC ≈ 15.3 µC, so the quantisation of the raw
 words is far below the reported unit; both raw words stay inside 24 bits across
 the whole property range (`0x1D4C75`..`0x7A13E8` and `0x262000`..`0xA32000`).
@@ -242,7 +240,7 @@ assertion that it happened.
 
 `test/dut/rp2.conf` adds `CONFIG_SENSOR`, `CONFIG_BMP388`,
 `CONFIG_BMP388_TRIGGER_NONE` and `CONFIG_I2C` to the DUT fixture's `prj.conf`.
-No interrupt line is wired on fixture 1, so there is no trigger and no
+No interrupt line is wired in the DUT overlay, so there is no trigger and no
 `int-gpios` property. No USB and no console: the DUT fixture answers through
 the RAM mailbox.
 
@@ -267,8 +265,8 @@ METALCLAW_DUT_DEVICE=bmp388/spi just test hardware
 
 `test/cases.py` runs on the rig's `harness`, `dut` and `fixture` fixtures. It
 attaches the model from the harness REPL on the bus the flashed image is built
-for, taking the pins from the platform's `fixture` description: on fixture 1
-I2C at `(4, 5, 0x76)` or SPI at `(18, 19, 16, 22)`. It then resets the DUT,
+for, taking the pins from the platform's `fixture` description: on the stacked
+Pico fixture, I2C at `(4, 5, 0x76)` or SPI at `(18, 19, 16, 22)`. It then resets the DUT,
 because Zephyr probes the driver once at `POST_KERNEL` and a part that was not
 armed then never becomes ready. The cases set pressure and temperature, read
 the part through the DUT, and compare the pressure and temperature against

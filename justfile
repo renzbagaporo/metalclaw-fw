@@ -142,7 +142,7 @@ rig_python := venv / "bin/python"
 setup-rig:
     #!/usr/bin/env bash
     set -euo pipefail
-    test -x "{{rig_python}}" || /usr/bin/python3 -m venv "{{venv}}"
+    test -x "{{rig_python}}" || python3 -m venv "{{venv}}"
     "{{rig_python}}" -m pip install --quiet --upgrade pip
     "{{rig_python}}" -m pip install --quiet -r "{{project_dir}}/test/rig/requirements.txt"
     "{{rig_python}}" -c "import pytest, serial; print('rig python ok:', pytest.__version__, serial.__version__)"

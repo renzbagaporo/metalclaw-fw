@@ -28,7 +28,7 @@ Plug in a flashed harness and open its USB CDC REPL (on Linux, `/dev/serial/by-i
 >>> probe = metalclaw.attach("swd_probe", "dut", swd=(2, 3, 28))
 >>> console = metalclaw.attach("console_bridge", "dut_console", uart=(0, 1))
 
-# Attach simulated peripherals on the DUT's buses (fixture 1 Pico pinout shown)
+# Attach simulated peripherals on the DUT's buses (default Pico harness pinout shown)
 >>> baro = metalclaw.attach("bmp388", "baro", i2c=(4, 5, 0x76))
 >>> baro.pressure = 101325              # pascals
 >>> baro.temperature = 21500            # millidegrees C
@@ -61,10 +61,10 @@ The harness enumerates as `2FE3:0204 Metalclaw` with a CDC REPL (`-if00`) and an
 
 ```sh
 $ probe-rs list
-[0]: Metalclaw -- 2fe3:0204:E6612483CB313225 (CMSIS-DAP)
+[0]: Metalclaw -- 2fe3:0204:0123456789ABCDEF (CMSIS-DAP)
 
-$ probe-rs info --probe 2fe3:0204:E6612483CB313225 --protocol swd
-$ probe-rs download --verify --probe 2fe3:0204:E6612483CB313225 firmware.elf
+$ probe-rs info --probe 2fe3:0204:0123456789ABCDEF --protocol swd
+$ probe-rs download --verify --probe 2fe3:0204:0123456789ABCDEF firmware.elf
 ```
 
 Attaching `console_bridge` adds a CDC ACM port (`Metalclaw DUT console`) starting at `-if03` (`/dev/serial/by-id/usb-Metalclaw_<product>_<serial>-if03`). The USB device stays enumerated across MicroPython soft resets; if `main.py` re-attaches the same USB-facing devices, the harness does not re-enumerate. See [docs/usb.md](docs/usb.md) for interface layout and host notes.
@@ -101,8 +101,8 @@ The reference hardware platform is the **[metalclaw-pico-rp2](https://github.com
 
 ### Requirements
 
-- **Harness firmware:** `just`, `git`, `curl`, `make`, `cmake`, Python 3, and a host C compiler. `just setup` fetches the pinned submodules (MicroPython v1.28.0, pico-sdk 2.2.0) and ARM GNU toolchain into `../.arm-none-eabi`.
-- **Flashing:** optional J-Link for SWD flashing (`tools/flash_rp2.sh`), or none via the RP2 USB bootloader.
+- **Harness firmware:** `just`, `git`, `curl`, `make`, `cmake`, Python 3, and a host C compiler. `just setup` fetches the pinned submodules (MicroPython v1.28.0, pico-sdk 2.2.0) and the Linux x86_64 ARM GNU toolchain into `../.arm-none-eabi` (override with `METALCLAW_ARM_TOOLCHAIN_DIR` on other hosts).
+- **Flashing:** none required via the RP2 USB bootloader (UF2); an external SWD debugger is optional (a `JLinkExe` helper is included at `tools/flash_rp2.sh`).
 - **Hardware & emulated test suites:** `probe-rs` 0.30, Ninja, and Zephyr SDK 1.0.1 at `ZEPHYR_SDK_INSTALL_DIR` (default `~/zephyr-sdk-1.0.1`, installed by `just setup-zephyr-sdk`). Emulated runs also use `just setup-emulator`.
 
 ### Building
@@ -133,8 +133,8 @@ cmake -S core -B build/core_host -G Ninja && cmake --build build/core_host
 
 ### Flashing
 
-- **Bootloader (no J-Link needed):** hold BOOTSEL while powering the board—or run `import machine; machine.bootloader()` from the harness REPL—then copy `build/rp2/<board>/firmware.uf2` onto the `RPI-RP2` mass-storage drive.
-- **J-Link over SWD:**
+- **Bootloader (no external debugger needed):** hold BOOTSEL while powering the board—or run `import machine; machine.bootloader()` from the harness REPL—then copy `build/rp2/<board>/firmware.uf2` onto the `RPI-RP2` mass-storage drive.
+- **External SWD debugger:** flash `build/rp2/<board>/firmware.elf` with your SWD debugger (e.g., `probe-rs download`), or with the included J-Link helper:
   ```sh
   tools/flash_rp2.sh build/rp2/<board>/firmware.elf
   ```
@@ -194,7 +194,7 @@ test/
   unit/                       host C model checks and rig unit tests
   pico_examples/              specs and cases for unmodified pico-examples programs
   zephyr_samples/             build staging and cases for upstream Zephyr samples
-tools/                        flash_rp2.sh (J-Link flash and recovery)
+tools/                        flash_rp2.sh (optional SWD flash/recovery helper via JLinkExe)
 docs/                         devices.md, building.md, usb.md, testing.md
 justfile                      setup, build, and test recipes
 ```

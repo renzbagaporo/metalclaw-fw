@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-// InvenSense MPU-6050 six-axis IMU on I2C. TDK's product specification and
-// register map (PS-MPU-6000A, RM-MPU-6000A) were not downloadable; the
-// register addresses, bits and scales here come from the InvenSense-authored
-// Linux driver (drivers/iio/imu/inv_mpu6050/inv_mpu_iio.h and
-// inv_mpu_core.c, torvalds/linux d23d763) and from the temperature formula
-// pico-examples' mpu6050_i2c.c applies; see README.md.
+// InvenSense MPU-6050 six-axis IMU on I2C. Register addresses, bits and scales
+// come from the InvenSense-authored Linux driver
+// (drivers/iio/imu/inv_mpu6050/inv_mpu_iio.h and inv_mpu_core.c,
+// torvalds/linux d23d763) and from the temperature formula pico-examples'
+// mpu6050_i2c.c applies; see README.md.
 
 #include <errno.h>
 #include <stdbool.h>

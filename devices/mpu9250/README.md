@@ -109,14 +109,11 @@ between the register byte and the data. It prints the temperature with the
 MPU-6050's formula, `raw / 340 + 36.53`, so 31 C reads as 46.350588.
 `test/pico_examples/parts.py` attaches the part on the program's pins.
 The program starts the `WHO_AM_I` read 0.7 us after the reset write's chip
-select rises and clocks its first bit 3.2 us later (timed on fixture 1),
+select rises and clocks its first bit 3.2 us later,
 well after the 0.25 us the SPI target takes to be running for the next
 window.
 
 ## Sources
 
 InvenSense MPU-9250 Product Specification PS-MPU-9250A-01 revision 1.0 and
-Register Map and Descriptions RM-MPU-9250A-00 revision 1.4, from SparkFun's
-mirror (TDK's own links no longer serve them), saved beside the other
-datasheets in `.dev/resources/datasheets/` as `MPU9250REV1.0.pdf` and
-`MPU-9250-Register-Map.pdf`.
+Register Map and Descriptions RM-MPU-9250A-00 revision 1.4.

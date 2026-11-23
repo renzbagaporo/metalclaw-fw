@@ -4,7 +4,7 @@
 Maxim's DS3231 real-time clock on I2C, as the model `ds3231`: registers
 00h-12h as a register map the harness serves from hardware, a clock that
 counts seconds from the harness's time base, both alarms, and the INT/SQW
-pin (data sheet 19-5170 Rev 10, `DS3231.pdf`, as Adafruit hosts it).
+pin (data sheet 19-5170 Rev 10).
 
 ## Bindings
 

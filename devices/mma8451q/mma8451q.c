@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-// NXP MMA8451Q three-axis 14-bit accelerometer on I2C. NXP no longer serves
-// the MMA8451Q data sheet; the register map and bits come from its sibling's
-// data sheet (MMA8452Q Rev. 10, Table 11 and section 6), the family's data
-// application note (AN4076 Rev. 1) and NXP's MCUXpresso driver for this
-// part (fsl_mma.h, nxp-mcuxpresso/mcux-sdk 7ba15d9); see README.md.
+// NXP MMA8451Q three-axis 14-bit accelerometer on I2C. Register map and bits
+// come from the sibling MMA8452Q data sheet (Rev. 10, Table 11 and section 6),
+// the family data application note (AN4076 Rev. 1), and NXP's MCUXpresso
+// driver (fsl_mma.h, nxp-mcuxpresso/mcux-sdk 7ba15d9); see README.md.
 
 #include <errno.h>
 #include <stdbool.h>

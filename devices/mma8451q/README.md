@@ -64,12 +64,9 @@ goes on to 0x07 where the part wraps to 0x00.
 
 ## Sources
 
-NXP no longer serves the MMA8451Q data sheet: nxp.com answers "Not found"
-for `docs/en/data-sheet/MMA8451Q.pdf` on every host tried. What this model
-needed comes from vendor documents for the family, saved in
-`.dev/resources/datasheets/`:
+Register definitions and formulas come from NXP vendor documents for the family:
 
-- the MMA8452Q data sheet, Rev. 10, April 2016 (`MMA8452Q_rev10.pdf`), the
+- the MMA8452Q data sheet, Rev. 10, April 2016, the
   12-bit sibling with the same map: Table 11 (addresses, defaults,
   auto-increment with `F_READ`), `STATUS`, `SYSMOD` (Table 13),
   `XYZ_DATA_CFG` (Table 15), `CTRL_REG1` (Table 53), `CTRL_REG2` (Table 57);

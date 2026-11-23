@@ -24,7 +24,7 @@
  * model; a pad left on its reset pull-down reads as a break.
  */
 &pinctrl {
-	uart0_fixture1: uart0_fixture1 {
+	uart0_harness: uart0_harness {
 		group1 {
 			pinmux = <UART0_TX_P0>;
 		};
@@ -56,6 +56,6 @@
 &uart0 {
 	status = "okay";
 	current-speed = <115200>;
-	pinctrl-0 = <&uart0_fixture1>;
+	pinctrl-0 = <&uart0_harness>;
 	pinctrl-names = "default";
 };

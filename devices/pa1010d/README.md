@@ -131,7 +131,4 @@ from address 0; every later read holds one RMC.
 
 CD-PA1010D Data Sheet V.03; GlobalTop "GPS NMEA over I2C Software Guide"
 v1.0 (2014-10-01, for the MT3339 and MT3333); GlobalTop "PMTK command
-packet" Rev.A11. All three are in `.dev/resources/datasheets/`
-(`CD_PA1010D_Datasheet_v.03.pdf`, `GTop_NMEA_over_I2C_AN_v1.0.pdf`,
-`PMTK_A11.pdf`). The NMEA 0183 standard itself is sold by the NMEA and was
-not used; the sentence formats are the datasheet's.
+packet" Rev.A11. The sentence formats follow the datasheet.

@@ -24,8 +24,8 @@ The binding advertises what the datasheet says: SPI modes 0 and 3, mode 0 by
 default, MSB first. The clock is the DUT's choice; the engine publishes the
 ceiling it was qualified at in `stats("spi")["max_clock_hz"]`.
 
-On fixture 1 that is SCK on GP18, MOSI on GP19, MISO on GP16 and chip select
-on GP21:
+With the default Pico harness wiring, SCK is on GP18, MOSI on GP19, MISO on
+GP16 and chip select on GP21:
 
 ```python
 import metalclaw
@@ -81,7 +81,7 @@ METALCLAW_DUT_DEVICE=ads7883 just test hardware
 ## Tests
 
 `test/cases.py` attaches the model on the rig's SPI pins for this part
-(`(18, 19, 16, 21)` on fixture 1, from the platform's `fixture` description),
+(`(18, 19, 16, 21)` on the stacked Pico fixture, from the platform's `fixture` description),
 resets the DUT and checks: five samples across the range read back exactly with both zero fields
 clear; a new sample is in the very next window; a six-byte window is the frame
 followed by zeros; ten windows move `transactions` by at least ten; at 1, 5,

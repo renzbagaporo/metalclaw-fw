@@ -396,7 +396,7 @@ class FakeBench:
 
     def snapshot(self):
         self.reads += 1
-        return {"board": "fixture1_pico", "probes": [{"name": "dut", "transfers": 100 * self.reads, "errors": 0,
+        return {"board": "rpi_pi_pico", "probes": [{"name": "dut", "transfers": 100 * self.reads, "errors": 0,
                                                       "short_replies": 0}]}, None
 
     def close(self):
@@ -435,7 +435,7 @@ def test_an_interrupted_memory_soak_still_writes_its_session_and_summary(bench, 
 
     monkeypatch.setattr(probe_soak.dap, "DapMemory", Interrupting)
     log = bench / "soak.jsonl"
-    status = probe_soak.main(["memory", "--serial", "E661", "--image", str(smoke), "--log", str(log),
+    status = probe_soak.main(["memory", "--serial", "SER1", "--image", str(smoke), "--log", str(log),
                               "--duration", "1h", "--seed", "5"])
     assert status == 130
     session = lines(log)[-1]
@@ -443,10 +443,10 @@ def test_an_interrupted_memory_soak_still_writes_its_session_and_summary(bench, 
     assert session["soak"]["mode"] == "memory" and session["soak"]["interrupted"] is True
     assert session["soak"]["scratch"] == {"address": "0x20001640", "bytes": 1024}
     assert session["soak"]["iterations"] > 0 and session["soak"]["seed"] == 5
-    assert session["bench"] == {"serial": "E661", "board": "fixture1_pico"}
+    assert session["bench"] == {"serial": "SER1", "board": "rpi_pi_pico"}
     assert session["probe"]["delta"] == {"transfers": 100, "errors": 0, "short_replies": 0}
     out = capsys.readouterr()
-    assert "hardware E661 fixture1_pico [soak memory]: 1 session" in out.out
+    assert "hardware SER1 rpi_pi_pico [soak memory]: 1 session" in out.out
     assert "interrupted; the summary is partial" in out.err
 
 
@@ -454,7 +454,7 @@ def test_the_flash_soak_refuses_two_images_with_the_same_flash(bench, capsys):
     first = image(bench / "a", range(16))
     second = image(bench / "b", range(16))
     log = bench / "soak.jsonl"
-    status = probe_soak.main(["flash", "--serial", "E661", "--image", str(first), "--image", str(second),
+    status = probe_soak.main(["flash", "--serial", "SER1", "--image", str(first), "--image", str(second),
                               "--log", str(log)])
     assert status == 2
     assert "same bytes in flash" in capsys.readouterr().err
@@ -467,7 +467,7 @@ def test_the_flash_soak_runs_its_cycles_and_restores_the_first_image(bench, monk
     probe = FakeProbe()
     monkeypatch.setattr(probe_soak, "_harness_probe", lambda serial, chip, speed, recorder: probe)
     log = bench / "soak.jsonl"
-    assert probe_soak.main(["flash", "--serial", "E661", "--image", str(first), "--image", str(second),
+    assert probe_soak.main(["flash", "--serial", "SER1", "--image", str(first), "--image", str(second),
                             "--cycles", "4", "--log", str(log)]) == 0
     downloads = [call[1] for call in probe.calls if call[0] == "download"]
     assert downloads == [first, second, first, second, first]
@@ -478,7 +478,7 @@ def test_the_flash_soak_runs_its_cycles_and_restores_the_first_image(bench, monk
 
 def test_a_soak_needs_a_log(monkeypatch, capsys):
     monkeypatch.delenv("METALCLAW_PROBE_LOG", raising=False)
-    assert probe_soak.main(["memory", "--serial", "E661", "--image", "x.elf"]) == 2
+    assert probe_soak.main(["memory", "--serial", "SER1", "--image", "x.elf"]) == 2
     assert "give --log" in capsys.readouterr().err
 
 
@@ -490,13 +490,13 @@ def test_a_dut_the_soak_cannot_reach_stops_it_with_its_session_line(bench, monke
             super().__init__()
 
         def read_words(self, address, count):
-            raise DapError("no harness E661 on USB", "no_harness")
+            raise DapError("no harness SER1 on USB", "no_harness")
 
     monkeypatch.setattr(probe_soak.dap, "DapMemory", Unreachable)
     log = bench / "soak.jsonl"
-    assert probe_soak.main(["memory", "--serial", "E661", "--image", str(smoke), "--log", str(log)]) == 2
-    assert lines(log)[-1]["soak"]["stopped"] == "failed: DapError('no harness E661 on USB')"
-    assert "no harness E661 on USB" in capsys.readouterr().err
+    assert probe_soak.main(["memory", "--serial", "SER1", "--image", str(smoke), "--log", str(log)]) == 2
+    assert lines(log)[-1]["soak"]["stopped"] == "failed: DapError('no harness SER1 on USB')"
+    assert "no harness SER1 on USB" in capsys.readouterr().err
 
 
 def test_the_soak_never_flashes_through_a_jlink(bench, capsys):

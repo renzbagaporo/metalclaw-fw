@@ -51,7 +51,7 @@ FIXTURE = {
     # Each DUT pin a harness pin reaches, and which: the Pico 2 is stacked on
     # the Pico 1 pin for pin, except the crossed UART0 pair. Harness GP2, GP3
     # and GP28 are the DUT's SWCLK, SWDIO and RUN, so the DUT's own GP2, GP3
-    # and GP28 reach nothing. Checked both ways by a pin probe, 2026-11-15.
+    # and GP28 reach nothing.
     "dut_pins": {0: (1,), 1: (0,), **{p: (p,) for p in (*range(4, 23), 26, 27)}},
     # DUT pins the harness can hold at an analog level: none, every pin is
     # wired straight to a harness pin.
@@ -59,11 +59,11 @@ FIXTURE = {
 }
 
 # The MetalClaw Pico RP2 carrier (v1.r1 schematic) with a Pico on it: the
-# same Pico pins as fixture 1, reached through the carrier's GPIO branches.
-# Where a Pico pin has two branches, each role takes the one with the pin
-# function it needs; the other branch stays an input. SPI is GPIO32-39,
-# so the SPI engine's PIO block sits at GPIO base 16, and the sx126x's
-# BUSY, which that block drives, takes Pico GP10 through GPIO22.
+# same Pico pins as the stacked Pico fixture, reached through the carrier's
+# GPIO branches. Where a Pico pin has two branches, each role takes the one
+# with the pin function it needs; the other branch stays an input. SPI is
+# GPIO32-39, so the SPI engine's PIO block sits at GPIO base 16, and the
+# sx126x's BUSY, which that block drives, takes Pico GP10 through GPIO22.
 METALCLAW_PICO_RP2_FIXTURE = {
     "swd": (17, 25, 9),
     "i2c": {"sda": 12, "scl": 13, "address": {"bmp388": 0x76}},
@@ -76,9 +76,9 @@ METALCLAW_PICO_RP2_FIXTURE = {
         "cs": {"ads7883": 41, "icm4268x": 37, "bmp388": 33, "sx126x": 41},
     },
     "gpio": {"sx126x": {"busy": 22, "dio1": 40, "nreset": 14}, "pwrkey": 14, "reset": 14},
-    # Each Pico pin's carrier GPIO branches, from the v1.r1 netlist (checked
-    # on the bench pin by pin, 2026-11-07). Two branches are one net; GP26-28
-    # pass a 330 R + 2.2 k RC filter, fit for slow or analog signals only.
+    # Each Pico pin's carrier GPIO branches, from the v1.r1 netlist. Two
+    # branches are one net; GP26-28 pass a 330 R + 2.2 k RC filter, fit for
+    # slow or analog signals only.
     "dut_pins": {
         0: (3, 4), 1: (2, 5), 2: (6,), 3: (0, 7), 4: (11, 12), 5: (10, 13), 6: (14,), 7: (8, 15),
         8: (19, 20), 9: (18, 21), 10: (22,), 11: (16, 23), 12: (27, 28), 13: (26, 29), 14: (30,),
@@ -98,7 +98,6 @@ METALCLAW_PICO_RP2_FIXTURE = {
 
 # The fixture's pins by the harness's MicroPython board.
 FIXTURES = {
-    "fixture1_pico": FIXTURE,
     "rpi_pi_pico": FIXTURE,
     "metalclaw_pico_rp2": METALCLAW_PICO_RP2_FIXTURE,
 }

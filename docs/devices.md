@@ -462,7 +462,7 @@ port exists.
   window's first byte must take at least that long. A rise that comes
   while the reset program for the one before it still runs, under about
   3 µs apart, is re-armed for only once that one ends. Not measured on
-  fixture 1's 125 MHz RP2040; scaled by clock, about 0.3 µs, 0.55 µs and
+  a 125 MHz RP2040; scaled by clock, about 0.3 µs, 0.55 µs and
   3.2 µs.
 - `spi_sink.h`: a receive-only SPI target for a sink, on `(sck, mosi,
   cs[, line])`. Chip select may rise after every byte, as a PL022 does in

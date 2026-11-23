@@ -3,8 +3,7 @@
 
 NXP's PCA9633 4-bit Fm+ I2C-bus LED driver, as the model `pca9633`: a
 register map the harness serves from hardware (data sheet Rev. 05, 25 July
-2008, `PCA9633-Rev05.pdf`; NXP's site refused the download, and this copy
-is a distributor's). It is the RGB backlight of Seeed's Grove LCD RGB
+2008). It is the RGB backlight of Seeed's Grove LCD RGB
 Backlight, at 62h.
 
 ## Bindings

@@ -1,9 +1,9 @@
-# A real SX1262 (a wing with a TCXO on DIO3) under RadioLib 7.7.1 and
-# Meshtastic 2.8.2 (e506f8a) on an ESP32-S3, region JP, LongFast: boot,
+# Captured from a real SX1262 (with a TCXO on DIO3) under RadioLib 7.7.1 and
+# Meshtastic 2.8.2 (e506f8a) on an ESP32-S3 (LongFast, 923.375 MHz): boot,
 # radio init, a want_ack direct message received, two CADs (the first
 # finding the channel busy), the routing ACK sent, a 39-byte reply received,
-# the periodic warm sleep and Calibrate. From a RADIOLIB_DEBUG_SPI capture,
-# 2026-10-03. Node numbers are synthetic and every frame past its 16-byte
+# the periodic warm sleep and Calibrate. From a RADIOLIB_DEBUG_SPI capture.
+# Node numbers are synthetic and every frame past its 16-byte
 # Meshtastic header is filler, so nothing here decrypts.
 #
 # One item per line, in time order (us, the DUT's clock as RadioLib stamped

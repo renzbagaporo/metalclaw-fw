@@ -94,21 +94,21 @@ def test_samples_are_bounded_and_truncated():
     assert len(r.samples[0]["message"]) == probe_telemetry.MESSAGE_CHARS
 
 
-def snapshot(transfers, errors=0, short_replies=0, board="fixture1_pico"):
+def snapshot(transfers, errors=0, short_replies=0, board="rpi_pi_pico"):
     return {"board": board, "probes": [{"name": "dut", "enabled": True, "clock_hz": 1000000, "connected": False,
                                         "transfers": transfers, "errors": errors, "short_replies": short_replies}]}
 
 
 def test_the_session_line_carries_bench_dut_operations_and_probe_counters():
     r = recorder()
-    r.describe(platform="hardware", bench={"serial": "E661"}, dut={"chip": "RP2350_Core0"})
+    r.describe(platform="hardware", bench={"serial": "SER1"}, dut={"chip": "RP2350_Core0"})
     r.record("probe_rs", "download", 4.0)
     r.count("dap_commands", 12)
     r.probe_start, r.probe_end = snapshot(100, 1), snapshot(250, 3, 2)
     r.finish()
     line = json.loads(json.dumps(r.line()))
     assert line["record"] == "session" and line["source"] == "rig" and line["platform"] == "hardware"
-    assert line["bench"] == {"serial": "E661", "board": "fixture1_pico"}
+    assert line["bench"] == {"serial": "SER1", "board": "rpi_pi_pico"}
     assert line["dut"] == {"chip": "RP2350_Core0"}
     assert line["operations"][0]["layer"] == "probe_rs" and line["operations"][0]["calls"] == 1
     assert line["counters"] == {"dap_commands": 12}
@@ -200,12 +200,12 @@ def test_the_snapshot_code_reads_every_probe_and_tolerates_a_missing_property(mo
     instances = [FakeInstance("swd_probe", "dut", enabled=True, clock_hz=1000000, connected=False, transfers=7,
                               errors=1), FakeInstance("bmp388", "baro")]
     monkeypatch.setitem(sys.modules, "metalclaw", SimpleNamespace(instances=lambda: instances))
-    monkeypatch.setattr(sys.implementation, "_build", "fixture1_pico", raising=False)
+    monkeypatch.setattr(sys.implementation, "_build", "rpi_pi_pico", raising=False)
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         exec(probe_telemetry.PROBE_SNAPSHOT, {})
     found, _ = probe_telemetry.parse_snapshot(out.getvalue())
-    assert found == {"board": "fixture1_pico", "probes": [{"name": "dut", "enabled": True, "clock_hz": 1000000,
+    assert found == {"board": "rpi_pi_pico", "probes": [{"name": "dut", "enabled": True, "clock_hz": 1000000,
                                                            "connected": False, "transfers": 7, "errors": 1,
                                                            "short_replies": None}]}
 
@@ -221,9 +221,9 @@ def test_the_snapshot_code_prints_its_failure_rather_than_raising(monkeypatch):
 
 def test_reading_the_probe_skips_a_gone_harness_and_an_unattached_probe():
     def gone(code, timeout):
-        raise RuntimeError("harness E661 REPL port is gone")
+        raise RuntimeError("harness SER1 REPL port is gone")
 
-    assert probe_telemetry.read_probe(gone) == (None, "not read: RuntimeError('harness E661 REPL port is gone')")
+    assert probe_telemetry.read_probe(gone) == (None, "not read: RuntimeError('harness SER1 REPL port is gone')")
     found, note = probe_telemetry.read_probe(lambda code, timeout: "PROBE {'board': 'b', 'probes': []}\n")
     assert found == {"board": "b", "probes": []} and note == "no swd_probe attached"
     found, note = probe_telemetry.read_probe(lambda code, timeout: "PROBE " + repr(snapshot(3)) + "\n")
@@ -262,7 +262,7 @@ def quiet_link(monkeypatch):
 
 def test_a_dap_access_records_its_connect_its_words_and_its_commands(quiet_link):
     r = recorder()
-    assert DapMemory("E661", recorder=r).read_words(0x20000000, 4) == [0x20000000] * 4
+    assert DapMemory("SER1", recorder=r).read_words(0x20000000, 4) == [0x20000000] * 4
     assert r.operations[("dap", "connect")].ok == 1
     read = r.operations[("dap", "read")]
     assert (read.calls, read.ok, read.words) == (1, 1, 4)
@@ -271,12 +271,12 @@ def test_a_dap_access_records_its_connect_its_words_and_its_commands(quiet_link)
 
 def test_a_dap_access_that_cannot_connect_records_why_on_both(monkeypatch):
     def missing(self):
-        raise DapError("no harness E661 on USB", "no_harness")
+        raise DapError("no harness SER1 on USB", "no_harness")
 
     monkeypatch.setattr(dap._Link, "_open", missing)
     r = recorder()
     with pytest.raises(DapError):
-        DapMemory("E661", recorder=r).read_words(0x20000000, 1)
+        DapMemory("SER1", recorder=r).read_words(0x20000000, 1)
     assert r.operations[("dap", "connect")].errors == {"no_harness": 1}
     assert r.operations[("dap", "read")].errors == {"no_harness": 1}
 
@@ -288,14 +288,14 @@ def test_a_dap_access_counts_a_usb_timeout(monkeypatch, quiet_link):
     monkeypatch.setattr(dap._Link, "write_words", times_out)
     r = recorder()
     with pytest.raises(USBTimeoutError):
-        DapMemory("E661", recorder=r).write_words(0x20000000, [1, 2])
+        DapMemory("SER1", recorder=r).write_words(0x20000000, [1, 2])
     assert r.operations[("dap", "write")].errors == {"usb_timeout": 1}
 
 
 def test_an_invalid_access_raises_before_any_traffic():
     r = recorder()
     with pytest.raises(DapError) as raised:
-        DapMemory("E661", recorder=r).read_words(0x20000001, 1)
+        DapMemory("SER1", recorder=r).read_words(0x20000001, 1)
     assert raised.value.kind == "invalid"
     assert r.operations == {}
 
@@ -304,7 +304,7 @@ def test_an_invalid_access_raises_before_any_traffic():
                                         (bytes([dap.DAP_TRANSFER, 0, 4]), "fault"),
                                         (bytes([dap.DAP_TRANSFER, 0, 7]), "no_ack")])
 def test_a_transfer_names_its_ack(monkeypatch, reply, kind):
-    link = dap._Link("E661", 1_000_000, dap.RP2350)
+    link = dap._Link("SER1", 1_000_000, dap.RP2350)
     monkeypatch.setattr(link, "_command", lambda packet: reply)
     with pytest.raises(DapError) as raised:
         link._dp_read(dap.DP_DPIDR)
@@ -312,7 +312,7 @@ def test_a_transfer_names_its_ack(monkeypatch, reply, kind):
 
 
 def test_a_block_names_its_ack(monkeypatch):
-    link = dap._Link("E661", 1_000_000, dap.RP2350)
+    link = dap._Link("SER1", 1_000_000, dap.RP2350)
     monkeypatch.setattr(link, "_command", lambda packet: bytes([dap.DAP_TRANSFER_BLOCK, 0, 0, 2]))
     with pytest.raises(DapError) as raised:
         link._block(dap.AP_DRW, 4)
@@ -432,7 +432,7 @@ from test.rig import probe_telemetry
 
 def test_uses_the_probe(pytestconfig):
     r = probe_telemetry.recorder(pytestconfig)
-    r.describe(bench={"serial": "E661"})
+    r.describe(bench={"serial": "SER1"})
     r.record("dap", "read", 0.002, words=128)
     r.record("dap", "read", 1.0, "usb_timeout", "timed out")
 """
@@ -448,7 +448,7 @@ def test_the_session_line_goes_beside_the_junit_xml(pytester, monkeypatch):
                                  "the session never set up the probe; logged to *results/probe_telemetry.jsonl"])
     lines = [json.loads(text) for text in log.read_text().splitlines()]
     assert len(lines) == 1
-    assert lines[0]["platform"] == "emulator" and lines[0]["bench"] == {"serial": "E661"}
+    assert lines[0]["platform"] == "emulator" and lines[0]["bench"] == {"serial": "SER1"}
     assert lines[0]["exitstatus"] == 0
     assert lines[0]["operations"][0]["errors"] == {"usb_timeout": 1}
 

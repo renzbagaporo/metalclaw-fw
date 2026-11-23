@@ -30,14 +30,12 @@ and 4 of the harness, whatever else is attached, so on Linux the port is
 /dev/serial/by-id/usb-Metalclaw_<product>_<serial>-if03
 ```
 
-and on the bench
-`/dev/serial/by-id/usb-Metalclaw_Metalclaw_E6612483CB313225-if03`. A
-second bridge is `-if05`. Both carry the same interface string, which a
+A second bridge is `-if05`. Both carry the same interface string, which a
 host reads from sysfs (`/sys/class/tty/ttyACM<n>/device/interface`).
 
-On fixture 1 the DUT's console UART is the crossed pair, harness GP0 TX and
-GP1 RX. Any other pin pair works too: the UART engine is a PL011 where the
-pins carry one's functions and PIO otherwise.
+With the default Pico harness wiring, the DUT's console UART is the crossed
+pair, harness GP0 TX and GP1 RX. Any other pin pair works too: the UART engine
+is a PL011 where the pins carry one's functions and PIO otherwise.
 
 ```python
 import metalclaw

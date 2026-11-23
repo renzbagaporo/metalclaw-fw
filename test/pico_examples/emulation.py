@@ -121,7 +121,7 @@ CORE_ORDER_LIMITS: dict[str, str] = {
 # uart/lcd_uart/lcd_uart.c:29-31, 101: lcd_init writes 0xFE a few
 # instructions after gpio_set_function hands GP8 to UART1. Until then the
 # pin is undriven and reads low on the fixture (the harness's pull-up
-# against the RP2350 pad's pull-down; measured, 2026-11-18), so the part's
+# against the RP2350 pad's pull-down), so the part's
 # receiver takes a frame error and waits for an idle-high line before the
 # next start bit, as a real UART's 16x idle detection does. On silicon the
 # code after gpio_set_function runs cold from XIP flash, and its cache

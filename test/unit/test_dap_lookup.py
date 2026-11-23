@@ -42,12 +42,12 @@ def sysfs(root, name, serial, interfaces=()):
 
 
 def test_a_busy_harness_is_found_by_its_sysfs_serial(monkeypatch, tmp_path):
-    other, ours = BusyDevice(3, (7, 2)), BusyDevice(3, (7, 3))
-    sysfs(tmp_path, "3-7.2", "D4D2E0179F4FECF3")
-    sysfs(tmp_path, "3-7.3", "E6612483CB313225")
+    other, ours = BusyDevice(1, (2, 1)), BusyDevice(1, (2, 2))
+    sysfs(tmp_path, "1-2.1", "1111222233334444")
+    sysfs(tmp_path, "1-2.2", "AABBCCDDEEFF0011")
     monkeypatch.setattr(dap, "SYSFS_USB", tmp_path)
     monkeypatch.setattr(dap.usb.core, "find", lambda **kwargs: iter([other, ours]))
-    assert dap.find_harness("E6612483CB313225") is ours
+    assert dap.find_harness("AABBCCDDEEFF0011") is ours
     assert dap.find_harness("0123456789ABCDEF") is None
 
 
@@ -63,8 +63,8 @@ def test_a_device_sysfs_cannot_name_falls_back_to_asking_it(monkeypatch, tmp_pat
 
 def test_interface_names_come_from_sysfs(monkeypatch, tmp_path):
     repl, dap_interface = Interface(0, 4), Interface(3, 7)
-    device = BusyDevice(3, (7, 3), [repl, Interface(1, 0), dap_interface])
-    sysfs(tmp_path, "3-7.3", "E6612483CB313225", [("1.0", "Metalclaw REPL"), ("1.3", dap.INTERFACE_NAME)])
+    device = BusyDevice(1, (2, 2), [repl, Interface(1, 0), dap_interface])
+    sysfs(tmp_path, "1-2.2", "AABBCCDDEEFF0011", [("1.0", "Metalclaw REPL"), ("1.3", dap.INTERFACE_NAME)])
     monkeypatch.setattr(dap, "SYSFS_USB", tmp_path)
     monkeypatch.setattr(dap.usb.util, "get_string", lambda *a: (_ for _ in ()).throw(AssertionError("asked")))
     assert dap.interface_strings(device) == [(repl, "Metalclaw REPL"), (dap_interface, dap.INTERFACE_NAME)]

@@ -34,7 +34,7 @@ size_t mclw_hal_usb_write(struct mclw_usb_interface *itf, const uint8_t *data, s
 }
 
 const char *mclw_hal_usb_serial(void) {
-    return "E6612483CB313225";
+    return "0123456789ABCDEF";
 }
 
 int mclw_hal_swd_port_on(struct mclw_swd *swd) {

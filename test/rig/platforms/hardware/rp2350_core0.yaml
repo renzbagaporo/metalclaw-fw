@@ -8,13 +8,12 @@
 # Everything below is upstream's content with core 1 and the RISC-V variant
 # removed; the flash algorithm blob is copied verbatim.
 #
-# Re-checked against probe-rs v0.32.0 (git 48f5e4d), the version on the bench:
+# Re-checked against probe-rs v0.32.0 (git 48f5e4d):
 # the `algo` block is byte-identical - same base64 `instructions`, and the
 # `pc_*` entries below are upstream's own hexadecimal spelling of the same
 # offsets - so a future `diff` against upstream stays clean.
 #
-# TWO INVARIANTS THIS FILE MUST KEEP.  Both are enforced offline by
-# `devices/metalclaw_device_tools/rp2040_hil.py:validate_chip_description()`.
+# TWO INVARIANTS THIS FILE MUST KEEP:
 #
 # 1. Every variant name must start with "RP235".
 #    probe-rs picks the chip-specific debug sequence purely by string prefix on
@@ -38,31 +37,31 @@
 #    so a multidrop session DP would leave the rescue write addressing a
 #    different debug port.  Upstream's RP235x.yaml leaves it unset; so do we.
 #
-# Why this file exists (fixture 1, bench-verified):
-#   The Pico 2 on fixture 1 has its RP2350 per-core architecture select set to
-#   core 0 = Arm, core 1 = RISC-V.  Its root ROM table therefore publishes
-#   core 0's Arm access port at 0x2000 and the RISC-V debug module at 0xa000,
-#   and does NOT publish an Arm AP at 0x4000.  probe-rs's stock all-Arm
-#   `RP235x` description declares core 1 at AP v2 0x4000, so every operation
-#   that opens a full session (`read`, `reset`, `download`) faults with
-#   "Failed to read register DRW at address 0xd0c" / ApV2Address(Some(16384)).
-#   `--core 0` does not help: the session is built from the description, not
-#   from the requested core.  `probe-rs info` is unaffected because it only
-#   walks the ROM table.  `--chip RP235x_riscv` is not an answer either -
-#   neither board on this bench runs RISC-V, so the DMI transactions time out.
+# Why this file exists:
+#   An RP2350 with per-core architecture select set to core 0 = Arm,
+#   core 1 = RISC-V publishes core 0's Arm access port at 0x2000 and the
+#   RISC-V debug module at 0xa000, and does NOT publish an Arm AP at 0x4000.
+#   probe-rs's stock all-Arm `RP235x` description declares core 1 at AP v2
+#   0x4000, so every operation that opens a full session (`read`, `reset`,
+#   `download`) faults with "Failed to read register DRW at address 0xd0c" /
+#   ApV2Address(Some(16384)).  `--core 0` does not help: the session is built
+#   from the description, not from the requested core.  `probe-rs info` is
+#   unaffected because it only walks the ROM table.  `--chip RP235x_riscv` is
+#   not an answer when running Arm-only images, as the DMI transactions time
+#   out.
 #
 # Select it with:
-#   probe-rs <cmd> --chip-description-path devices/metalclaw_device_tools/rp2350_core0.yaml \
+#   probe-rs <cmd> --chip-description-path test/rig/platforms/hardware/rp2350_core0.yaml \
 #            --chip RP2350_Core0 --protocol swd
 #
 # `--target-sel` is NOT part of that invocation.  In probe-rs 0.32 it exists
 # only on `probe-rs info`, and its own help says it is "required in --verbose
 # mode for targets using SWD multidrop"; no session command (`read`, `write`,
-# `reset`, `download`) accepts it.  Fixture 1's Pico 2 answers on the default
-# DP, exactly like upstream's RP235x description and like OpenOCD's
+# `reset`, `download`) accepts it.  The RP2350 answers on the default DP,
+# exactly like upstream's RP235x description and like OpenOCD's
 # `tcl/target/rp2350.cfg` when SWD_MULTIDROP is unset.
 #
-# Never add --connect-under-reset on fixture 1: it has never been tested there.
+# Never add --connect-under-reset: the rig's probe wrapper refuses it.
 # A post-flash debugger-port mailbox PING, not a reset mechanism, establishes
 # that the selected image is running.
 name: RP235x_Metalclaw_Core0

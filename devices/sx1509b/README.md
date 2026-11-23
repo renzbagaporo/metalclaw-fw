@@ -4,10 +4,9 @@
 Semtech's SX1509B 16-I/O expander with LED driver on I2C, as the model
 `sx1509b`: Table 13's configuration registers 00h-7Fh as a register map
 the harness serves from hardware, with the RegReset software reset. The
-register map is the SX1507/SX1508/SX1509 data sheet's (Rev 1, 30 Oct.
-2009, `SX1507_SX1508_SX1509.pdf`, as SparkFun hosts it); the SX1509B's own
-data sheet was not at hand, and Zephyr's `semtech,sx1509b` driver uses the
-same addresses (its intensity table matches Table 13's RegIOn).
+register map follows the SX1507/SX1508/SX1509 data sheet (Rev 1, 30 Oct.
+2009), matching Zephyr's `semtech,sx1509b` driver (its intensity table matches
+Table 13's RegIOn).
 
 ## Bindings
 

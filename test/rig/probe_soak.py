@@ -13,10 +13,10 @@
 #           Through the harness probe by the rig's own DAP client, or through
 #           a J-Link (--jlink) for a baseline.
 #
-#   test/rig/probe_soak.py flash --serial E6612483CB313225 \
+#   test/rig/probe_soak.py flash --serial <serial> \
 #       --image build/dut/smoke/zephyr/zephyr.elf \
 #       --image build/dut/bmp388/zephyr/zephyr.elf --log soak.jsonl
-#   test/rig/probe_soak.py memory --serial E6612483CB313225 \
+#   test/rig/probe_soak.py memory --serial <serial> \
 #       --image build/dut/smoke/zephyr/zephyr.elf --duration 1h --log soak.jsonl
 #   test/rig/probe_soak.py memory --jlink <J-Link serial> \
 #       --image build/dut/smoke/zephyr/zephyr.elf --duration 1h --log soak.jsonl
@@ -520,8 +520,9 @@ def run_memory(args, recorder, log: Log, state: dict, bench: Bench) -> None:
     segments = dut_flash.flash_segments(image.read_bytes())
     recorder.describe(dut={"chip": chip.probe_chip, "series": series, "image": str(image)})
     if args.jlink and args.flash:
-        # The bench J-Links sit on the harness's own SWD pads; a download
-        # through one would land in the harness.
+        # An external J-Link may be wired to the harness's own SWD pads rather
+        # than the DUT's; refuse flashing through it so a DUT image cannot
+        # overwrite the harness.
         raise SoakError("the soak never flashes through a J-Link; flash the DUT through the harness first")
     if args.jlink:
         probe_id = f"{JLINK_USB}:{args.jlink}"
