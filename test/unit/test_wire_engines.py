@@ -767,3 +767,102 @@ def test_envelope_carries_the_loopback_programs_frame_and_times_it(built):
     for entry in tool(built, 1_000_000, "envelope", *(f"{w:x}" for w in envelope.rx)):
         lib.layers_nec_take(entry >> 31, entry & 0x7FFFFFFF)
     assert [lib.layers_nec_get(i) for i in range(4)] == [1, 0, 0, frame]
+
+
+# --- EDGES_IN: a pin the DUT drives, every high and low timed
+
+LONG = 0x7FFFFFFF
+MARK_BIT = 0x80000000
+
+
+def edges_harness(sim, built, hz, limit=None, join="rx"):
+    sm = StateMachine(sim, "harness", programs(built, hz)["edges_in"], hz=hz, sys_hz=hz, in_base=0, jmp_pin=0,
+                      join=join)
+    sm.y = limit if limit is not None else tool(built, hz, "limit")[0]
+    return sm
+
+
+def edges_entries(built, hz, words, limit="-"):
+    return tool(built, hz, "edges", limit, *(f"{w:x}" for w in words))
+
+
+def levels(start, widths):
+    # The edges of levels `widths` ps long, the first high, from `start`.
+    edges, t, level = [], start, 1
+    for width in widths:
+        edges.append((t, level))
+        t += width
+        level ^= 1
+    edges.append((t, level))
+    return edges, t
+
+
+@pytest.mark.parametrize("hz", HARNESS_CLOCKS)
+def test_edges_in_times_each_level_to_a_couple_of_cycles(built, hz):
+    # A 20 kHz PWM going from 30 % to 70 %, its edges off the harness's
+    # cycle grid: each high and low comes back as it was, its kind in bit
+    # 31, and each rise-to-rise cycle adds up to the period.
+    sim = Sim()
+    sim.drive(0, "dut", 0, True, 0)
+    harness = edges_harness(sim, built, hz)
+    drain(harness)
+    widths = [15_003 * NS, 34_997 * NS] * 3 + [35_001 * NS, 14_999 * NS] * 3
+    edges, t = levels(1 * US + 7 * NS, widths)
+    sim.waveform("dut", 0, edges)
+    sim.run_until(t + 5 * US)
+    got = edges_entries(built, hz, harness.rx)
+    cycle_ns = 1e9 / hz
+    # The low it started in, untimed; then every level but the last, which
+    # no edge has ended yet.
+    assert got.pop(0) == LONG
+    assert [bool(g & MARK_BIT) for g in got] == [i % 2 == 0 for i in range(len(widths))]
+    for g, width in zip(got, widths):
+        assert abs((g & LONG) - width / NS) <= 2 * cycle_ns, (g & LONG, width / NS)
+    for i in range(0, len(widths), 2):
+        period = (got[i] & LONG) + (got[i + 1] & LONG)
+        assert abs(period - (widths[i] + widths[i + 1]) / NS) <= 2 * cycle_ns
+
+
+@pytest.mark.parametrize("hz", HARNESS_CLOCKS)
+def test_edges_in_reports_a_level_past_its_count_as_long(built, hz):
+    # A limit of 500 passes (1000 cycles, 7-8 us): a 20 us high and a 30 us
+    # low come back as MCLW_WIRE_LONG, and the levels between them as they
+    # were.
+    sim = Sim()
+    sim.drive(0, "dut", 0, True, 0)
+    harness = edges_harness(sim, built, hz, limit=500)
+    drain(harness)
+    widths = [20 * US, 5 * US, 3 * US, 30 * US, 4 * US, 2 * US]
+    edges, t = levels(1 * US, widths)
+    sim.waveform("dut", 0, edges)
+    sim.run_until(t + 5 * US)
+    got = edges_entries(built, hz, harness.rx, 500)
+    assert got.pop(0) == LONG
+    assert got[0] == MARK_BIT | LONG and got[3] == LONG
+    for i in (1, 2, 4, 5):
+        assert abs((got[i] & LONG) - widths[i] / NS) <= 2 * 1e9 / hz
+
+
+def test_edges_in_drops_what_a_full_fifo_cannot_take_and_carries_on(built):
+    # The joined RX FIFO holds eight; the levels after a drop are still
+    # timed from their own edges, and still say which they were.
+    hz = 125_000_000
+    sim = Sim()
+    sim.drive(0, "dut", 0, True, 0)
+    harness = edges_harness(sim, built, hz)
+    widths = [2 * US, 3 * US] * 6
+    edges, t = levels(1 * US, widths)
+    sim.waveform("dut", 0, edges)
+    sim.run_until(t + 1 * US)
+    first = edges_entries(built, hz, harness.rx)
+    assert len(first) == 8
+    harness.rx.clear()
+    # The line stood high after the last of those; it stays high 10 us more.
+    more = [4 * US, 6 * US] * 2
+    edges, t2 = levels(t + 10 * US, more)
+    sim.waveform("dut", 0, edges[1:])
+    sim.run_until(t2 + 1 * US)
+    got = edges_entries(built, hz, harness.rx)
+    assert [bool(g & MARK_BIT) for g in got] == [True, False, True, False]
+    for g, width in zip(got, [14 * US, 6 * US, 4 * US, 6 * US]):
+        assert abs((g & LONG) - width / NS) <= 2 * 1e9 / hz

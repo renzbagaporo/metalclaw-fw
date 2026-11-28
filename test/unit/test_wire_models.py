@@ -21,10 +21,12 @@ from test.unit.test_part_models import strict_options
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).parent
-DEVICES = ("ws2812b", "apa102", "ds18b20", "dht22", "quadrature_encoder", "tsop382", "hub75")
-SOURCES = ("core/src/onewire.c", "devices/ws2812b/ws2812b.c", "devices/apa102/apa102.c",
+DEVICES = ("ws2812b", "apa102", "ds18b20", "dht22", "quadrature_encoder", "tsop382", "hub75", "logic_capture",
+           "pwm_capture", "sn754410")
+SOURCES = ("core/src/onewire.c", "core/src/edges.c", "devices/ws2812b/ws2812b.c", "devices/apa102/apa102.c",
            "devices/ds18b20/ds18b20.c", "devices/dht22/dht22.c", "devices/quadrature_encoder/quadrature_encoder.c",
-           "devices/tsop382/tsop382.c", "devices/tsop382/nec.c", "devices/hub75/hub75.c")
+           "devices/tsop382/tsop382.c", "devices/tsop382/nec.c", "devices/hub75/hub75.c",
+           "devices/logic_capture/logic_capture.c", "devices/pwm_capture/pwm_capture.c", "devices/sn754410/sn754410.c")
 END = 0x100
 BAD = 0x200
 MARK = 0x80000000
@@ -456,3 +458,86 @@ def test_hub75_drops_a_capture_cut_short(check):
     part = run(check, "hub75", [queue("clock", capture[:40] + capture[-2:]), "p"], *HUB75_PINS)
     assert (part.latches, part.short) == (0, 1)
     assert part.captures == 1
+
+
+# --- EDGES_IN models: what the engine reads off a pin the DUT drives, a
+# level's length in ns, MARK for a high (hal/wire.h)
+
+def pwm(high_us, low_us, cycles):
+    return [MARK | high_us * 1000, low_us * 1000] * cycles
+
+
+def test_logic_capture_counts_edges_and_keeps_the_last_levels(check):
+    part = run(check, "logic_capture", [queue("pin", [MARK | 500_000, 1_000_000, MARK | 250_000]), "l pin 0",
+                                         "t 3000"])
+    assert (part.rising, part.falling, part.edges, part.level, part.missed) == (1, 2, 3, 0, 0)
+    assert (part.high_ns, part.low_ns, part.last_edge_ms) == (250_000, 1_000_000, 1)
+
+
+def test_logic_capture_counts_an_overrun_and_starts_again_on_reset(check):
+    part = run(check, "logic_capture", [queue("pin", [1000]), "l pin 1", "t 1000", "v pin", "t 1000"])
+    assert (part.rising, part.missed, part.level) == (1, 1, 1)
+    part = run(check, "logic_capture", [queue("pin", [1000, MARK | 1000]), "t 1000"])
+    assert part.edges == 2
+
+
+def test_pwm_capture_reads_period_and_pulse_and_follows_a_duty_change(check):
+    # 1 kHz at 30 %, then 75 %: the change shows from the first cycle at
+    # the new duty.
+    part = run(check, "pwm_capture", [queue("pin", pwm(300, 700, 3)), "l pin 1", "t 1000"])
+    assert (part.period_ns, part.pulse_ns, part.duty_ppm, part.still, part.periods) == (1_000_000, 300_000, 300_000,
+                                                                                        False, 3)
+    part = run(check, "pwm_capture", [queue("pin", pwm(300, 700, 3) + pwm(750, 250, 1)), "l pin 1", "t 1000"])
+    assert (part.period_ns, part.pulse_ns, part.duty_ppm) == (1_000_000, 750_000, 750_000)
+
+
+def test_pwm_capture_reads_a_held_line_as_0_or_100_percent(check):
+    # No edge for more than two cycles (and the poll's slack): the duty is
+    # the level's; the last period is kept.
+    for level, duty in ((0, 0), (1, 1_000_000)):
+        part = run(check, "pwm_capture", [queue("pin", pwm(300, 700, 2)), f"l pin {level}", "t 1000", "t 5000"])
+        assert (part.still, part.duty_ppm, part.period_ns) == (True, duty, 1_000_000)
+        assert part.pulse_ns == (1_000_000 if level else 0)
+    part = run(check, "pwm_capture", ["l pin 1", "t 1000"])
+    assert (part.still, part.duty_ppm, part.periods) == (True, 1_000_000, 0)
+
+
+def test_pwm_capture_pairs_no_cycle_across_an_overrun_or_a_long_level(check):
+    script = [queue("pin", [MARK | 300_000]), "t 1000", "v pin", queue("pin", [700_000]), "t 1000"]
+    part = run(check, "pwm_capture", script)
+    assert (part.periods, part.missed) == (0, 1)
+    part = run(check, "pwm_capture", [queue("pin", [MARK | 0x7FFFFFFF, 700_000, MARK | 300_000, 0x7FFFFFFF]),
+                                      "t 1000"])
+    assert part.periods == 0
+
+
+def test_sn754410_follows_the_function_table(check):
+    # 9.4 Table 1: EN high passes A, EN low turns the output off; 3,4 not
+    # wired read high (9.3.2).
+    part = run(check, "sn754410", ["l a1 1", "l a2 0", "l en12 1", "t 1000"], "a3=-", "a4=-", "en34=-")
+    assert part.outputs == (1, 0, 1, 1)
+    assert part.drive_ppm == (1_000_000, 0)
+    part = run(check, "sn754410", ["l a1 1", "l a2 0", "l en12 0", "t 1000"], "a3=-", "a4=-", "en34=-")
+    assert part.outputs == (2, 2, 1, 1)
+    assert part.drive_ppm[0] == 0
+
+
+def test_sn754410_drive_from_pwm_on_enable_or_on_one_input(check):
+    # Sign-magnitude on EN: forward at 40 %.
+    part = run(check, "sn754410", [queue("en12", pwm(400, 600, 3)), "l en12 1", "l a1 1", "l a2 0", "t 1000"])
+    assert part.duty_ppm[:3] == (1_000_000, 0, 400_000)
+    assert part.drive_ppm[0] == 400_000
+    assert part.period_ns[2] == 1_000_000
+    # PWM on 2A at 25 %, 1A low, EN high: reverse.
+    part = run(check, "sn754410", [queue("a2", pwm(250, 750, 3)), "l a2 1", "l a1 0", "l en12 1", "t 1000"])
+    assert part.drive_ppm[0] == -250_000
+
+
+def test_sn754410_drive_from_locked_anti_phase(check):
+    # Complementary PWM on 1A (70 %) and 2A (30 %), EN high: 1Y over 2Y by
+    # 40 % of VCC2 on average.
+    script = [queue("a1", pwm(700, 300, 3)), queue("a2", pwm(300, 700, 3)), "l a1 1", "l a2 0", "l en12 1",
+              "t 1000"]
+    part = run(check, "sn754410", script)
+    assert part.drive_ppm[0] == 400_000
+    assert part.missed == 0

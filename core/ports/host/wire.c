@@ -19,6 +19,8 @@
 //   ENVELOPE       the output low from the carrier's first edge until no
 //                  edge for gap_ns; each edge asks the emulator for a
 //                  request at its gap's end, where the release goes out
+//   EDGES_IN       each edge's level and its length; the level the DUT
+//                  first reports after the open is where the pin stood
 //   LATCHED_IN     capture() asks the emulator for one look (a
 //                  latch_capture action), which it takes as the rp2 PIO
 //                  program does and sends back whole (a latched request):
@@ -36,7 +38,7 @@
 
 #include "host.h"
 
-#define WIRES_MAX 8u
+#define WIRES_MAX 16u
 #define RING 1024u
 #define RESPONSE_MAX 128u
 // A low this long or longer on a 1-Wire line is a reset (DS18B20 042208:
@@ -84,6 +86,8 @@ struct mclw_wire {
     uint64_t burst_start_ns;
     uint64_t burst_end_ns;
     uint64_t last_edge_ns;
+    // EDGES_IN: whether an edge has started the level now on.
+    bool timed;
     // LATCHED_IN: a look asked for and not yet back, and the look back
     // that read() has not handed out.
     bool armed;
@@ -257,6 +261,19 @@ static void envelope_edge(struct mclw_wire *w, uint64_t t_ns) {
     mclw_host_event_wake(t_ns + w->facts.envelope.gap_ns);
 }
 
+// The level the edge ends, MCLW_WIRE_LONG when no edge began it: the first
+// report of a pin's level after the open is where it stood, not an edge.
+static void edges_edge(struct mclw_wire *w, bool level, uint64_t t_ns) {
+    if (w->level[0] < 0) {
+        return;
+    }
+    uint64_t ns = w->timed ? t_ns - w->changed_ns[0] : MCLW_WIRE_LONG;
+
+    put(w, (level ? 0u : MCLW_WIRE_MARK) | (ns < MCLW_WIRE_LONG ? (uint32_t)ns : MCLW_WIRE_LONG));
+    w->stats.frames++;
+    w->timed = true;
+}
+
 void mclw_host_wire_edge(uint8_t pin, int level, uint64_t t_ns) {
     uint32_t state = mclw_hal_critical_enter();
 
@@ -293,6 +310,9 @@ void mclw_host_wire_edge(uint8_t pin, int level, uint64_t t_ns) {
                     if (k == 0u) {
                         envelope_edge(w, t_ns);
                     }
+                    break;
+                case MCLW_WIRE_EDGES_IN:
+                    edges_edge(w, high, t_ns);
                     break;
                 default:
                     break;
@@ -351,6 +371,12 @@ struct mclw_wire *mclw_hal_wire_open(const uint8_t *pins, uint8_t count, const s
         case MCLW_WIRE_PINS:
         case MCLW_WIRE_STEPS_OUT:
         case MCLW_WIRE_ENVELOPE:
+            break;
+        case MCLW_WIRE_EDGES_IN:
+            if (count != 1u) {
+                *err = -EINVAL;
+                return NULL;
+            }
             break;
         case MCLW_WIRE_LATCHED_IN:
             // The clock, latch and enable, and pins in a sample's word.
@@ -440,6 +466,14 @@ void mclw_hal_wire_stats(const struct mclw_wire *w, struct mclw_wire_stats *out)
 
 uint8_t mclw_hal_wire_pin(const struct mclw_wire *w, uint8_t index) {
     return index < w->count ? w->pins[index] : MCLW_PIN_NONE;
+}
+
+int mclw_hal_wire_level(const struct mclw_wire *w, uint8_t index) {
+    uint32_t state = mclw_hal_critical_enter();
+    int level = index < w->count ? w->level[index] : -1;
+
+    mclw_hal_critical_exit(state);
+    return level;
 }
 
 int mclw_hal_wire_sample_bit(const struct mclw_wire *w, uint8_t pin) {

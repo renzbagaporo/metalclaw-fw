@@ -107,7 +107,7 @@ PCF8574 I2C backpack (`hd44780_pcf8574`) or an AIP31068L on I2C (`aip31068`);
 [`max7219`](../devices/max7219/README.md), Maxim LED display drivers on SPI,
 one or a cascade of up to eight;
 [`st7789`](../devices/st7789/README.md), a Sitronix ST7789V TFT controller on
-4-wire SPI (`st7789v`); and seven parts on wires whose timing they define:
+4-wire SPI (`st7789v`); and eight parts on wires whose timing they define:
 [`ws2812b`](../devices/ws2812b/README.md), a strip of Worldsemi WS2812B
 LEDs on their single-wire input;
 [`apa102`](../devices/apa102/README.md), a strip of APA102C LEDs on clock
@@ -121,17 +121,24 @@ sensor on its single data line;
 incremental encoder the harness turns;
 [`tsop382`](../devices/tsop382/README.md), a Vishay IR receiver module in
 the path from an IR LED (`tsop38238`), which reads the NEC frames it sees;
-and three for what a board finds on its pins beyond a part:
+[`sn754410`](../devices/sn754410/README.md), a Texas Instruments
+quadruple half-H driver, which reads each pair's drive from the DUT's PWM
+on its inputs;
+and five for what a board finds on its pins beyond a part:
 [`square_wave`](../devices/square_wave/README.md), a square wave on one pin:
 a clock, a button pressed and let go, a wake signal, or, behind an RC
 filter, a PWM level;
 [`jumper`](../devices/jumper/README.md), a jumper wire between two of the
 board's pins, push-pull one way (`jumper`) or open-drain both ways
 (`jumper_open_drain`, and for an I2C clock `jumper_open_drain_clock` and
-`jumper_open_drain_clock_edge`); and
+`jumper_open_drain_clock_edge`);
 [`spi_page`](../devices/spi_page/README.md), the other end of an SPI link
 that moves 256-byte pages one byte per chip-select window, as the target
-(`spi_page_target`) or the controller (`spi_page_controller`).
+(`spi_page_target`) or the controller (`spi_page_controller`);
+[`pwm_capture`](../devices/pwm_capture/README.md), the period and high
+time of a PWM the DUT drives on a pin; and
+[`logic_capture`](../devices/logic_capture/README.md), the edges of one of
+the DUT's digital outputs, counted and timed.
 
 A device is written from its datasheet and contains no bus code. It declares
 which buses the part speaks, fills an image the datasheet describes (a
@@ -503,15 +510,20 @@ port exists.
   engine samples), `onewire` (a 1-Wire slave's reset, presence and slots, with the
   network layer above), `responder` (an open-drain line that answers a
   host's start pulse with a waveform), `steps_out` (consecutive pins stepped
-  through queued states, one each period) and `envelope` (an IR receiver's
-  output following a carrier, with each burst and gap timed). A model reads
+  through queued states, one each period), `envelope` (an IR receiver's
+  output following a carrier, with each burst and gap timed) and
+  `edges_in` (every high and low on a pin the DUT drives, timed, for the
+  core's `edges.h`, which counts them and keeps a PWM's period and high
+  time). A model reads
   what an input engine captured, or queues what an output engine sends,
   from its poll. On rp2 each engine is a PIO program encoded at open from
   the facts and the system clock, state machines with identical programs
   sharing one copy:
   `pulse_bits_in` 26 instruction words, `clocked_in` 3, `latched_in` 30 on
   two state machines, `onewire` 27, `responder` 15, `steps_out` 3,
-  `envelope` 14. Input engines but `envelope` stream through a DMA channel
+  `envelope` 14, `edges_in` 18. Input engines but `envelope` and
+  `edges_in`, which leave their entries in the joined 8-entry RX FIFO for
+  the poll, stream through a DMA channel
   into 2 KiB blocks of an 8 KiB static pool, four blocks, which the
   `latched_in` and `responder` engines also use; `onewire` has a DMA channel
   whose completion interrupt, on DMA_IRQ_1 on the worker core, runs the

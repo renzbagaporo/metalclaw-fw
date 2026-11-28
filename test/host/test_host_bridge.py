@@ -326,6 +326,81 @@ def test_a_ws2812b_frame_from_the_dut_s_pulses(tmp_path):
         harness.close()
 
 
+def _drive_pwm(bridge, pin, start, period, high, cycles):
+    # A PWM output of the DUT: each cycle's rise and fall at its time.
+    t = start
+    for _ in range(cycles):
+        bridge.request(op="gpio", pin=pin, level=1, t_ns=t)
+        bridge.request(op="gpio", pin=pin, level=0, t_ns=t + high)
+        t += period
+    return t
+
+
+def test_a_pwm_capture_times_a_servo_pulse_and_follows_a_change(tmp_path):
+    # 50 Hz, 1.5 ms high, then 1.0 ms: period and pulse to the ns of the
+    # DUT's edges, and the new pulse within two periods of the change.
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\nservo = metalclaw.attach('pwm_capture', 'servo', pin=(33,))")
+        bridge.advance(1_000_000)
+        assert {"op": "watch", "pin": 33} in [{k: v for k, v in a.items() if k != "t_ns"} for a in bridge.actions]
+        bridge.request(op="gpio", pin=33, level=0, t_ns=bridge.t_ns)
+        t = _drive_pwm(bridge, 33, bridge.t_ns + 1_000_000, 20_000_000, 1_500_000, 5)
+        bridge.t_ns = t - 18_000_000
+        bridge.advance(1_000_000)
+        assert harness.run("print(servo.period_ns, servo.pulse_ns, servo.duty_ppm, servo.still)") == \
+            "20000000 1500000 75000 False"
+        t = _drive_pwm(bridge, 33, t, 20_000_000, 1_000_000, 2)
+        bridge.t_ns = t - 18_000_000
+        bridge.advance(1_000_000)
+        assert harness.run("print(servo.period_ns, servo.pulse_ns, servo.missed)") == "20000000 1000000 0"
+        # Held low from here: after two periods it reads 0 %.
+        for _ in range(50):
+            bridge.advance(1_000_000)
+        assert harness.run("print(servo.still, servo.duty_ppm, servo.pulse_ns)") == "True 0 0"
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_a_logic_capture_counts_the_duts_edges(tmp_path):
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\ncap = metalclaw.attach('logic_capture', 'cap', pin=(11,))")
+        bridge.advance(1_000_000)
+        t = bridge.t_ns
+        bridge.request(op="gpio", pin=11, level=0, t_ns=t)
+        for level, at in ((1, 100_000), (0, 350_000), (1, 400_000)):
+            bridge.request(op="gpio", pin=11, level=level, t_ns=t + at)
+        bridge.t_ns = t + 400_000
+        bridge.advance(2_000_000)
+        assert harness.run("print(cap.level, cap.rising, cap.falling, cap.high_ns, cap.low_ns)") == \
+            "1 2 1 250000 50000"
+    finally:
+        bridge.close()
+        harness.close()
+
+
+def test_an_sn754410_reads_the_duts_bridge_drive(tmp_path):
+    # Sign-magnitude: 1A high, 2A low, 1 kHz PWM at 25 % on 1,2EN.
+    harness, bridge = _bridged(tmp_path)
+    try:
+        harness.run("import metalclaw\nm = metalclaw.attach('sn754410', 'm', a1=(8,), a2=(9,), en12=(10,))")
+        bridge.advance(1_000_000)
+        t = bridge.t_ns
+        bridge.request(op="gpio", pin=8, level=1, t_ns=t)
+        bridge.request(op="gpio", pin=9, level=0, t_ns=t)
+        bridge.request(op="gpio", pin=10, level=0, t_ns=t)
+        t = _drive_pwm(bridge, 10, t + 100_000, 1_000_000, 250_000, 6)
+        bridge.t_ns = t - 750_000
+        bridge.advance(1_000_000)
+        assert harness.run("print(m.duty_ppm[:3], m.drive_ppm[0], m.outputs)") == \
+            "(1000000, 0, 250000) 250000 (2, 2, 1, 1)"
+    finally:
+        bridge.close()
+        harness.close()
+
+
 def test_a_ds18b20_answers_a_reset_with_its_presence(tmp_path):
     # DS18B20 042208: a reset low of 480 us or more; the part waits 15-60 us
     # and pulls the line low for 60-240 us (the model: 30 us, then 120 us).

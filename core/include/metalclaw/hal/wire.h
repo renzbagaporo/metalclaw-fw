@@ -36,6 +36,14 @@
 //   ENVELOPE       (in, out): drives `out` low while a carrier is on `in`,
 //                  as an IR receiver module does, and times each burst
 //                  and gap. read(): MCLW_WIRE_MARK and a duration in us.
+//   EDGES_IN       (pin): times every high and every low on a pin the DUT
+//                  drives. read(): one entry per edge, for the level that
+//                  edge ended: MCLW_WIRE_MARK for a high (a fall), clear
+//                  for a low (a rise), and its length in ns; MCLW_WIRE_LONG
+//                  for one that long or longer, and for the level the pin
+//                  stood at when the engine opened. An overrun loses
+//                  entries, the levels after it timed as before; stats()
+//                  counts it.
 
 #ifndef MCLW_HAL_WIRE_H
 #define MCLW_HAL_WIRE_H
@@ -59,6 +67,9 @@ struct mclw_onewire;
 // RESPONDER pulses: set to drive the line low, clear to release it; the
 // rest is ns.
 #define MCLW_WIRE_LOW 0x80000000u
+// EDGES_IN: a level this long or longer (about 2.1 s), or one whose start
+// the engine did not see.
+#define MCLW_WIRE_LONG 0x7fffffffu
 
 struct mclw_wire_stats {
     // Entries or words the engine delivered.
@@ -81,13 +92,17 @@ void mclw_hal_wire_close(struct mclw_wire *w);
 
 void mclw_hal_wire_stats(const struct mclw_wire *w, struct mclw_wire_stats *out);
 uint8_t mclw_hal_wire_pin(const struct mclw_wire *w, uint8_t index);
+// The level on the wire's pin `index` now: 0 or 1, or -1 while the port
+// cannot tell (the host port, before the DUT has reported the pin).
+int mclw_hal_wire_level(const struct mclw_wire *w, uint8_t index);
 // LATCHED_IN: the bit `pin` takes in a sample, or -1 when the engine cannot
 // sample it.
 int mclw_hal_wire_sample_bit(const struct mclw_wire *w, uint8_t pin);
 
-// PULSE_BITS_IN, CLOCKED_IN, LATCHED_IN, ENVELOPE: what arrived since the
-// last call, at most `max`; a LATCHED_IN capture comes whole, once it is
-// complete, and needs `max` of the engine's capture_words() at least.
+// PULSE_BITS_IN, CLOCKED_IN, LATCHED_IN, ENVELOPE, EDGES_IN: what arrived
+// since the last call, at most `max`; a LATCHED_IN capture comes whole,
+// once it is complete, and needs `max` of the engine's capture_words() at
+// least.
 size_t mclw_hal_wire_read(struct mclw_wire *w, uint32_t *out, size_t max);
 int mclw_hal_wire_capture(struct mclw_wire *w);
 size_t mclw_hal_wire_capture_words(const struct mclw_wire *w);

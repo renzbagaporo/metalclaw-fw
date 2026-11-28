@@ -71,7 +71,7 @@ Attaching `console_bridge` adds a CDC ACM port (`Metalclaw DUT console`) startin
 
 ## Supported devices
 
-All **64 device packages** (**86 models**) are written strictly from part datasheets with no bus or port code; every model registers itself via `device.cmake` and is exposed automatically through `metalclaw.models()` and `metalclaw.schema()`.
+All **67 device packages** (**89 models**) are written strictly from part datasheets with no bus or port code; every model registers itself via `device.cmake` and is exposed automatically through `metalclaw.models()` and `metalclaw.schema()`.
 
 | Category | Models | Buses / Interfaces |
 | --- | --- | --- |
@@ -83,7 +83,7 @@ All **64 device packages** (**86 models**) are written strictly from part datash
 | **Wireless, GNSS & CAN** | `sx1262`, `sx1261`, `sx1268`, `llcc68`, `sim7080g`, `sim7000`, `a7672x`, `sequans_monarch`, `neo_m8n`, `pa1010d`, `mcp2515` | SPI, UART, I²C |
 | **Displays & LED Drivers** | `ssd1306`, `ssd1309`, `st7789v`, `hd44780_pcf8574`, `aip31068`, `lcd_backpack`, `ht16k33`, `max7219`, `ws2812b`, `apa102`, `hub75`, `is31fl3194`, `is31fl3216a`, `is31fl3733`, `lp3943`, `lp5012`, `lp5562`, `lp5569`, `pca9633`, `sct2024`, `sx1509b` | I²C, SPI, UART, shift-register & custom wires |
 | **Storage & Memory** | `at24c02`, `at45db041e`, `w25q16jv` | I²C, SPI |
-| **Signals, Jumpers & Bus Peers** | `square_wave`, `quadrature_encoder`, `jumper`, `jumper_open_drain`, `jumper_open_drain_clock`, `jumper_open_drain_clock_edge`, `spi_page_target`, `spi_page_controller`, `i2c_page_controller` | GPIO, PWM, PIO link, SPI peer, I²C controller |
+| **Signals, Captures, Jumpers & Bus Peers** | `square_wave`, `quadrature_encoder`, `pwm_capture`, `logic_capture`, `sn754410`, `jumper`, `jumper_open_drain`, `jumper_open_drain_clock`, `jumper_open_drain_clock_edge`, `spi_page_target`, `spi_page_controller`, `i2c_page_controller` | GPIO, PWM, edge capture, PIO link, SPI peer, I²C controller |
 
 See [docs/devices.md](docs/devices.md) for the model contract, response images, HAL engines, and full Python API, and each package's `README.md` under [`devices/`](devices/) for part-specific bindings, properties, and datasheet references.
 

@@ -49,6 +49,7 @@ enum mclw_wire_engine {
     MCLW_WIRE_RESPONDER,
     MCLW_WIRE_STEPS_OUT,
     MCLW_WIRE_ENVELOPE,
+    MCLW_WIRE_EDGES_IN,
 };
 
 struct mclw_wire_facts {

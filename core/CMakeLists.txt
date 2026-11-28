@@ -20,6 +20,7 @@ set(METALCLAW_CORE_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/command.c
     ${CMAKE_CURRENT_LIST_DIR}/src/sink.c
     ${CMAKE_CURRENT_LIST_DIR}/src/onewire.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/edges.c
     ${CMAKE_CURRENT_LIST_DIR}/src/version.c
     ${METALCLAW_REGISTRY_SOURCE}
     ${METALCLAW_DEVICE_SOURCES}

@@ -11,6 +11,8 @@
 //   t <us>                 the clock moves on, time_advanced each ms
 //   r                      a responder played its waveform once
 //   d <n>                  a STEPS_OUT engine put out n words
+//   l <binding> <level>    the level on a binding's first pin now
+//   v <binding>            the binding's engine lost entries (an overrun)
 //   o reset                a 1-Wire reset and presence
 //   o <slots>              1-Wire slots, a character each: what the master
 //                          puts on the line ('0' holds it low, '1' leaves it
@@ -21,6 +23,8 @@
 // "pulses <hex>...", "words <hex>...", "period <ns>", "captures <n>".
 //
 //   wire_models_check <model> [binding=pin,pin...]... [property=value[,value]]...
+//
+// A binding given as `binding=-` is left out.
 
 #include <errno.h>
 #include <stdbool.h>
@@ -39,7 +43,10 @@
 #include "dht22.h"
 #include "ds18b20.h"
 #include "hub75.h"
+#include "logic_capture.h"
+#include "pwm_capture.h"
 #include "quadrature_encoder.h"
+#include "sn754410.h"
 #include "tsop382.h"
 #include "ws2812b.h"
 
@@ -67,6 +74,8 @@ struct mclw_wire {
     size_t word_count;
     size_t fifo;
     struct mclw_onewire *onewire;
+    int level;
+    uint32_t overruns;
 };
 
 static struct mclw_wire wires[MCLW_INSTANCE_BINDINGS_MAX];
@@ -110,8 +119,12 @@ int mclw_hal_wire_sample_bit(const struct mclw_wire *w, uint8_t pin) {
 }
 
 void mclw_hal_wire_stats(const struct mclw_wire *w, struct mclw_wire_stats *out) {
-    (void)w;
     memset(out, 0, sizeof(*out));
+    out->overruns = w->overruns;
+}
+
+int mclw_hal_wire_level(const struct mclw_wire *w, uint8_t index) {
+    return index < w->count ? w->level : -1;
 }
 
 size_t mclw_hal_wire_capture_words(const struct mclw_wire *w) {
@@ -195,6 +208,9 @@ static const struct mclw_model *const models[] = {
     &mclw_model_quadrature_encoder,
     &mclw_model_tsop38238,
     &mclw_model_hub75,
+    &mclw_model_logic_capture,
+    &mclw_model_pwm_capture,
+    &mclw_model_sn754410,
 };
 
 static void fail(const char *what) {
@@ -308,6 +324,11 @@ static void command(char *line) {
         for (size_t i = 0; i < MCLW_INSTANCE_BINDINGS_MAX; i++) {
             wires[i].fifo = wires[i].fifo > n ? wires[i].fifo - n : 0;
         }
+    } else if (strcmp(tok, "l") == 0) {
+        struct mclw_wire *w = wire_named(strtok(NULL, " \t\n"));
+        w->level = (int)strtol(strtok(NULL, " \t\n"), NULL, 0);
+    } else if (strcmp(tok, "v") == 0) {
+        wire_named(strtok(NULL, " \t\n"))->overruns++;
     } else if (strcmp(tok, "o") == 0) {
         char *what = strtok(NULL, " \t\n");
         if (strcmp(what, "reset") == 0) {
@@ -396,6 +417,7 @@ int main(int argc, char **argv) {
             wires[b].pins[i] = (uint8_t)(b * 4u + i);
         }
         wires[b].count = d->wire.pins;
+        wires[b].level = -1;
     }
     for (int i = 2; i < argc; i++) {
         char *eq = strchr(argv[i], '=');
@@ -404,7 +426,10 @@ int main(int argc, char **argv) {
         }
         *eq = '\0';
         int b = binding_index(argv[i]);
-        if (b >= 0) {
+        if (b >= 0 && strcmp(eq + 1, "-") == 0) {
+            bindings[b].present = false;
+            bindings[b].wire = NULL;
+        } else if (b >= 0) {
             wires[b].count = 0;
             for (char *p = strtok(eq + 1, ","); p != NULL; p = strtok(NULL, ",")) {
                 wires[b].pins[wires[b].count++] = (uint8_t)strtoul(p, NULL, 0);

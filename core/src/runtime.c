@@ -741,6 +741,8 @@ const char *mclw_wire_engine_name(enum mclw_wire_engine engine) {
             return "steps_out";
         case MCLW_WIRE_ENVELOPE:
             return "envelope";
+        case MCLW_WIRE_EDGES_IN:
+            return "edges_in";
     }
     return "?";
 }

@@ -1,0 +1,31 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/pwm/pwm.h>
+
+/*
+ * The driver's three inputs from the DUT's PWM: 1A on GP12 (slice 6 A),
+ * 2A on GP13 (slice 6 B, so 1A and 2A share a period) and 1,2EN on GP14
+ * (slice 7 A), each set with `PWM <name> <period_ns> <pulse_ns>`.
+ */
+/ {
+	zephyr,user {
+		pwms = <&pwm 12 PWM_MSEC(1) PWM_POLARITY_NORMAL>,
+		       <&pwm 13 PWM_MSEC(1) PWM_POLARITY_NORMAL>,
+		       <&pwm 14 PWM_MSEC(1) PWM_POLARITY_NORMAL>;
+		pwm-names = "a1", "a2", "en12";
+	};
+};
+
+&pinctrl {
+	pwm_harness: pwm_harness {
+		group1 {
+			pinmux = <PWM_6A_P12>, <PWM_6B_P13>, <PWM_7A_P14>;
+		};
+	};
+};
+
+&pwm {
+	status = "okay";
+	pinctrl-0 = <&pwm_harness>;
+	pinctrl-names = "default";
+};
