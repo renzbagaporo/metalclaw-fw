@@ -23,6 +23,8 @@ ABI (`MCLW_ABI_VERSION`).
   timed to a couple of harness cycles (rp2), or to the DUT's edge times
   (sim); `mclw_hal_wire_level()`, and the core's `edges.h` that the three
   models above share.
+- The host bridge takes eight UART ports, eight SPI buses and eight I2C
+  buses from the emulator, up from four of each.
 - The DUT test app's `PWM <name> <period_ns> <pulse_ns>` command, for the
   `pwms` an image declares under `/zephyr,user`, and a `line` GPIO.
 
