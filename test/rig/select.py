@@ -49,7 +49,7 @@ ENGINES = {
     "wire": "WIRE", "wire_programs": "WIRE",
 }
 # Core libraries a device uses by including metalclaw/<name>.h.
-LIBRARIES = ("regmap", "stream", "sink", "onewire", "command")
+LIBRARIES = ("regmap", "stream", "sink", "onewire", "command", "edges")
 NOTHING = re.compile(r"^(docs/.*|.*\.md|LICENSE-.*|\.gitignore|test/(unit|host|engine)/.*)$")
 # The consoles of the samples go through it.
 CONSOLE = "console_bridge"

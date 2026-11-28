@@ -59,6 +59,18 @@ enum {
 };
 
 enum {
+    ED_LOW = 2,
+    ED_LOW_LOOP = 3,
+    ED_LOW_LONG = 5,
+    ED_LOW_END = 7,
+    ED_HIGH = 9,
+    ED_HIGH_LOOP = 10,
+    ED_HIGH_CONT = 12,
+    ED_HIGH_LONG = 13,
+    ED_HIGH_END = 15,
+};
+
+enum {
     LD_TOP = 2,
     LD_POLL = 3,
     LD_LATCH = 10,
@@ -87,5 +99,11 @@ void wire_encode_steps_out(struct wire_program *p, uint8_t count);
 uint32_t wire_latched_enabled_ns(uint32_t passes, uint32_t hz);
 uint32_t wire_envelope_entry(uint32_t word, uint32_t hz);
 void wire_encode_envelope(struct wire_program *p);
+// EDGES_IN: the passes a level is counted for before it is reported as
+// MCLW_WIRE_LONG (loaded into Y at open), and what a word means, as
+// hal/wire.h reports it.
+uint32_t wire_edges_limit(uint32_t hz);
+uint32_t wire_edges_entry(uint32_t word, uint32_t hz, uint32_t limit);
+void wire_encode_edges_in(struct wire_program *p);
 
 #endif

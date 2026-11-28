@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/*
+ * A plain output on GP15, driven with `GPIO line SET 0|1` and
+ * `GPIO line PULSE <ms>`.
+ */
+/ {
+	zephyr,user {
+		line-gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+	};
+};

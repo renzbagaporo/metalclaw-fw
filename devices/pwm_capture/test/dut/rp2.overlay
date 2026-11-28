@@ -1,0 +1,28 @@
+/* SPDX-License-Identifier: Apache-2.0 OR MIT */
+
+#include <zephyr/dt-bindings/pwm/pwm.h>
+
+/*
+ * The DUT's PWM slice 7 channel A on GP14, which the case sets with
+ * `PWM out <period_ns> <pulse_ns>`.
+ */
+/ {
+	zephyr,user {
+		pwms = <&pwm 14 PWM_MSEC(1) PWM_POLARITY_NORMAL>;
+		pwm-names = "out";
+	};
+};
+
+&pinctrl {
+	pwm_harness: pwm_harness {
+		group1 {
+			pinmux = <PWM_7A_P14>;
+		};
+	};
+};
+
+&pwm {
+	status = "okay";
+	pinctrl-0 = <&pwm_harness>;
+	pinctrl-names = "default";
+};

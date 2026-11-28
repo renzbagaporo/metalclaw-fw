@@ -30,7 +30,7 @@
 #include "pio_window.h"
 #include "wire_programs.h"
 
-#define WIRE_SLOTS 8u
+#define WIRE_SLOTS 12u
 #define WIRE_PROGRAMS 2u
 #define WIRE_LOADED_MAX 8u
 #define WIRE_BLOCKS 4u
@@ -89,6 +89,11 @@ struct mclw_wire {
     uint32_t responses;
     // STEPS_OUT: states per word.
     uint8_t states_per_word;
+    // EDGES_IN: the passes a level is counted for, and, once an entry was
+    // dropped, how many of those in the FIFO came before it.
+    uint32_t limit;
+    bool dropped;
+    uint32_t before_drop;
     struct mclw_onewire *onewire;
     volatile uint32_t sample;
     struct mclw_wire_stats stats;
@@ -522,6 +527,32 @@ static int open_envelope(struct mclw_wire *w) {
     return 0;
 }
 
+// The pin is read as an input whatever drives it; the limit goes into Y
+// through the TX FIFO, which joining the RX FIFO then gives up.
+static int open_edges_in(struct mclw_wire *w) {
+    struct wire_program p;
+    uint8_t pin = w->pins[0];
+    int err;
+
+    wire_encode_edges_in(&p);
+    if ((err = acquire_pio(w, &p, 1)) != 0) {
+        return err;
+    }
+    input_pin(pin);
+    pio_sm_config c = base_config(w, 0, 0, (uint8_t)(p.length - 1u), 0);
+    sm_config_set_in_pins(&c, pin);
+    sm_config_set_jmp_pin(&c, pin);
+    sm_config_set_in_shift(&c, false, false, 32);
+    pio_sm_init(w->pio, (uint)w->sm[0], offset_of(w, 0), &c);
+    w->hz = clock_get_hz(clk_sys);
+    w->limit = wire_edges_limit(w->hz);
+    load_register(w->pio, (uint)w->sm[0], pio_y, w->limit, 0);
+    hw_set_bits(&w->pio->sm[w->sm[0]].shiftctrl, PIO_SM0_SHIFTCTRL_FJOIN_RX_BITS);
+    w->pio->fdebug = 1u << (PIO_FDEBUG_RXSTALL_LSB + (uint)w->sm[0]);
+    pio_sm_set_enabled(w->pio, (uint)w->sm[0], true);
+    return 0;
+}
+
 static int open_onewire(struct mclw_wire *w) {
     struct wire_program p;
     int err;
@@ -698,6 +729,9 @@ struct mclw_wire *mclw_hal_wire_open(const uint8_t *pins, uint8_t count, const s
         case MCLW_WIRE_ENVELOPE:
             *err = open_envelope(w);
             break;
+        case MCLW_WIRE_EDGES_IN:
+            *err = open_edges_in(w);
+            break;
         default:
             *err = -ENOTSUP;
             break;
@@ -757,6 +791,10 @@ void mclw_hal_wire_stats(const struct mclw_wire *w, struct mclw_wire_stats *out)
 
 uint8_t mclw_hal_wire_pin(const struct mclw_wire *w, uint8_t index) {
     return index < w->count ? w->pins[index] : MCLW_PIN_NONE;
+}
+
+int mclw_hal_wire_level(const struct mclw_wire *w, uint8_t index) {
+    return index < w->count ? (gpio_get(w->pins[index]) ? 1 : 0) : -1;
 }
 
 int mclw_hal_wire_sample_bit(const struct mclw_wire *w, uint8_t pin) {
@@ -839,6 +877,36 @@ static size_t envelope_read(struct mclw_wire *w, uint32_t *out, size_t max) {
     return n;
 }
 
+// A dropped entry shows as RXSTALL. The entries in the FIFO then came
+// before it: they are handed out first, and the overrun counted once they
+// are, so a reader that checks stats() between reads sees the loss where
+// it was in the stream.
+static size_t edges_read(struct mclw_wire *w, uint32_t *out, size_t max) {
+    uint sm = (uint)w->sm[0];
+    uint32_t stall = 1u << (PIO_FDEBUG_RXSTALL_LSB + sm);
+    size_t n = 0;
+
+    if (!w->dropped && (w->pio->fdebug & stall) != 0u) {
+        w->pio->fdebug = stall;
+        w->dropped = true;
+        w->before_drop = pio_sm_get_rx_fifo_level(w->pio, sm);
+    }
+    size_t limit = w->dropped && w->before_drop < max ? w->before_drop : max;
+    while (n < limit && !pio_sm_is_rx_fifo_empty(w->pio, sm)) {
+        out[n++] = wire_edges_entry(pio_sm_get(w->pio, sm), w->hz, w->limit);
+    }
+    if (w->dropped) {
+        w->before_drop -= (uint32_t)n;
+        if (w->before_drop == 0u) {
+            w->dropped = false;
+            w->stats.overruns++;
+        }
+    }
+    w->stats.words += (uint32_t)n;
+    w->stats.frames += (uint32_t)n;
+    return n;
+}
+
 size_t mclw_hal_wire_read(struct mclw_wire *w, uint32_t *out, size_t max) {
     if (w == NULL || w->owner == NULL || out == NULL) {
         return 0;
@@ -852,6 +920,8 @@ size_t mclw_hal_wire_read(struct mclw_wire *w, uint32_t *out, size_t max) {
             return latched_read(w, out, max);
         case MCLW_WIRE_ENVELOPE:
             return envelope_read(w, out, max);
+        case MCLW_WIRE_EDGES_IN:
+            return edges_read(w, out, max);
         default:
             return 0;
     }

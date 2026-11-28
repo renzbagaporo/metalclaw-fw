@@ -38,8 +38,9 @@
 /*
  * The commands below the socket API, each compiled in only when the image
  * has what it calls: `UART` a `modem-uart` alias on an interrupt-driven
- * UART, `GPIO` a pin under /zephyr,user, `CELLULAR` a `modem` alias on
- * modem_cellular, `NET` the connection manager's L4 events.
+ * UART, `GPIO` a pin under /zephyr,user, `PWM` the `pwms` under
+ * /zephyr,user, `CELLULAR` a `modem` alias on modem_cellular, `NET` the
+ * connection manager's L4 events.
  */
 #if defined(CONFIG_UART_INTERRUPT_DRIVEN) && defined(CONFIG_RING_BUFFER) && \
 	DT_NODE_EXISTS(DT_ALIAS(modem_uart))
@@ -52,11 +53,18 @@
 #else
 #define DUT_UART 0
 #endif
-#if defined(CONFIG_GPIO) && DT_NODE_HAS_PROP(DT_PATH(zephyr_user), pwrkey_gpios)
+#if defined(CONFIG_GPIO) && (DT_NODE_HAS_PROP(DT_PATH(zephyr_user), pwrkey_gpios) || \
+	DT_NODE_HAS_PROP(DT_PATH(zephyr_user), line_gpios))
 #define DUT_GPIO 1
 #include <zephyr/drivers/gpio.h>
 #else
 #define DUT_GPIO 0
+#endif
+#if defined(CONFIG_PWM) && DT_NODE_HAS_PROP(DT_PATH(zephyr_user), pwms)
+#define DUT_PWM 1
+#include <zephyr/drivers/pwm.h>
+#else
+#define DUT_PWM 0
 #endif
 #if defined(CONFIG_MODEM_SIM7080) && defined(CONFIG_NET_SOCKETS) && DT_NODE_EXISTS(DT_ALIAS(modem))
 #define DUT_MODEM 1
@@ -87,7 +95,7 @@
 #define DUT_NET 0
 #endif
 
-#if defined(CONFIG_NET_SOCKETS) || DUT_UART || DUT_GPIO || DUT_CELLULAR || DUT_NET
+#if defined(CONFIG_NET_SOCKETS) || DUT_UART || DUT_GPIO || DUT_PWM || DUT_CELLULAR || DUT_NET
 #define DUT_LINES 1
 #else
 #define DUT_LINES 0
@@ -317,7 +325,7 @@ static bool token_number(const struct token *token, const char *prefix, unsigned
 	return true;
 }
 
-#if DUT_UART || DUT_GPIO || DUT_CELLULAR || DUT_MODEM
+#if DUT_UART || DUT_GPIO || DUT_PWM || DUT_CELLULAR || DUT_MODEM
 /*
  * The device a command names is deferred or failed its init: `errno` 19,
  * `initialized` and the driver's `init_res`.
@@ -2971,6 +2979,7 @@ struct gpio_pin {
 
 static const struct gpio_pin gpio_pins[] = {
 	GPIO_PIN(pwrkey)
+	GPIO_PIN(line)
 };
 
 static bool gpio_configured[ARRAY_SIZE(gpio_pins)];
@@ -3062,6 +3071,93 @@ static void emit_gpio(const char *args)
 }
 #endif
 
+/*
+ * `PWM <name> <period_ns> <pulse_ns>`: one of the `pwms` under
+ * /zephyr,user, by its `pwm-names` entry, set as pwm_set_dt() sets it. The
+ * answer gives the period and pulse the slice makes, in ns: what the
+ * driver keeps of the request in its clock's cycles, which on rp2 it
+ * divides by the smallest power of two that fits the counter
+ * (drivers/pwm/pwm_rpi_pico.c), where no divider is set.
+ */
+#if DUT_PWM
+struct pwm_out {
+	const char *name;
+	struct pwm_dt_spec spec;
+};
+
+#define PWM_OUT(node_id, prop, idx) \
+	{DT_PROP_BY_IDX(node_id, pwm_names, idx), PWM_DT_SPEC_GET_BY_IDX(node_id, idx)},
+
+static const struct pwm_out pwm_outs[] = {
+	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), pwms, PWM_OUT)
+};
+
+static uint64_t pwm_kept(uint64_t cycles, uint64_t divider)
+{
+	return cycles / divider * divider;
+}
+
+static void emit_pwm(const char *args)
+{
+	const char *cursor = args;
+	struct token name;
+	struct token period_token;
+	struct token pulse_token;
+	unsigned long period = 0;
+	unsigned long pulse = 0;
+	size_t index = ARRAY_SIZE(pwm_outs);
+	uint64_t cps = 0;
+	uint64_t divider = 1;
+	int rc;
+
+	if (!next_token(&cursor, &name) || !next_token(&cursor, &period_token) ||
+	    !next_token(&cursor, &pulse_token) || !token_number(&period_token, "", &period) ||
+	    !token_number(&pulse_token, "", &pulse) || pulse > period) {
+		emit_error("test_pwm", "usage: PWM <name> <period_ns> <pulse_ns>");
+		return;
+	}
+	for (size_t i = 0; i < ARRAY_SIZE(pwm_outs); i++) {
+		if (token_equals(&name, pwm_outs[i].name)) {
+			index = i;
+		}
+	}
+	if (index == ARRAY_SIZE(pwm_outs)) {
+		emit_error("test_pwm", "unknown output");
+		return;
+	}
+	const struct pwm_dt_spec *spec = &pwm_outs[index].spec;
+
+	if (!pwm_is_ready_dt(spec)) {
+		emit_not_ready("test_pwm", spec->dev);
+		return;
+	}
+	rc = pwm_set_dt(spec, (uint32_t)period, (uint32_t)pulse);
+	if (rc == 0) {
+		rc = pwm_get_cycles_per_sec(spec->dev, spec->channel, &cps);
+	}
+	uint64_t period_cycles = cps * period / NSEC_PER_SEC;
+	uint64_t pulse_cycles = cps * pulse / NSEC_PER_SEC;
+
+	while (period_cycles / divider > 65536U) {
+		divider *= 2U;
+	}
+	snprintf(result_line, sizeof(result_line),
+		"MCLW-HIL/1 {\"test\":\"test_pwm\",\"status\":\"%s\",\"errno\":%d,"
+		"\"period_ns\":%llu,\"pulse_ns\":%llu}\r\n", rc == 0 ? "ok" : "error", -rc,
+		cps == 0U ? 0ULL : (unsigned long long)(pwm_kept(period_cycles, divider) * NSEC_PER_SEC / cps),
+		cps == 0U ? 0ULL : (unsigned long long)(pwm_kept(pulse_cycles, divider) * NSEC_PER_SEC / cps));
+	mclw_dut_mailbox_write(result_line);
+}
+#else
+static void emit_pwm(const char *args)
+{
+	(void)args;
+	snprintf(result_line, sizeof(result_line),
+		"MCLW-HIL/1 {\"test\":\"test_pwm\",\"status\":\"error\",\"detail\":\"no pwm in this image\"}\r\n");
+	mclw_dut_mailbox_write(result_line);
+}
+#endif
+
 static void dispatch(const char *command)
 {
 	if (strcmp(command, "PING") == 0) {
@@ -3106,6 +3202,8 @@ static void dispatch(const char *command)
 		emit_gpio(NULL);
 	} else if (strncmp(command, "GPIO ", 5) == 0) {
 		emit_gpio(command + 5);
+	} else if (strncmp(command, "PWM ", 4) == 0) {
+		emit_pwm(command + 4);
 	} else if (strncmp(command, "DNS ", 4) == 0 || strncmp(command, "TCP ", 4) == 0 ||
 		strncmp(command, "UDP ", 4) == 0 || strncmp(command, "HTTP ", 5) == 0 ||
 		strncmp(command, "SOCK ", 5) == 0) {

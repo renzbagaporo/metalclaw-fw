@@ -7,6 +7,25 @@ binary, with their SHA-256 sums. Versions follow semantic versioning; before
 1.0, a minor version may change the `metalclaw` module's API and the device
 ABI (`MCLW_ABI_VERSION`).
 
+## Unreleased
+
+### Devices
+
+- `pwm_capture`: the period, high time and duty of a PWM the DUT drives.
+- `logic_capture`: the edges of a DUT output, counted, with the last
+  level of each kind timed.
+- `sn754410`: a TI SN754410 quadruple half-H driver, each pair's drive
+  read from the DUT's PWM on its inputs.
+
+### Harness
+
+- The `edges_in` wire engine: every high and low on a pin the DUT drives,
+  timed to a couple of harness cycles (rp2), or to the DUT's edge times
+  (sim); `mclw_hal_wire_level()`, and the core's `edges.h` that the three
+  models above share.
+- The DUT test app's `PWM <name> <period_ns> <pulse_ns>` command, for the
+  `pwms` an image declares under `/zephyr,user`, and a `line` GPIO.
+
 ## 0.1.0
 
 The first release.

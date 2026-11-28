@@ -309,7 +309,7 @@ it cannot pass yet, each run and expected to fail, with the reason.
 `test/rig/select.py` picks the units a change reaches: a device's files
 select the units that run its images or attach one of its models
 (`console_bridge` carries every sample's console, so it reaches them all),
-a core library (`regmap`, `stream`, `sink`, `onewire`, `command`) the
+a core library (`regmap`, `stream`, `sink`, `onewire`, `command`, `edges`) the
 devices that include it, an engine the devices that declare a binding of
 its kind, on the platform's own port only (`core/ports/host` for sim), an
 overlay the samples built with it, documentation and the unit, host and

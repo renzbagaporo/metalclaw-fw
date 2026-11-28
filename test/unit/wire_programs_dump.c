@@ -9,6 +9,9 @@
 //   wire_programs_dump <harness_hz> respond <pulse>...
 //   wire_programs_dump <sm_hz> envelope <word>...     what an ENVELOPE word reports
 //   wire_programs_dump <harness_hz> enabled <passes>  LATCHED_IN's enabled ns
+//   wire_programs_dump <harness_hz> edges <limit|-> <word>...
+//                                                    what EDGES_IN words report,
+//                                                    the limit open() loads with -
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,6 +50,17 @@ int main(int argc, char **argv) {
         }
         return 0;
     }
+    if (argc > 3 && strcmp(argv[2], "edges") == 0) {
+        uint32_t limit = strcmp(argv[3], "-") == 0 ? wire_edges_limit(hz) : (uint32_t)strtoul(argv[3], NULL, 0);
+        for (int i = 4; i < argc; i++) {
+            printf("%08x\n", (unsigned)wire_edges_entry((uint32_t)strtoul(argv[i], NULL, 16), hz, limit));
+        }
+        return 0;
+    }
+    if (argc > 2 && strcmp(argv[2], "limit") == 0) {
+        printf("%08x\n", (unsigned)wire_edges_limit(hz));
+        return 0;
+    }
     if (argc > 2 && strcmp(argv[2], "enabled") == 0) {
         printf("%u\n", (unsigned)wire_latched_enabled_ns((uint32_t)strtoul(argv[3], NULL, 0), hz));
         return 0;
@@ -74,6 +88,8 @@ int main(int argc, char **argv) {
     print("steps_out", &p);
     wire_encode_envelope(&p);
     print("envelope", &p);
+    wire_encode_edges_in(&p);
+    print("edges_in", &p);
     printf("cycles %u %u\n", (unsigned)wire_to_cycles(50000, hz), (unsigned)wire_to_cycles(1000000, hz));
     return 0;
 }

@@ -274,3 +274,61 @@ void wire_encode_envelope(struct wire_program *p) {
     p->length = b.n;
     p->side_bits = 1;
 }
+
+// At the full harness clock, no side-set. A level is counted in passes of
+// two cycles from Y down; at its end the count left goes out, a low's as
+// it is (bit 31 clear), a high's complemented (bit 31 set). A level that
+// outlasts Y, and the one the program starts in, whose start it did not
+// see, go out as 0 (complemented for a high) once they end. Every edge is
+// seen by a JMP PIN pass or a WAIT landing on the same cycle as one, so
+// the lengths add up to the period exactly: a low is 2n + 6 cycles, a high
+// 2n + 4, from the cycle that saw its first edge to the one that saw its
+// last. A full FIFO drops the entry (the edge is lost, FDEBUG.RXSTALL says
+// so); the levels after it are timed as before.
+void wire_encode_edges_in(struct wire_program *p) {
+    struct builder b = { p->words, 0, 0 };
+
+    emit(&b, pio_encode_jmp_pin(ED_HIGH_LONG), 0, 0);
+    emit(&b, pio_encode_jmp(ED_LOW_LONG), 0, 0);
+    emit(&b, pio_encode_mov(pio_x, pio_y), 0, 0);
+    emit(&b, pio_encode_jmp_pin(ED_LOW_END), 0, 0);
+    emit(&b, pio_encode_jmp_x_dec(ED_LOW_LOOP), 0, 0);
+    emit(&b, pio_encode_mov(pio_x, pio_null), 0, 0);
+    emit(&b, pio_encode_wait_pin(true, 0), 0, 0);
+    emit(&b, pio_encode_mov(pio_isr, pio_x), 0, 0);
+    emit(&b, pio_encode_push(false, false), 0, 0);
+    emit(&b, pio_encode_mov(pio_x, pio_y), 0, 0);
+    emit(&b, pio_encode_jmp_pin(ED_HIGH_CONT), 0, 0);
+    emit(&b, pio_encode_jmp(ED_HIGH_END), 0, 0);
+    emit(&b, pio_encode_jmp_x_dec(ED_HIGH_LOOP), 0, 0);
+    emit(&b, pio_encode_mov(pio_x, pio_null), 0, 0);
+    emit(&b, pio_encode_wait_pin(false, 0), 0, 1);
+    emit(&b, pio_encode_mov_not(pio_isr, pio_x), 0, 0);
+    emit(&b, pio_encode_push(false, false), 0, 0);
+    emit(&b, pio_encode_jmp(ED_LOW), 0, 0);
+    p->length = b.n;
+    p->side_bits = 0;
+}
+
+// Passes of two cycles to MCLW_WIRE_LONG ns: under 2^31 at any clock a
+// harness runs, so bit 31 tells a high's word from a low's.
+uint32_t wire_edges_limit(uint32_t hz) {
+    uint64_t cycles = ((uint64_t)0x7fffffffu * hz + 500000000u) / 1000000000u;
+    uint64_t passes = cycles / 2u;
+
+    return passes < 0x7fffffffu ? (uint32_t)passes : 0x7fffffffu;
+}
+
+uint32_t wire_edges_entry(uint32_t word, uint32_t hz, uint32_t limit) {
+    bool high = (word & 0x80000000u) != 0u;
+    uint32_t left = high ? ~word : word;
+    uint32_t mark = high ? 0x80000000u : 0u;
+
+    if (left == 0u || left > limit) {
+        return mark | 0x7fffffffu;
+    }
+    uint64_t cycles = 2u * (uint64_t)(limit - left) + (high ? 4u : 6u);
+    uint64_t ns = (cycles * 1000000000u + hz / 2u) / hz;
+
+    return mark | (ns < 0x7fffffffu ? (uint32_t)ns : 0x7fffffffu);
+}
