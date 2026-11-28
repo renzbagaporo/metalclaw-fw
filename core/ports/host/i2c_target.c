@@ -132,7 +132,7 @@ struct bus {
     bool first;
 };
 
-#define I2C_BUSES_MAX 4u
+#define I2C_BUSES_MAX 8u
 
 static struct bus buses[I2C_BUSES_MAX];
 

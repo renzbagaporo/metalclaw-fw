@@ -108,6 +108,33 @@ def test_a_gnss_streams_nmea_to_the_dut_at_its_baud_rate(tmp_path):
         harness.close()
 
 
+def test_eight_uart_ports_and_i2c_buses_each_reach_their_part(tmp_path):
+    # A DUT with eight UARTs and eight I2C buses: the last of each, port 7
+    # and bus 7, carry a part as port 0 and bus 0 do.
+    path = tmp_path / "native.sock"
+    harness = HostHarness(PROGRAM, path)
+    bridge = Bridge(path)
+    try:
+        bridge.hello(uart=[{"port": p, "tx": 2 * p, "rx": 2 * p + 1} for p in range(8)],
+                     i2c=[{"bus": b, "sda": 16 + 2 * b, "scl": 17 + 2 * b} for b in range(8)])
+        harness.run("import metalclaw\ngps = metalclaw.attach('neo_m8n', 'gps', uart=(15, 14))\n"
+                    "t = metalclaw.attach('mcp9808', 't', i2c=(30, 31, 0x18))")
+        poll = bytes([0xB5, 0x62, 0x0A, 0x04, 0x00, 0x00, 0x0E, 0x34])
+        bridge.advance(1_000_000)
+        bridge.actions.clear()
+        bridge.request(op="uart", port=7, data=list(poll))
+        for _ in range(300):
+            bridge.advance(1_000_000)
+        sent = [a for a in bridge.actions if a["op"] == "uart"]
+        assert {a["port"] for a in sent} == {7}
+        assert b"\xb5\x62\x0a\x04" in bytes(a["data"] for a in sent)
+        # MCP9808 manufacturer ID (06h) 0054h.
+        assert bridge.i2c(7, 0x18, write=b"\x06", read=2) == b"\x00\x54"
+    finally:
+        bridge.close()
+        harness.close()
+
+
 def test_the_dut_s_bytes_reach_a_uart_model(tmp_path):
     # A UBX poll from the DUT (UBX-MON-VER, 0A 04, no payload) is answered.
     path = tmp_path / "native.sock"

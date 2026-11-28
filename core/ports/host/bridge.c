@@ -29,9 +29,9 @@
 #define LINE_MAX 65536u
 #define REPLY_MAX 262144u
 #define ACTIONS_MAX 4096u
-#define I2C_BUSES_MAX 4u
-#define UART_PORTS_MAX 4u
-#define SPI_BUSES_MAX 4u
+#define I2C_BUSES_MAX 8u
+#define UART_PORTS_MAX 8u
+#define SPI_BUSES_MAX 8u
 
 enum action_kind {
     ACTION_GPIO,
